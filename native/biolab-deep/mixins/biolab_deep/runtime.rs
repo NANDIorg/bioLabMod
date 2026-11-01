@@ -454,6 +454,19 @@ pub fn gene_of_marker(marker: &str) -> Option<(usize, i32)> {
 
 /// Наш модификатор по имени из сейва: имена модификаторов в игре —
 /// `&'static str`, поэтому строку из NBT сопоставляем с известным списком.
+/// Мобы, которым в этой сессии уже вернули модификаторы из сейва
+/// (`restore.rs`): каждый — один раз.
+fn restored_ids() -> &'static std::sync::Mutex<std::collections::HashSet<u32>> {
+    static IDS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u32>>> =
+        std::sync::OnceLock::new();
+    IDS.get_or_init(Default::default)
+}
+
+/// Первый ли раз встречаем этого моба на тике восстановления.
+pub fn first_restore(id: u32) -> bool {
+    restored_ids().lock().map(|mut ids| ids.insert(id)).unwrap_or(false)
+}
+
 /// Отметка «бросок мутации уже был»: модификатор с нулевой прибавкой, как
 /// метки генов. Пишется в сейв вместе с мобом, поэтому загруженный моб не
 /// бросает заново, а новый — бросает, как бы он ни появился (призыв с NBT
@@ -485,6 +498,13 @@ pub fn our_modifier(id: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_mob_is_restored_once() {
+        assert!(first_restore(4_000_000_001));
+        assert!(!first_restore(4_000_000_001));
+        assert!(first_restore(4_000_000_002));
+    }
 
     #[test]
     fn the_checked_mark_survives_a_save() {

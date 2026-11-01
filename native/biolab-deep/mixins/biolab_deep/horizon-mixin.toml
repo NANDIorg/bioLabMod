@@ -163,6 +163,18 @@ bindings = [
   { name = "from", ty = "usize", value = "from" },
 ]
 
+# Загруженные мобы: Horizon не читает модификаторы из сейва и не зовёт для
+# них `native_mobs_joined`. Возвращаем наши метки и прибавки на тике игрока,
+# каждому мобу один раз (`restore.rs`).
+[[injection]]
+id = "restore-loaded"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "restore.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
 # Модуль своей вкладки: в lib-крейте, где живёт `creative`.
 [[module]]
 id = "tab"
