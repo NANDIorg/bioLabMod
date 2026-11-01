@@ -5,6 +5,19 @@
 fn biolab_deep_mutate(m: &mut crate::mobs::Mob) {
     use crate::biolab_mutants as mut_;
     use crate::mobs::finalize::{Attr, Op, add_modifier, has_modifier};
+    // Операционная: метки видит только сервер, отрисовка берёт их из общей
+    // памяти по id (см. `biolab_surgery`). Пишем до выхода «генома нет»:
+    // на стол кладут и обычных мобов.
+    // Пишет только серверная копия моба: у неё есть отметка броска мутации
+    // (её ставит каждому мобу `joined.rs`). Клиентской копии метки не
+    // приходят, и, если её тик тоже доходит сюда, она стёрла бы состояние.
+    if crate::mobs::finalize::has_modifier(
+        m,
+        crate::mobs::finalize::Attr::FollowRange,
+        "biolab:mutation_checked",
+    ) {
+        crate::biolab_surgery::remember(m.id, crate::biolab_surgery::read_markers(m));
+    }
     let mut genome = mut_::Genome::default();
     for marker in mut_::GENE_MARKERS {
         if has_modifier(m, Attr::FollowRange, marker)

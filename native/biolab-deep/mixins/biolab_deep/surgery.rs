@@ -261,18 +261,66 @@ pub fn set_bone_pass(on: bool) {
 
 // ---- Связь с игрой ----
 
+// Метки ставит сервер на своей копии моба, а модификатор `FollowRange`
+// клиенту не приходит: у моба, которого рисует окно, меток нет (проверено в
+// игре — корова на столе стояла). Поэтому, как геном (`biolab_mutants`),
+// состояние операционной сервер записывает в общую память процесса по id
+// моба на каждом его тике (`spawn.rs`), а отрисовка читает отсюда.
+
+/// Состояние операционной моба: лежит ли на столе и какие конечности срезаны.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Surgery {
+    pub on_table: bool,
+    pub flayed: [bool; 4],
+}
+
+impl Surgery {
+    pub fn is_plain(&self) -> bool {
+        !self.on_table && !self.flayed.iter().any(|f| *f)
+    }
+}
+
+fn states() -> &'static std::sync::Mutex<std::collections::HashMap<u32, Surgery>> {
+    static STATES: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u32, Surgery>>> =
+        std::sync::OnceLock::new();
+    STATES.get_or_init(Default::default)
+}
+
+/// Записать состояние моба. Обычного моба в памяти не держим.
+pub fn remember(id: u32, state: Surgery) {
+    if let Ok(mut t) = states().lock() {
+        if state.is_plain() {
+            t.remove(&id);
+        } else {
+            t.insert(id, state);
+        }
+    }
+}
+
+pub fn state_of(id: u32) -> Surgery {
+    states().lock().ok().and_then(|t| t.get(&id).copied()).unwrap_or_default()
+}
+
+/// Состояние по меткам на самом мобе — так его читает сервер.
+#[cfg(not(test))]
+pub fn read_markers(m: &crate::mobs::Mob) -> Surgery {
+    use crate::mobs::finalize::{Attr, has_modifier};
+    Surgery {
+        on_table: has_modifier(m, Attr::FollowRange, TABLE_MARKER),
+        flayed: FLAYED_MARKERS.map(|marker| has_modifier(m, Attr::FollowRange, marker)),
+    }
+}
+
 /// Лежит ли моб на операционном столе.
 #[cfg(not(test))]
 pub fn on_table(m: &crate::mobs::Mob) -> bool {
-    use crate::mobs::finalize::{Attr, has_modifier};
-    has_modifier(m, Attr::FollowRange, TABLE_MARKER)
+    state_of(m.id).on_table
 }
 
 /// Какие конечности срезаны: маска по номерам.
 #[cfg(not(test))]
 pub fn flayed(m: &crate::mobs::Mob) -> [bool; 4] {
-    use crate::mobs::finalize::{Attr, has_modifier};
-    FLAYED_MARKERS.map(|marker| has_modifier(m, Attr::FollowRange, marker))
+    state_of(m.id).flayed
 }
 
 /// Модель тела, которой моб рисуется сейчас (с её ключом), и его текстура —
@@ -633,5 +681,21 @@ mod tests {
         assert!(bone_pass());
         set_bone_pass(false);
         assert!(!bone_pass());
+    }
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    #[test]
+    fn the_server_state_reaches_the_renderer_by_id() {
+        let id = 9_000_001;
+        assert_eq!(state_of(id), Surgery::default());
+        let lying = Surgery { on_table: true, flayed: [true, false, false, false] };
+        remember(id, lying);
+        assert_eq!(state_of(id), lying);
+        remember(id, Surgery::default());
+        assert_eq!(state_of(id), Surgery::default(), "обычного моба забываем");
     }
 }
