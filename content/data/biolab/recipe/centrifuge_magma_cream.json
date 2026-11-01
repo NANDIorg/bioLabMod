@@ -1,0 +1,13 @@
+{
+ "type": "biolab:centrifuge",
+ "ingredient": "minecraft:magma_cream",
+ "result": {
+  "id": "minecraft:slime_ball",
+  "count": 1
+ },
+ "byproduct": {
+  "id": "minecraft:blaze_powder",
+  "count": 1
+ },
+ "time": 100
+}

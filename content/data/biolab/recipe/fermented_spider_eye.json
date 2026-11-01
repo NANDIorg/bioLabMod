@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "minecraft:spider_eye",
+ "result": {
+  "id": "minecraft:fermented_spider_eye",
+  "count": 1
+ },
+ "time": 160
+}

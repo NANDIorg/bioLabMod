@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "minecraft:wheat",
+ "result": {
+  "id": "biolab:nutrient_broth",
+  "count": 1
+ },
+ "time": 200
+}

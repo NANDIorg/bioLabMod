@@ -1,0 +1,13 @@
+{
+ "type": "biolab:centrifuge",
+ "ingredient": "minecraft:gravel",
+ "result": {
+  "id": "minecraft:flint",
+  "count": 1
+ },
+ "byproduct": {
+  "id": "minecraft:sand",
+  "count": 1
+ },
+ "time": 100
+}

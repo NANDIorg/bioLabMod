@@ -384,6 +384,176 @@ pub fn output_fits(slot: Option<(&str, u32)>, result: (&str, u32), max_stack: u3
     }
 }
 
+// ---- Роли машин (GDD 4.15) ----
+//
+// У каждой машины своя ось: перегонный куб разбирает неживое на элементы,
+// ферментер работает с живым, центрифуга разделяет, экстрактор достаёт гены.
+// Здесь только решения — какие слоты у машины, как разложить колбу, куда
+// положить выходы, какой ген выдать и какие числа показать экрану. Предметы
+// двигает тик машины в `machine.rs`.
+
+pub const CENTRIFUGE: &str = "biolab:centrifuge";
+pub const INCUBATOR: &str = "biolab:incubator";
+/// Последний ген, выданный экстрактором, — в сейве машины: экран его
+/// показывает, а числа меню не сохраняются и после перезахода были бы нулём,
+/// то есть гигантизмом.
+pub const LAST_GENE_KEY: &str = "biolab_last_gene";
+/// Сколько видов элементов центрифуга достаёт из колбы: из четырёх выходов
+/// один всегда нужен под саму колбу, которая возвращается с водой.
+pub const DECOMPOSE_KINDS: usize = 3;
+
+/// Слоты, куда воронки кладут вход. Слот топлива меню печки нужен только
+/// клонирующему чану (питательный раствор): у остальных машин он пустует, и
+/// воронка, кладущая туда вход, просто забивала бы его.
+pub fn machine_inputs(machine: &Machine) -> Vec<usize> {
+    match machine.menu {
+        "minecraft:furnace" if machine.id == CLONING_VAT => vec![SLOT_INPUT, SLOT_FUEL],
+        "minecraft:furnace" | "minecraft:hopper" => vec![SLOT_INPUT],
+        _ => (0..machine.slots - 1).collect(),
+    }
+}
+
+/// Слоты, откуда воронки забирают выход. У центрифуги на меню воронки вход
+/// один, а все остальные слоты — выходы.
+pub fn machine_outputs(machine: &Machine) -> Vec<usize> {
+    match machine.menu {
+        "minecraft:hopper" => (1..machine.slots).collect(),
+        _ => vec![machine.slots - 1],
+    }
+}
+
+/// Сколько тиков собирается или разлагается вещество: чем больше атомов,
+/// тем дольше. Потолок — чтобы огромная колба не крутилась вечно.
+pub fn assembly_time(atoms: u32) -> i32 {
+    40u32.saturating_add(atoms.saturating_mul(10)).min(600) as i32
+}
+
+/// Колба, разложенная на элементы: стаки по выходам и сколько всего атомов
+/// (от них зависит время).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Decomposed {
+    pub stacks: Vec<(&'static str, u32)>,
+    pub atoms: u32,
+}
+
+/// Разложение колбы в центрифуге: вещество — обратно в элементы, по атому
+/// на предмет. Стак больше стопки делится. Не разлагается:
+/// - вода — колба возвращается из центрифуги с водой, и иначе одна колба
+///   давала бы водород без конца;
+/// - вещество из больше чем `DECOMPOSE_KINDS` элементов — не хватит выходов;
+/// - старая колба со словом вместо формулы.
+pub fn decompose(contents: &str, max_stack: impl Fn(&str) -> u32) -> Option<Decomposed> {
+    let formula = formula_from_text(contents)?;
+    if formula_text(&formula) == DEFAULT_FILL.0 {
+        return None;
+    }
+    if formula.iter().filter(|count| **count > 0).count() > DECOMPOSE_KINDS {
+        return None;
+    }
+    let mut stacks = Vec::new();
+    for (count, element) in formula.iter().zip(ELEMENTS.iter()) {
+        let max = max_stack(element.item).max(1);
+        let mut left = *count;
+        while left > 0 {
+            let take = left.min(max);
+            stacks.push((element.item, take));
+            left -= take;
+        }
+    }
+    Some(Decomposed { stacks, atoms: formula.iter().sum() })
+}
+
+/// Стак для раскладки по выходам. `plain` — нет своих данных: такой стак
+/// можно слить с таким же. Колба с веществом, фрагмент, культура — не плоские.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pile<'a> {
+    pub item: &'a str,
+    pub count: u32,
+    pub plain: bool,
+}
+
+/// Куда лечь выходам машины с несколькими выходами: в такой же стак, если
+/// туда влезает целиком, иначе в первый свободный слот. Вернёт номер слота
+/// (в `slots`) для каждого выхода по порядку или None, если хоть один не
+/// влезает, — тогда машина ждёт, а не теряет добычу.
+pub fn plan_outputs<'a>(
+    slots: &[Option<Pile<'a>>],
+    piles: &[Pile<'a>],
+    max_stack: impl Fn(&str) -> u32,
+) -> Option<Vec<usize>> {
+    let mut held = slots.to_vec();
+    let mut plan = Vec::with_capacity(piles.len());
+    for pile in piles {
+        let max = max_stack(pile.item);
+        let same = held.iter().position(|slot| {
+            slot.is_some_and(|s| {
+                pile.plain && s.plain && s.item == pile.item && s.count + pile.count <= max
+            })
+        });
+        let index = same.or_else(|| held.iter().position(Option::is_none))?;
+        held[index] = Some(match held[index] {
+            Some(s) => Pile { count: s.count + pile.count, ..s },
+            None => *pile,
+        });
+        plan.push(index);
+    }
+    Some(plan)
+}
+
+/// Ген, который называет рецепт экстрактора (`"gene"`, `"strength"`, сила по
+/// умолчанию 1): гены животных достаются не случайно, кроличья лапка всегда
+/// даёт пружинные ноги. Незнакомый ген или сила вне 1–3 — рецепт битый.
+pub fn recipe_gene(name: &str, strength: Option<i64>) -> Option<(&'static str, i32)> {
+    let kind = gene(name)?;
+    let strength = strength.unwrap_or(1);
+    (1..=3).contains(&strength).then_some((kind.name, strength as i32))
+}
+
+/// Самый сильный ген урожая ГМ-грядки — его экстрактор и достаёт. При
+/// равной силе берём более дорогой (он ценнее), при полном равенстве — тот,
+/// что раньше в геноме.
+pub fn strongest_gene(genes: &[(&'static str, i32)]) -> Option<(&'static str, i32)> {
+    let rank = |(name, strength): (&str, i32)| (strength, gene(name).map_or(0, |k| k.cost));
+    genes.iter().copied().fold(None, |best, next| match best {
+        Some(b) if rank(b) >= rank(next) => Some(b),
+        _ => Some(next),
+    })
+}
+
+/// Числа гена для экрана чана и экстрактора: номер в `GENES` (−1 — гена нет)
+/// и сила. Ген — строка из предмета (`chitin:2`).
+pub fn gene_data(text: Option<&str>) -> (i32, i32) {
+    let Some((name, strength)) = text.and_then(gene_from_text) else {
+        return (-1, 0);
+    };
+    let index = GENES.iter().position(|g| g.name == name).map_or(-1, |i| i as i32);
+    (index, strength)
+}
+
+/// Штамм культуры во входе инкубатора для экрана. Нули — во входе не
+/// культура; культура без записи штамма — дикая: инкубатор и ведёт её линию
+/// от дикой.
+pub fn strain_data(item: Option<&str>, strain: Option<&str>) -> [i32; 4] {
+    if item != Some(CULTURE_ID) {
+        return [0; 4];
+    }
+    strain.and_then(strain_from_text).unwrap_or(WILD).values()
+}
+
+/// Статус синтезатора для экрана. Несовпадение с чертежом важнее
+/// устойчивости: с чертежом машина ждёт ровно его состав.
+pub fn synth_status(formula: &Formula, blueprint: Option<&Formula>) -> i32 {
+    if formula.iter().all(|count| *count == 0) {
+        SYNTH_EMPTY
+    } else if blueprint.is_some_and(|target| target != formula) {
+        SYNTH_NOT_BLUEPRINT
+    } else if is_stable(formula) {
+        SYNTH_STABLE
+    } else {
+        SYNTH_UNSTABLE
+    }
+}
+
 // ---- Заражение ----
 //
 // Игровая абстракция: у игрока есть число 0–100, оно растёт само и падает от
@@ -4181,6 +4351,178 @@ mod tests {
         assert_eq!(command_name("biolab"), "biolab");
         assert_eq!(command_name(""), "");
     }
+
+    // ---- Роли машин ----
+
+    #[test]
+    fn hoppers_feed_the_fuel_slot_only_to_the_vat() {
+        for machine in &MACHINES {
+            let inputs = machine_inputs(machine);
+            let outputs = machine_outputs(machine);
+            assert!(!inputs.is_empty() && !outputs.is_empty(), "{}", machine.id);
+            assert!(inputs.iter().chain(&outputs).all(|s| *s < machine.slots), "{}", machine.id);
+            assert!(inputs.iter().all(|s| !outputs.contains(s)), "{}", machine.id);
+            if machine.menu == "minecraft:furnace" {
+                assert_eq!(inputs.contains(&SLOT_FUEL), machine.id == CLONING_VAT, "{}", machine.id);
+                assert_eq!(outputs, vec![SLOT_OUTPUT], "{}", machine.id);
+            }
+        }
+        let centrifuge = machine(CENTRIFUGE).unwrap();
+        assert_eq!(machine_inputs(centrifuge), vec![0]);
+        assert_eq!(machine_outputs(centrifuge), vec![1, 2, 3, 4]);
+        let synth = machine(SYNTHESIZER).unwrap();
+        assert_eq!(machine_inputs(synth), (0..8).collect::<Vec<_>>());
+        assert_eq!(machine_outputs(synth), vec![8]);
+    }
+
+    #[test]
+    fn a_flask_falls_apart_into_its_elements() {
+        let salt = decompose("ClNa", |_| 64).unwrap();
+        assert_eq!(salt.stacks, vec![("biolab:element_sodium", 1), ("biolab:element_chlorine", 1)]);
+        assert_eq!(salt.atoms, 2);
+        let acid = decompose("H2O4S", |_| 64).unwrap();
+        assert_eq!(
+            acid.stacks,
+            vec![("biolab:element_hydrogen", 2), ("biolab:element_oxygen", 4), ("biolab:element_sulfur", 1)]
+        );
+        assert_eq!(assembly_time(acid.atoms), 40 + 10 * 7);
+        // Стак больше стопки делится на два.
+        let big = decompose("C70H2", |_| 64).unwrap();
+        assert_eq!(
+            big.stacks,
+            vec![("biolab:element_hydrogen", 2), ("biolab:element_carbon", 64), ("biolab:element_carbon", 6)]
+        );
+        assert_eq!(assembly_time(big.atoms), 600, "потолок времени");
+    }
+
+    #[test]
+    fn water_and_crowded_flasks_stay_whole() {
+        assert_eq!(decompose(DEFAULT_FILL.0, |_| 64), None, "вода дала бы водород без конца");
+        assert_eq!(decompose("OH2", |_| 64), None, "вода в любой записи");
+        assert_eq!(decompose("C8H10N4O2", |_| 64), None, "четыре элемента: выходов не хватит");
+        assert!(decompose("C6H12O6", |_| 64).is_some(), "три — в самый раз");
+        assert_eq!(decompose("water", |_| 64), None, "старая колба со словом");
+    }
+
+    #[test]
+    fn outputs_join_their_stack_or_take_a_free_slot() {
+        let p = |item, count, plain| Pile { item, count, plain };
+        let slots = [Some(p("minecraft:flint", 63, true)), None, Some(p("minecraft:sand", 1, true)), None];
+        // Кремень в полный стак не влезает — в свободный; песок — к песку.
+        let plan = plan_outputs(&slots, &[p("minecraft:flint", 2, true), p("minecraft:sand", 1, true)], |_| 64);
+        assert_eq!(plan, Some(vec![1, 2]));
+        // Два выхода подряд в один свободный слот: второй ложится к первому.
+        let plan = plan_outputs(&[None, Some(p("x", 1, false))], &[p("a", 1, true), p("a", 2, true)], |_| 64);
+        assert_eq!(plan, Some(vec![0, 0]));
+        // Колба с данными не сливается даже с такой же колбой.
+        let flask = p(FLASK_ID, 1, false);
+        assert_eq!(plan_outputs(&[Some(flask), None], &[flask], |_| 16), Some(vec![1]));
+        assert_eq!(plan_outputs(&[Some(flask)], &[flask], |_| 16), None);
+        // Не влезает хоть что-то — машина ждёт.
+        let full = [Some(p("y", 1, true)), Some(p("z", 1, true)), None, None];
+        let piles = [p("a", 1, true), p("b", 1, true), p("c", 1, true)];
+        assert_eq!(plan_outputs(&full, &piles, |_| 64), None);
+    }
+
+    #[test]
+    fn a_full_flask_needs_all_four_outputs() {
+        // Глюкоза: три элемента и колба с водой — ровно четыре выхода.
+        let sugar = decompose("C6H12O6", |_| 64).unwrap();
+        let mut piles: Vec<Pile> = sugar.stacks.iter().map(|(item, count)| Pile { item, count: *count, plain: true }).collect();
+        piles.push(Pile { item: FLASK_ID, count: 1, plain: false });
+        assert_eq!(plan_outputs(&[None; 4], &piles, |_| 64), Some(vec![0, 1, 2, 3]));
+        let busy = [None, None, None, Some(Pile { item: "minecraft:flint", count: 1, plain: true })];
+        assert_eq!(plan_outputs(&busy, &piles, |_| 64), None);
+    }
+
+    #[test]
+    fn extractor_recipes_name_real_genes() {
+        assert_eq!(recipe_gene("spring_legs", None), Some(("spring_legs", 1)));
+        assert_eq!(recipe_gene("thermal", Some(2)), Some(("thermal", 2)));
+        assert_eq!(recipe_gene("thermal", Some(4)), None);
+        assert_eq!(recipe_gene("wings", Some(1)), None);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        let mut animals = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let j = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            if j.get("type").and_then(Json::str) != Some(EXTRACTOR) {
+                continue;
+            }
+            assert_eq!(j.get("result").and_then(|r| r.get("id")).and_then(Json::str), Some(FRAGMENT_ID), "{}", path.display());
+            if let Some(name) = j.get("gene") {
+                let strength = j.get("strength").and_then(Json::num).map(|n| n as i64);
+                assert!(recipe_gene(name.str().unwrap_or(""), strength).is_some(), "{}", path.display());
+                animals += 1;
+            }
+        }
+        assert_eq!(animals, 6, "шесть животных из GDD 4.15");
+    }
+
+    #[test]
+    fn machines_keep_to_their_roles() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        let mut by_result = std::collections::HashMap::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+            if let Some(RecipeView::Machine { input, machine, result, byproduct, .. }) = recipe_view(&text) {
+                // Побочный выход бывает только у центрифуги.
+                assert!(byproduct.is_none() || machine == CENTRIFUGE, "{result}");
+                by_result.insert((input, result), machine);
+            }
+        }
+        let made_by = |input: &str, result: &str| by_result.get(&(input.to_string(), result.to_string())).map(String::as_str);
+        for (input, extract) in [
+            ("minecraft:birch_leaves", "biolab:extract_salicylate"),
+            ("minecraft:poppy", "biolab:extract_sedative"),
+            ("minecraft:cocoa_beans", "biolab:extract_caffeine"),
+            ("minecraft:spider_eye", "minecraft:fermented_spider_eye"),
+            ("minecraft:wheat", BROTH_ID),
+        ] {
+            assert_eq!(made_by(input, extract), Some("biolab:fermenter"), "{extract}: живое — в ферментер");
+        }
+        for (input, result) in [
+            ("minecraft:magma_cream", "minecraft:slime_ball"),
+            ("minecraft:gravel", "minecraft:flint"),
+            ("minecraft:glistering_melon_slice", "minecraft:melon_slice"),
+        ] {
+            assert_eq!(made_by(input, result), Some(CENTRIFUGE), "{result}");
+        }
+    }
+
+    #[test]
+    fn a_crop_gives_up_its_strongest_gene() {
+        assert_eq!(strongest_gene(&[]), None);
+        assert_eq!(strongest_gene(&[("dwarfism", 1), ("chitin", 2), ("albinism", 3)]), Some(("albinism", 3)));
+        // Равная сила: дороже — ценнее.
+        assert_eq!(strongest_gene(&[("dwarfism", 2), ("chitin", 2)]), Some(("chitin", 2)));
+        // Полное равенство: первый по геному.
+        assert_eq!(strongest_gene(&[("chitin", 1), ("thermal", 1)]), Some(("chitin", 1)));
+        assert_eq!(strongest_gene(&genome_from_text("gigantism:1,thermal:2")), Some(("thermal", 2)));
+    }
+
+    #[test]
+    fn screens_get_genes_strains_and_synth_status_as_numbers() {
+        assert_eq!(gene_data(None), (-1, 0));
+        assert_eq!(gene_data(Some("chitin:2")), (3, 2));
+        assert_eq!(gene_data(Some("мусор")), (-1, 0));
+        assert_eq!(strain_data(None, None), [0; 4]);
+        assert_eq!(strain_data(Some("biolab:swab"), Some("5,5,5,5")), [0; 4]);
+        assert_eq!(strain_data(Some(CULTURE_ID), None), WILD.values());
+        assert_eq!(strain_data(Some(CULTURE_ID), Some("3,2,4,1")), [3, 2, 4, 1]);
+
+        let water = formula_from_text("H2O").unwrap();
+        let hydrogen = formula_from_text("H").unwrap();
+        assert_eq!(synth_status(&Formula::default(), None), SYNTH_EMPTY);
+        assert_eq!(synth_status(&water, None), SYNTH_STABLE);
+        assert_eq!(synth_status(&hydrogen, None), SYNTH_UNSTABLE);
+        assert_eq!(synth_status(&water, Some(&water)), SYNTH_STABLE);
+        assert_eq!(synth_status(&water, Some(&formula_from_text("H2O2").unwrap())), SYNTH_NOT_BLUEPRINT);
+        // Числа влезают в отведённые машине слоты данных.
+        assert_eq!(machine_data_slots(SYNTHESIZER), DATA_SYNTH_ELEMENTS + water.len());
+        assert_eq!(machine_data_slots(EXTRACTOR), DATA_GENE_STRENGTH + 1);
+        assert_eq!(machine_data_slots(CENTRIFUGE), DATA_SLOTS);
+    }
 }
 
 // ---- Карта исследований ----
@@ -4274,7 +4616,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 45] = [
+pub const RESEARCH: [Research; 47] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол."),
@@ -4293,6 +4635,7 @@ pub const RESEARCH: [Research; 45] = [
     node("blueprint", 1, (4, 1), "biolab:blueprint", "Чертежи", &["spectro"], Unlock::Item(&["biolab:blueprint"]), "Получите чертёж из спектрометра."),
     node("reactor", 1, (3, 2), "biolab:reactor", "Реактор", &["synth"], Unlock::Item(&["biolab:reactor"]), "Соберите реактор."),
     node("collection", 1, (5, 0), "biolab:element_gold", "Десять веществ", &["identify"], Unlock::Identified(10), "Опознайте десять веществ."),
+    node("separation", 1, (2, 2), "biolab:centrifuge", "Разделение", &["synth"], Unlock::Item(&["biolab:centrifuge"]), "Соберите центрифугу."),
     // Микробиология
     node("incubator", 2, (0, 1), "biolab:incubator", "Инкубатор", &[], Unlock::Item(&["biolab:incubator"]), "Соберите инкубатор."),
     node("culture", 2, (1, 1), "biolab:culture", "Культура", &["incubator"], Unlock::Item(&["biolab:culture"]), "Вырастите культуру из мазка."),
@@ -4325,6 +4668,7 @@ pub const RESEARCH: [Research; 45] = [
     node("pen", 4, (5, 1), "biolab:pen", "Вольер и пульт", &["vat"], Unlock::Item(&["biolab:pen", "biolab:console"]), "Сделайте вольер или пульт."),
     node("therapy", 4, (4, 2), "biolab:syringe", "Генотерапия", &["fragment"], Unlock::Gene, "Примените фрагмент ДНК на себе."),
     node("crops", 4, (5, 2), "biolab:gm_plot", "ГМ-грядка", &["therapy"], Unlock::Item(&["biolab:gm_plot", "biolab:gm_crop"]), "Сделайте ГМ-грядку."),
+    node("animal_genes", 4, (3, 2), "minecraft:rabbit_foot", "Гены животных", &["extractor"], Unlock::Item(&["minecraft:rabbit_foot", "minecraft:glow_ink_sac", "minecraft:turtle_scute", "minecraft:magma_cream"]), "Добудьте лапку кролика, щиток черепахи или магму."),
 ];
 
 /// Номер узла по id.
@@ -4945,14 +5289,28 @@ pub enum RecipeView {
         count: u32,
         shapeless: bool,
     },
-    /// Машина мода: вход, машина, время и результат.
+    /// Машина мода: вход, машина, время, результат и побочный выход
+    /// центрифуги, если он есть.
     Machine {
         input: String,
         machine: String,
         result: String,
         count: u32,
         seconds: u32,
+        byproduct: Option<(String, u32)>,
     },
+}
+
+/// Выход рецепта: `{"id", "count"}` или просто id. Так записаны и основной
+/// результат, и побочный выход центрифуги.
+fn stack_of(j: &Json) -> Option<(String, u32)> {
+    match j {
+        Json::Str(s) => Some((s.clone(), 1)),
+        _ => Some((
+            j.get("id")?.str()?.to_string(),
+            j.get("count").and_then(Json::num).map_or(1, |n| n.max(1.0) as u32),
+        )),
+    }
 }
 
 /// Предмет ингредиента: строка, `{"item": …}` или первый из списка. Теги
@@ -4973,14 +5331,7 @@ pub fn recipe_path(name: &str) -> String {
 pub fn recipe_view(text: &str) -> Option<RecipeView> {
     let j = Json::parse(text)?;
     let kind = j.get("type")?.str()?;
-    let result = j.get("result")?;
-    let (result, count) = match result {
-        Json::Str(s) => (s.clone(), 1),
-        _ => (
-            result.get("id")?.str()?.to_string(),
-            result.get("count").and_then(Json::num).map_or(1, |n| n.max(1.0) as u32),
-        ),
-    };
+    let (result, count) = stack_of(j.get("result")?)?;
     match kind {
         "minecraft:crafting_shaped" => {
             let pattern = j.get("pattern")?.arr()?;
@@ -5004,12 +5355,19 @@ pub fn recipe_view(text: &str) -> Option<RecipeView> {
         }
         machine if machine.starts_with("biolab:") => {
             let ticks = j.get("time").and_then(Json::num).unwrap_or(200.0).max(1.0) as u32;
+            // Побочный выход записан — значит обязан разобраться: битый
+            // рецепт лучше поймать тестом, чем молча нарисовать без него.
+            let byproduct = match j.get("byproduct") {
+                Some(b) => Some(stack_of(b)?),
+                None => None,
+            };
             Some(RecipeView::Machine {
                 input: ingredient_id(j.get("ingredient")?)?,
                 machine: machine.to_string(),
                 result,
                 count,
                 seconds: ticks.div_ceil(20),
+                byproduct,
             })
         }
         _ => None,
@@ -5263,8 +5621,16 @@ mod research_tests {
                 result: "biolab:pill_analgesic".into(),
                 count: 2,
                 seconds: 5,
+                byproduct: None,
             })
         );
+        let spin = r#"{"type":"biolab:centrifuge","ingredient":"minecraft:gravel","result":{"id":"minecraft:flint","count":1},"byproduct":{"id":"minecraft:sand","count":2},"time":100}"#;
+        let Some(RecipeView::Machine { byproduct, .. }) = recipe_view(spin) else {
+            panic!("не машина");
+        };
+        assert_eq!(byproduct, Some(("minecraft:sand".to_string(), 2)));
+        let broken = r#"{"type":"biolab:centrifuge","ingredient":"minecraft:gravel","result":"minecraft:flint","byproduct":{"count":2}}"#;
+        assert_eq!(recipe_view(broken), None, "битый побочный выход");
         assert_eq!(Json::parse(r#"{"a":"Ж\n","b":[1,-2.5e1,true,null]}"#).unwrap().get("a").and_then(Json::str), Some("Ж\n"));
         assert_eq!(Json::parse("{\"a\":1,}"), None);
         assert_eq!(recipe_view("{\"type\":\"minecraft:smelting\",\"result\":\"x\"}"), None);

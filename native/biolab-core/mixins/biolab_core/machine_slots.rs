@@ -1,6 +1,8 @@
 // Слоты машины берутся из её строки в таблице: у машин на рецептах это три
-// слота печки, у синтезатора — сетка на девять. Последний слот всегда выход:
-// воронки кладут сверху и сбоку, забирают снизу.
+// слота печки, у центрифуги — вход и четыре выхода воронки, у синтезатора —
+// сетка на девять. Какие слоты входы, а какие выходы, решает `runtime.rs`:
+// слот топлива печки воронки заполняют только у клонирующего чана.
+// Воронки кладут сверху и сбоку, забирают снизу.
 fn biolab_core_block_entity_container(
     block: &str,
     container: &mut Option<horizon_client::chunk::block_entity::ModContainer>,
@@ -9,12 +11,12 @@ fn biolab_core_block_entity_container(
     let Some(machine) = m::machine(block) else {
         return;
     };
-    let output = machine.slots - 1;
-    let inputs: Vec<usize> = (0..output).collect();
+    let inputs = m::machine_inputs(machine);
+    let outputs = m::machine_outputs(machine);
     *container = Some(horizon_client::chunk::block_entity::ModContainer {
         slots: machine.slots,
         faces: [
-            vec![output],
+            outputs.clone(),
             inputs.clone(),
             inputs.clone(),
             inputs.clone(),
@@ -22,7 +24,7 @@ fn biolab_core_block_entity_container(
             inputs.clone(),
         ],
         inputs,
-        outputs: vec![output],
+        outputs,
         menu: Some(machine.menu.to_string()),
     });
 }

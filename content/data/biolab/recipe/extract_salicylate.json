@@ -1,9 +1,9 @@
 {
- "type": "biolab:still",
+ "type": "biolab:fermenter",
  "ingredient": "minecraft:birch_leaves",
  "result": {
   "id": "biolab:extract_salicylate",
   "count": 1
  },
- "time": 100
+ "time": 160
 }

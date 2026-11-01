@@ -1,11 +1,26 @@
 // Тик машины: один рецепт за раз, прогресс виден игроку через числа данных
-// ванильного меню печки.
+// ванильного меню печки, а свои числа машины — экрану (GDD 4.15, контракт
+// слотов данных).
 fn biolab_core_machine_tick(
     game: &mut crate::game::Game<'_>,
     pos: [i32; 3],
     entity: &mut horizon_client::chunk::block_entity::ModBlockEntity,
 ) {
     use crate::game::biolab_core as m;
+    /// Строка из `custom_data` предмета: так мод хранит в стаке своё —
+    /// вещество колбы, геном урожая, штамм культуры.
+    fn custom_text(stack: &horizon_client::items::ItemStack, key: &str) -> Option<String> {
+        use horizon_world::nbt::Tag;
+        let extra = stack.extra.as_ref()?;
+        let (_, data) = extra
+            .other
+            .iter()
+            .find(|(name, _)| name == "minecraft:custom_data")?;
+        match data.get(key) {
+            Some(Tag::String(s)) => Some(s.to_string_lossy()),
+            _ => None,
+        }
+    }
     /// Синтезатор: собирает вещество из элементов в слотах. Живёт здесь, а не в
     /// модуле мода: модуль собирается ещё и как обычная библиотека для тестов, где
     /// игровых типов нет.
@@ -17,7 +32,7 @@ fn biolab_core_machine_tick(
         use crate::game::biolab_core as m;
 
         use horizon_world::nbt::Tag;
-        entity.data.resize(m::DATA_SLOTS, 0);
+        entity.data.resize(m::machine_data_slots(&entity.id), 0);
 
         // Чертёж в слоте задаёт цель: синтезатор собирает ровно его состав,
         // а сам чертёж не тратится — по нему можно повторять сколько угодно.
@@ -66,11 +81,16 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_PROGRESS] = 0;
         }
 
+        // Экрану синтезатора — статус сборки и набранный состав (GDD 4.15,
+        // контракт слотов данных). Пишем каждый тик: числа меню не сохраняются.
+        let target = blueprint.as_deref().and_then(m::formula_from_text);
+        entity.data[m::DATA_SYNTH_STATUS] = m::synth_status(&formula, target.as_ref());
+        for (i, count) in formula.iter().enumerate() {
+            entity.data[m::DATA_SYNTH_ELEMENTS + i] = *count as i32;
+        }
+
         // С чертежом машина ждёт ровно его состав, без него — любой устойчивый.
-        let matches_blueprint = blueprint
-            .as_deref()
-            .and_then(m::formula_from_text)
-            .is_none_or(|target| target == formula);
+        let matches_blueprint = target.is_none_or(|target| target == formula);
         let busy = matches_blueprint
             && m::is_stable(&formula)
             && entity
@@ -86,7 +106,7 @@ fn biolab_core_machine_tick(
 
         // Время сборки растёт с числом атомов: сложная молекула собирается дольше.
         let atoms: u32 = formula.iter().sum();
-        let total = (40 + 10 * atoms as i32).min(600);
+        let total = m::assembly_time(atoms);
         entity.data[m::DATA_TOTAL] = total;
         entity.data[m::DATA_LIT] = 1;
         entity.data[m::DATA_LIT_TOTAL] = 1;
@@ -136,7 +156,7 @@ fn biolab_core_machine_tick(
     ) -> Option<String> {
         use crate::game::biolab_core as m;
         use horizon_world::nbt::Tag;
-        entity.data.resize(m::DATA_SLOTS, 0);
+        entity.data.resize(m::machine_data_slots(&entity.id), 0);
 
         // Фрагмент ДНК на входе и питательный раствор в слоте топлива.
         let gene = entity
@@ -155,6 +175,10 @@ fn biolab_core_machine_tick(
                     _ => None,
                 }
             });
+        // Экрану чана — ген во входе: его клон и получит.
+        let (index, strength) = m::gene_data(gene.as_deref());
+        entity.data[m::DATA_GENE] = index;
+        entity.data[m::DATA_GENE_STRENGTH] = strength;
         let broth = entity
             .items
             .get(m::SLOT_FUEL)
@@ -280,7 +304,7 @@ fn biolab_core_machine_tick(
     // печатает чертёж. Колбу не тратит — анализ не разрушающий.
     if entity.id == m::SPECTROMETER {
         use horizon_world::nbt::Tag;
-        entity.data.resize(m::DATA_SLOTS, 0);
+        entity.data.resize(m::machine_data_slots(&entity.id), 0);
         let contents = entity
             .items
             .get(m::SLOT_INPUT)
@@ -297,6 +321,15 @@ fn biolab_core_machine_tick(
                     _ => None,
                 }
             });
+        // Экрану — спектр колбы во входе: число атомов каждого элемента.
+        // Нет колбы или в ней не формула — все полосы пустые.
+        let spectrum = contents
+            .as_deref()
+            .and_then(m::formula_from_text)
+            .unwrap_or_default();
+        for (i, count) in spectrum.iter().enumerate() {
+            entity.data[m::DATA_SPECTRUM + i] = *count as i32;
+        }
         let free = entity
             .items
             .get(output_slot)
@@ -385,7 +418,182 @@ fn biolab_core_machine_tick(
         return;
     }
 
-    entity.data.resize(m::DATA_SLOTS, 0);
+    // Центрифуга разделяет: рецепт даёт основной выход и, если записан,
+    // побочный, а колба с веществом распадается на элементы и возвращается с
+    // водой. Выходов четыре, и всё, что машина выдаёт, должно влезть в них
+    // целиком — иначе она ждёт, а не теряет добычу.
+    if entity.id == m::CENTRIFUGE {
+        use horizon_world::nbt::Tag;
+        entity.data.resize(m::machine_data_slots(&entity.id), 0);
+        let outputs = m::machine_outputs(machine);
+        let input = entity.items.get(m::SLOT_INPUT).and_then(|s| s.clone());
+
+        // Что выйдет и за сколько тиков.
+        let mut job: Option<(i32, Vec<horizon_client::items::ItemStack>)> = None;
+        if let Some(input) = input.as_ref() {
+            if &*input.item == m::FLASK_ID {
+                let parts = custom_text(input, m::CONTENTS_KEY).and_then(|contents| {
+                    let items = game.items();
+                    m::decompose(&contents, |item| items.get(item).map_or(64, |i| i.max_stack))
+                });
+                if let Some(parts) = parts {
+                    let mut stacks: Vec<horizon_client::items::ItemStack> = parts
+                        .stacks
+                        .iter()
+                        .map(|(item, count)| horizon_client::items::ItemStack {
+                            item: (*item).into(),
+                            count: *count,
+                            damage: 0,
+                            extra: None,
+                        })
+                        .collect();
+                    // Колба возвращается с водой — такой же, как новая.
+                    let (water, ml) = m::DEFAULT_FILL;
+                    let mut flask = horizon_client::items::ItemStack {
+                        item: m::FLASK_ID.into(),
+                        count: 1,
+                        damage: 0,
+                        extra: None,
+                    };
+                    let data = flask.extra.get_or_insert_with(Default::default);
+                    data.other.push((
+                        "minecraft:custom_data".to_string(),
+                        Tag::compound([
+                            (m::CONTENTS_KEY, Tag::String(water.into())),
+                            (m::ML_KEY, Tag::Int(ml)),
+                        ]),
+                    ));
+                    data.custom_name = Some(Tag::String(m::flask_label(water, ml).as_str().into()));
+                    stacks.push(flask);
+                    job = Some((m::assembly_time(parts.atoms), stacks));
+                }
+            } else {
+                // Рецепты читаем из таблицы игры, как остальные машины (см. ниже).
+                let recipes: Vec<std::sync::Arc<serde_json::Value>> = game
+                    .recipes()
+                    .custom
+                    .get(&*entity.id)
+                    .map(|list| list.iter().map(|r| r.json.clone()).collect())
+                    .unwrap_or_default();
+                for json in recipes {
+                    let Some(ingredient) =
+                        horizon_client::crafting::Ingredient::parse(&json["ingredient"], game.items())
+                    else {
+                        continue;
+                    };
+                    if !ingredient.test(input) {
+                        continue;
+                    }
+                    let Some(result) = horizon_client::crafting::recipe_result(&json["result"])
+                    else {
+                        continue;
+                    };
+                    let mut stacks = vec![result];
+                    // Побочный выход необязателен. Записан, но битый — рецепт
+                    // пропускаем, а не выдаём молча без него.
+                    if !json["byproduct"].is_null() {
+                        let Some(byproduct) =
+                            horizon_client::crafting::recipe_result(&json["byproduct"])
+                        else {
+                            continue;
+                        };
+                        stacks.push(byproduct);
+                    }
+                    let time = json["time"].as_i64().unwrap_or(m::DEFAULT_TIME as i64) as i32;
+                    job = Some((time, stacks));
+                    break;
+                }
+            }
+        }
+
+        // Куда ляжет каждый выход: в такой же стак или в свободный слот.
+        let plan = job.as_ref().and_then(|(_, stacks)| {
+            let items = game.items();
+            let held: Vec<Option<m::Pile>> = outputs
+                .iter()
+                .map(|slot| {
+                    entity
+                        .items
+                        .get(*slot)
+                        .and_then(|s| s.as_ref())
+                        .map(|s| m::Pile { item: &*s.item, count: s.count, plain: s.extra.is_none() })
+                })
+                .collect();
+            let piles: Vec<m::Pile> = stacks
+                .iter()
+                .map(|s| m::Pile { item: &*s.item, count: s.count, plain: s.extra.is_none() })
+                .collect();
+            m::plan_outputs(&held, &piles, |item| items.get(item).map_or(64, |i| i.max_stack))
+        });
+
+        let progress = entity.data[m::DATA_PROGRESS];
+        let time = job
+            .as_ref()
+            .filter(|_| plan.is_some())
+            .map(|(time, _)| *time);
+        match m::step(time, progress) {
+            m::Step::Idle => {
+                entity.data[m::DATA_PROGRESS] = 0;
+                entity.data[m::DATA_TOTAL] = 0;
+                entity.data[m::DATA_LIT] = 0;
+                entity.data[m::DATA_LIT_TOTAL] = 0;
+            }
+            m::Step::Working(next) => {
+                entity.data[m::DATA_PROGRESS] = next;
+                entity.data[m::DATA_TOTAL] = time.unwrap_or(m::DEFAULT_TIME);
+                entity.data[m::DATA_LIT] = 1;
+                entity.data[m::DATA_LIT_TOTAL] = 1;
+            }
+            m::Step::Finish => {
+                let (Some((_, stacks)), Some(plan)) = (job, plan) else {
+                    return;
+                };
+                if let Some(slot) = entity.items.get_mut(m::SLOT_INPUT)
+                    && let Some(stack) = slot.as_mut()
+                {
+                    stack.count -= 1;
+                    if stack.count == 0 {
+                        *slot = None;
+                    }
+                }
+                for (stack, index) in stacks.into_iter().zip(plan) {
+                    if let Some(place) = entity.items.get_mut(outputs[index]) {
+                        match place.as_mut() {
+                            Some(held) => held.count += stack.count,
+                            None => *place = Some(stack),
+                        }
+                    }
+                }
+                entity.data[m::DATA_PROGRESS] = 0;
+                entity.data[m::DATA_TOTAL] = 0;
+                entity.data[m::DATA_LIT] = 0;
+                entity.data[m::DATA_LIT_TOTAL] = 0;
+            }
+        }
+        return;
+    }
+
+    entity.data.resize(m::machine_data_slots(&entity.id), 0);
+
+    // Экрану экстрактора — последний выданный ген, инкубатора — штамм
+    // культуры во входе. Пишем каждый тик: числа меню не сохраняются.
+    if entity.id == m::EXTRACTOR {
+        let last = match entity.nbt.get(&m::LAST_GENE_KEY.into()) {
+            Some(horizon_world::nbt::Tag::String(s)) => Some(s.to_string_lossy()),
+            _ => None,
+        };
+        let (index, strength) = m::gene_data(last.as_deref());
+        entity.data[m::DATA_GENE] = index;
+        entity.data[m::DATA_GENE_STRENGTH] = strength;
+    }
+    if entity.id == m::INCUBATOR {
+        let input = entity.items.get(m::SLOT_INPUT).and_then(|s| s.as_ref());
+        let strain = input.and_then(|stack| custom_text(stack, m::STRAIN_KEY));
+        let values = m::strain_data(input.map(|stack| &*stack.item), strain.as_deref());
+        for (i, value) in values.iter().enumerate() {
+            entity.data[m::DATA_STRAIN + i] = *value;
+        }
+    }
 
     // Реактор греется от блока снизу и работает только в своём диапазоне.
     let mut temperature = match entity.nbt.get(&"biolab_temperature".into()) {
@@ -402,6 +610,12 @@ fn biolab_core_machine_tick(
         );
         entity.data[m::DATA_LIT] = i32::from(target.is_some());
         entity.data[m::DATA_LIT_TOTAL] = 1;
+        // Экрану реактора: градусник и отметка цели нагрева. Диапазон
+        // рецепта заполнит поиск рецепта ниже; пока не нашёлся — нули.
+        entity.data[m::DATA_TEMPERATURE] = temperature;
+        entity.data[m::DATA_HEAT_TARGET] = target.unwrap_or(-1);
+        entity.data[m::DATA_RANGE_MIN] = 0;
+        entity.data[m::DATA_RANGE_MAX] = 0;
         // Перегрев: содержимое пропадает, реактор остывает рывком.
         if temperature > m::OVERHEAT {
             for slot in entity.items.iter_mut() {
@@ -412,6 +626,7 @@ fn biolab_core_machine_tick(
                 horizon_world::nbt::Tag::Int(20),
             );
             entity.data[m::DATA_PROGRESS] = 0;
+            entity.data[m::DATA_TEMPERATURE] = m::ROOM_TEMPERATURE;
             return;
         }
     }
@@ -420,8 +635,13 @@ fn biolab_core_machine_tick(
     let input = entity.items.get(m::SLOT_INPUT).and_then(|s| s.clone());
     let output = entity.items.get(output_slot).and_then(|s| s.clone());
 
-    // Подходящий рецепт: вход совпал и результат влезает в выход.
-    let mut found: Option<(i32, horizon_client::items::ItemStack)> = None;
+    // Подходящий рецепт: вход совпал и результат влезает в выход. Третье
+    // поле — ген фрагмента, если его выбрал рецепт, а не случай.
+    let mut found: Option<(i32, horizon_client::items::ItemStack, Option<(&'static str, i32)>)> =
+        None;
+    // Диапазон реактора показываем по первому рецепту, чей вход совпал, —
+    // даже если температура до него ещё не дошла: ради этого и градусник.
+    let mut range_shown = false;
     if let Some(input) = input.as_ref() {
         // Помощники API 36 (`native_recipes_of_type`, `native_recipe_ingredient`,
         // `native_recipe_result`) начинаются с проверки `self.player`, которого на
@@ -443,36 +663,68 @@ fn biolab_core_machine_tick(
             if !ingredient.test(input) {
                 continue;
             }
+            // Рецепт реактора может требовать температуру.
+            let range = match (json["temperature"][0].as_i64(), json["temperature"][1].as_i64()) {
+                (Some(min), Some(max)) => Some((min as i32, max as i32)),
+                _ => None,
+            };
+            if entity.id == m::REACTOR && !range_shown {
+                let (min, max) = range.unwrap_or((0, 0));
+                entity.data[m::DATA_RANGE_MIN] = min;
+                entity.data[m::DATA_RANGE_MAX] = max;
+                range_shown = true;
+            }
             let Some(result) = horizon_client::crafting::recipe_result(&json["result"]) else {
                 continue;
             };
             // `items()` — таблица предметов игры, не хук-поинт: при обновлении
             // Horizon проверить. Нужна, чтобы не перелить через стопку.
             let max_stack = game.items().get(&result.item).map_or(64, |i| i.max_stack);
-            let fits = m::output_fits(
-                output.as_ref().map(|s| (&*s.item, s.count)),
-                (&result.item, result.count),
-                max_stack,
-            );
+            // Фрагмент и культура несут свои данные и в стопку не сливаются:
+            // им нужен пустой выход, иначе готовый предмет просто пропал бы.
+            let unique = &*result.item == m::FRAGMENT_ID || &*result.item == m::CULTURE_ID;
+            let fits = if unique {
+                output.is_none()
+            } else {
+                m::output_fits(
+                    output.as_ref().map(|s| (&*s.item, s.count)),
+                    (&result.item, result.count),
+                    max_stack,
+                )
+            };
             if !fits {
                 continue;
             }
-            // Рецепт реактора может требовать температуру.
-            let range = match (json["temperature"][0].as_i64(), json["temperature"][1].as_i64()) {
-                (Some(min), Some(max)) => Some((min as i32, max as i32)),
-                _ => None,
-            };
             if entity.id == m::REACTOR && !m::temperature_fits(temperature, range) {
                 continue;
             }
+            // Ген фрагмента: рецепт может назвать его сам (гены животных),
+            // урожай ГМ-грядки отдаёт свой самый сильный, а ткань мутанта —
+            // случайный, его решает выдача. Битый ген в рецепте или урожай
+            // без генома — не рецепт: машина не тратит вход впустую.
+            let mut gene = None;
+            if &*result.item == m::FRAGMENT_ID {
+                if let Some(name) = json["gene"].as_str() {
+                    match m::recipe_gene(name, json["strength"].as_i64()) {
+                        Some(chosen) => gene = Some(chosen),
+                        None => continue,
+                    }
+                } else if &*input.item == m::GM_CROP {
+                    let genome = custom_text(input, m::PLOT_GENOME_KEY).unwrap_or_default();
+                    match m::strongest_gene(&m::genome_from_text(&genome)) {
+                        Some(chosen) => gene = Some(chosen),
+                        None => continue,
+                    }
+                }
+            }
             let time = json["time"].as_i64().unwrap_or(m::DEFAULT_TIME as i64) as i32;
-            found = Some((time, result));
+            found = Some((time, result, gene));
             break;
         }
     }
 
     let progress = entity.data[m::DATA_PROGRESS];
-    let time = found.as_ref().map(|(time, _)| *time);
+    let time = found.as_ref().map(|(time, _, _)| *time);
     match m::step(time, progress) {
         m::Step::Idle => {
             entity.data[m::DATA_PROGRESS] = 0;
@@ -481,7 +733,7 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_LIT_TOTAL] = 0;
         }
         m::Step::Working(next) => {
-            let (total, _) = found.as_ref().expect("Working только с рецептом");
+            let (total, _, _) = found.as_ref().expect("Working только с рецептом");
             entity.data[m::DATA_PROGRESS] = next;
             entity.data[m::DATA_TOTAL] = *total;
             // Пламя горит всё время работы: клиент рисует его как у печки.
@@ -489,7 +741,7 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_LIT_TOTAL] = 1;
         }
         m::Step::Finish => {
-            let (_, result) = found.expect("Finish только с рецептом");
+            let (_, result, gene) = found.expect("Finish только с рецептом");
             // Забираем один предмет со входа.
             if let Some(slot) = entity.items.get_mut(m::SLOT_INPUT)
                 && let Some(stack) = slot.as_mut()
@@ -499,14 +751,18 @@ fn biolab_core_machine_tick(
                     *slot = None;
                 }
             }
-            // Экстрактор выдаёт не просто предмет, а фрагмент с геном: какой
-            // ген достался, решает зерно от места и времени — два образца
-            // подряд дают разное.
+            // Экстрактор выдаёт не просто предмет, а фрагмент с геном. Ген
+            // животного или урожая выбрал рецепт; у ткани мутанта его решает
+            // зерно от места и времени — два образца подряд дают разное.
             let mut result = result;
             if &*result.item == m::FRAGMENT_ID {
                 let seed = (pos[0] as i64 * 31 + pos[2] as i64 * 17 + game.ticks as i64) as u64;
-                let (name, strength) = m::roll_gene(seed);
+                let (name, strength) = gene.unwrap_or_else(|| m::roll_gene(seed));
                 let text = m::gene_text(name, strength);
+                entity.nbt.insert(
+                    m::LAST_GENE_KEY.into(),
+                    horizon_world::nbt::Tag::String(text.as_str().into()),
+                );
                 let data = result.extra.get_or_insert_with(Default::default);
                 data.other.retain(|(key, _)| key != "minecraft:custom_data");
                 data.other.push((

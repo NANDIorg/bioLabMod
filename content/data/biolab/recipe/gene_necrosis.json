@@ -1,0 +1,11 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "minecraft:rotten_flesh",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "gene": "necrosis",
+ "strength": 1,
+ "time": 140
+}

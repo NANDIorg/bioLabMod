@@ -307,7 +307,7 @@ fn biolab_deep_research_draw(
                                 }
                                 row += 58.0;
                             }
-                            m::RecipeView::Machine { input, machine, result, count, seconds } => {
+                            m::RecipeView::Machine { input, machine, result, count, seconds, byproduct } => {
                                 if row + 18.0 > bottom + 4.0 {
                                     break;
                                 }
@@ -317,6 +317,13 @@ fn biolab_deep_research_draw(
                                 game.native_text(batch, &time, [left + 43.0, row + 5.0], INK, false);
                                 let tw = game.native_text_width(&time);
                                 slot(game, batch, [left + 47.0 + tw, row], Some(&result), count);
+                                // Побочный выход центрифуги — вторым слотом через «+».
+                                if let Some((extra, extra_count)) = byproduct {
+                                    let plus = left + 47.0 + tw + 21.0;
+                                    game.native_text(batch, "+", [plus, row + 5.0], INK, false);
+                                    let plus_width = game.native_text_width("+");
+                                    slot(game, batch, [plus + plus_width + 3.0, row], Some(&extra), extra_count);
+                                }
                                 row += 22.0;
                             }
                         }

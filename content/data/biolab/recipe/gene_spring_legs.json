@@ -1,0 +1,11 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "minecraft:rabbit_foot",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "gene": "spring_legs",
+ "strength": 1,
+ "time": 140
+}

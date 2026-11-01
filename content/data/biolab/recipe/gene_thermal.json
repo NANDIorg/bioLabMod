@@ -1,0 +1,11 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "minecraft:magma_cream",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "gene": "thermal",
+ "strength": 1,
+ "time": 140
+}

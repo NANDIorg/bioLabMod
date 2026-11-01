@@ -1,0 +1,13 @@
+{
+ "type": "biolab:centrifuge",
+ "ingredient": "minecraft:glistering_melon_slice",
+ "result": {
+  "id": "minecraft:melon_slice",
+  "count": 1
+ },
+ "byproduct": {
+  "id": "minecraft:gold_nugget",
+  "count": 8
+ },
+ "time": 100
+}
