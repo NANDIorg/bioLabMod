@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  " b ",
+  "iii",
+  "p p"
+ ],
+ "key": {
+  "b": "minecraft:glass_bottle",
+  "i": "minecraft:iron_ingot",
+  "p": "minecraft:oak_planks"
+ },
+ "result": {
+  "id": "biolab:lab_bench",
+  "count": 1
+ }
+}

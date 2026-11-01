@@ -11,13 +11,9 @@ fn biolab_core_use_item(
     let uuid = game.native_acting_id();
     let world = game.world_root.clone();
 
-    // Книга-гид: открывается своим разворотом поверх игры.
+    // Журнал лаборанта открывает карту исследований на клиенте (`biolab-deep`):
+    // серверу здесь делать нечего, лишь бы другие обработчики не трогали книгу.
     if &*stack.item == m::MANUAL_ID {
-        if m::book_open() {
-            m::close_book();
-        } else {
-            m::open_book();
-        }
         *claimed = true;
         return;
     }

@@ -220,26 +220,3 @@ bindings = [
   { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
   { name = "entity", ty = "u32", value = "entity" },
 ]
-
-# Книга-гид: своя отрисовка поверх игры. Хук API 1.
-[[injection]]
-id = "book-hud"
-kind = "HEAD"
-target = "horizon_client::game::native_hooks::Game<'_>::native_hud"
-helper = "book.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
-]
-
-# Клавиши книги: листание и закрытие. Хук API 1.
-[[injection]]
-id = "book-keys"
-kind = "HEAD"
-target = "horizon_client::game::native_hooks::Game<'_>::native_key"
-helper = "keys.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "key", ty = "&str", value = "key" },
-  { name = "pressed", ty = "bool", value = "pressed" },
-]

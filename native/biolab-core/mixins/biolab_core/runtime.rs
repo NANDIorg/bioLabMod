@@ -96,6 +96,8 @@ pub struct PlayerState {
     pub strain: [u8; 4],
     /// Выдана ли книга-руководство: второй раз она не приходит.
     pub manual: bool,
+    /// Изученные узлы карты исследований: бит на узел `RESEARCH`.
+    pub research: u64,
 }
 
 /// Как часто писать состояние на диск, в тиках (раз в 5 секунд).
@@ -116,6 +118,9 @@ pub fn state_to_text(s: &PlayerState) -> String {
         "ticks={}\ninfection={}\nimmunity={}\nwithdrawal={}\nmutagenesis={}\nmanual={}\n",
         s.ticks, s.infection, s.immunity, s.withdrawal, s.mutagenesis, u8::from(s.manual)
     );
+    if s.research != 0 {
+        text.push_str(&format!("research={}\n", research_to_text(s.research)));
+    }
     // Вещества пишем по имени, а не по номеру: новая версия мода может
     // переставить таблицу, и старый файл всё равно прочитается.
     if s.strain[0] > 0 {
@@ -169,6 +174,7 @@ pub fn state_from_text(text: &str) -> PlayerState {
             "withdrawal" => s.withdrawal = value.trim().parse().unwrap_or(s.withdrawal),
             "mutagenesis" => s.mutagenesis = value.trim().parse().unwrap_or(s.mutagenesis),
             "manual" => s.manual = value.trim() == "1",
+            "research" => s.research = research_from_text(value),
             "strain" => {
                 if let Some(strain) = strain_from_text(value.trim()) {
                     s.strain = strain.values().map(|v| v as u8);
@@ -985,44 +991,14 @@ pub fn journal_lines(world: &std::path::Path) -> Vec<String> {
 // ---- Книга-руководство ----
 //
 // Мод большой, и разбираться в нём по вики — не тот опыт, который хочется
-// дать. Поэтому при первом входе в мир игрок получает «Журнал лаборанта»:
-// что для чего, из чего крафтится и с чего начинать. Текст лежит данными
-// мода (`data/biolab/manual/ru.txt`), страницы разделены строкой `---`, так
-// что правка текста не требует пересборки нативной части.
+// дать. Поэтому при первом входе в мир игрок получает «Журнал лаборанта» —
+// карту исследований (см. «Карта исследований» ниже).
 
-/// Книга мода: свой предмет. Ванильный экран книги её не откроет — мод
-/// рисует разворот сам (`book.rs`), с иконками предметов и разделами.
+/// Книга мода: свой предмет. Открывает карту исследований — свой экран
+/// в `biolab-deep` на месте ванильной книги.
 pub const MANUAL_ID: &str = "biolab:lab_manual";
-/// Где лежит текст книги внутри данных мода.
-pub const MANUAL_PATH: &str = "data/biolab/manual/ru.txt";
-pub const MANUAL_TITLE: &str = "Журнал лаборанта";
-pub const MANUAL_AUTHOR: &str = "BioLab";
-/// Сколько страниц книга вмещает и какой длины бывает страница.
+/// Сколько страниц бывает у одной записи.
 pub const MANUAL_MAX_PAGES: usize = 100;
-pub const MANUAL_MAX_PAGE: usize = 1024;
-
-/// Страницы книги из текста: разделитель — строка из трёх дефисов.
-pub fn manual_pages(text: &str) -> Vec<String> {
-    text.split("\n---\n")
-        .map(|page| page.trim().to_string())
-        .filter(|page| !page.is_empty())
-        .map(|mut page| {
-            if page.len() > MANUAL_MAX_PAGE {
-                page.truncate(MANUAL_MAX_PAGE);
-            }
-            page
-        })
-        .take(MANUAL_MAX_PAGES)
-        .collect()
-}
-
-/// Запасная страница: если данные мода не прочитались, книга всё равно
-/// должна объяснить, куда смотреть.
-pub fn manual_fallback() -> Vec<String> {
-    vec![format!(
-        "{MANUAL_TITLE}\n\nТекст руководства не прочитался: проверьте файл\n{MANUAL_PATH}\n\nКоманда /biolab покажет, что умеет мод."
-    )]
-}
 
 /// Отметить, что книга выдана; false — она уже была.
 pub fn take_manual(world: &std::path::Path, uuid: u128) -> bool {
@@ -1050,17 +1026,12 @@ pub fn take_manual(world: &std::path::Path, uuid: u128) -> bool {
     true
 }
 
-// ---- Книга-гид: свой экран ----
-//
-// Ванильная книга умеет только текст, а мод большой: нужны картинки
-// предметов и рецепты. Поэтому книга рисуется сама — поверх игры, как
-// планшет: тёмная подложка, разворот, заголовок, строки и иконки. Листается
-// клавишами, потому что курсор в игре захвачен прицелом.
+// ---- Разметка записей журнала ----
 //
 // Разметка страницы — те же текстовые данные мода, но со строками-командами:
 //   `# Заголовок`      — заголовок страницы
 //   `@item <id>`       — ряд иконок предметов (через пробел)
-//   `@craft <id>`      — сетка крафта этого предмета и результат
+//   `@craft <файл>`    — рецепт из `data/biolab/recipe/<файл>.json`
 //   прочие строки      — обычный текст
 
 /// Что рисуется на строке страницы.
@@ -1072,7 +1043,7 @@ pub enum Line {
     Text(String),
     /// Ряд иконок: предметы по их id.
     Items(Vec<String>),
-    /// Рецепт крафта предмета: сетка берётся из рецептов игры.
+    /// Рецепт: имя файла в `data/biolab/recipe` без `.json`.
     Craft(String),
     /// Пустая строка-отбивка.
     Gap,
@@ -1110,109 +1081,6 @@ pub fn page_title(page: &str) -> String {
         .unwrap_or_else(|| "Страница".to_string())
 }
 
-/// Размеры книги в пикселях интерфейса.
-pub const BOOK_WIDTH: f32 = 256.0;
-pub const BOOK_HEIGHT: f32 = 182.0;
-/// Отступ от края книги до текста.
-pub const BOOK_PAD: f32 = 12.0;
-/// Высота строки и размер иконки.
-pub const BOOK_LINE: f32 = 11.0;
-pub const BOOK_ICON: f32 = 16.0;
-/// Цвета: подложка, разворот, рамка, заголовок, текст и подпись.
-pub const BOOK_SHADE: u32 = 0xC0_0A0A10;
-pub const BOOK_PAPER: u32 = 0xFF_F2E7CF;
-pub const BOOK_EDGE: u32 = 0xFF_6E4B33;
-pub const BOOK_TITLE_INK: u32 = 0xFF_5A2D1B;
-pub const BOOK_INK: u32 = 0xFF_3A3028;
-pub const BOOK_NOTE: u32 = 0xFF_8A7A66;
-
-/// Открыта ли книга сейчас и на какой странице.
-fn book_state() -> &'static std::sync::Mutex<(bool, usize)> {
-    static STATE: std::sync::OnceLock<std::sync::Mutex<(bool, usize)>> =
-        std::sync::OnceLock::new();
-    STATE.get_or_init(|| std::sync::Mutex::new((false, 0)))
-}
-
-/// Открыть книгу на первой странице.
-pub fn open_book() {
-    if let Ok(mut state) = book_state().lock() {
-        *state = (true, 0);
-    }
-}
-
-/// Закрыть книгу.
-pub fn close_book() {
-    if let Ok(mut state) = book_state().lock() {
-        state.0 = false;
-    }
-}
-
-/// Открыта ли книга.
-pub fn book_open() -> bool {
-    book_state().lock().map(|s| s.0).unwrap_or(false)
-}
-
-/// Текущая страница.
-pub fn book_page() -> usize {
-    book_state().lock().map(|s| s.1).unwrap_or(0)
-}
-
-/// Перелистнуть на `step` страниц, не выходя за края.
-pub fn turn_page(step: i32, total: usize) {
-    if total == 0 {
-        return;
-    }
-    if let Ok(mut state) = book_state().lock() {
-        let next = state.1 as i32 + step;
-        state.1 = next.clamp(0, total as i32 - 1) as usize;
-    }
-}
-
-/// Перейти к странице по номеру (0 — первая).
-pub fn go_to_page(page: usize, total: usize) {
-    if total == 0 {
-        return;
-    }
-    if let Ok(mut state) = book_state().lock() {
-        state.1 = page.min(total - 1);
-    }
-}
-
-/// Что делает клавиша в книге: листать, прыгнуть к разделу или закрыть.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BookKey {
-    Next,
-    Previous,
-    Jump(usize),
-    Close,
-    Ignore,
-}
-
-/// Разобрать клавишу: стрелки и колёсико листают, цифры прыгают по разделам,
-/// Esc и повторное нажатие кнопки книги закрывают.
-pub fn book_key(key: &str) -> BookKey {
-    match key {
-        "key.keyboard.right" | "key.keyboard.d" | "key.keyboard.space" => BookKey::Next,
-        "key.keyboard.left" | "key.keyboard.a" => BookKey::Previous,
-        "key.keyboard.escape" | "key.keyboard.e" | "key.keyboard.q" => BookKey::Close,
-        _ => match key.strip_prefix("key.keyboard.") {
-            Some(digit) if digit.len() == 1 => match digit.parse::<usize>() {
-                Ok(n) if (1..=9).contains(&n) => BookKey::Jump(n - 1),
-                _ => BookKey::Ignore,
-            },
-            _ => BookKey::Ignore,
-        },
-    }
-}
-
-/// Подпись внизу разворота.
-pub fn book_footer(page: usize, total: usize) -> String {
-    format!(
-        "{} из {}   ←/→ листать   1–9 разделы   Esc закрыть",
-        page + 1,
-        total.max(1)
-    )
-}
 
 /// Спектрометр: опознаёт вещество в колбе и печатает чертёж.
 pub const SPECTROMETER: &str = "biolab:spectrometer";
@@ -4066,26 +3934,6 @@ mod tests {
         assert!(KNOWN.len() >= 30, "канонических веществ всего {}", KNOWN.len());
     }
 
-    #[test]
-    fn the_manual_splits_into_pages() {
-        let text = "Первая\n\nстрока\n---\nВторая\n---\n\n---\nТретья\n";
-        let pages = manual_pages(text);
-        assert_eq!(pages.len(), 3, "пустая страница не считается: {pages:?}");
-        assert_eq!(pages[0], "Первая\n\nстрока");
-        assert_eq!(pages[2], "Третья");
-        assert!(manual_pages("").is_empty());
-
-        // Слишком длинная страница обрезается, слишком длинная книга — тоже.
-        let long = "а".repeat(MANUAL_MAX_PAGE * 2);
-        assert_eq!(manual_pages(&long)[0].len(), MANUAL_MAX_PAGE);
-        let many = (0..MANUAL_MAX_PAGES + 20)
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-            .join("\n---\n");
-        assert_eq!(manual_pages(&many).len(), MANUAL_MAX_PAGES);
-
-        assert!(!manual_fallback().is_empty(), "без данных книга всё равно что-то говорит");
-    }
 
     #[test]
     fn the_manual_comes_once() {
@@ -4101,7 +3949,7 @@ mod tests {
 
     #[test]
     fn a_page_breaks_into_drawable_lines() {
-        let page = "# Машины\n\nВсе работают как печка.\n@item biolab:still biolab:reactor\n@craft biolab:flask";
+        let page = "# Машины\n\nВсе работают как печка.\n@item biolab:still biolab:reactor\n@craft microscope";
         let lines = page_lines(page);
         assert_eq!(lines[0], Line::Title("Машины".to_string()));
         assert_eq!(lines[1], Line::Gap);
@@ -4110,46 +3958,12 @@ mod tests {
             lines[3],
             Line::Items(vec!["biolab:still".to_string(), "biolab:reactor".to_string()])
         );
-        assert_eq!(lines[4], Line::Craft("biolab:flask".to_string()));
+        assert_eq!(lines[4], Line::Craft("microscope".to_string()));
         assert_eq!(page_title(page), "Машины");
         assert_eq!(page_title("Просто строка\nвторая"), "Просто строка");
         assert_eq!(page_title(""), "Страница");
     }
 
-    #[test]
-    fn the_book_opens_turns_and_closes() {
-        close_book();
-        assert!(!book_open());
-        open_book();
-        assert!(book_open());
-        assert_eq!(book_page(), 0);
-
-        turn_page(1, 3);
-        assert_eq!(book_page(), 1);
-        turn_page(5, 3);
-        assert_eq!(book_page(), 2, "дальше последней не листаем");
-        turn_page(-9, 3);
-        assert_eq!(book_page(), 0, "и раньше первой тоже");
-        turn_page(1, 0);
-        assert_eq!(book_page(), 0, "пустая книга не листается");
-
-        go_to_page(7, 3);
-        assert_eq!(book_page(), 2);
-        close_book();
-        assert!(!book_open());
-    }
-
-    #[test]
-    fn keys_do_what_they_look_like() {
-        assert_eq!(book_key("key.keyboard.right"), BookKey::Next);
-        assert_eq!(book_key("key.keyboard.left"), BookKey::Previous);
-        assert_eq!(book_key("key.keyboard.escape"), BookKey::Close);
-        assert_eq!(book_key("key.keyboard.3"), BookKey::Jump(2));
-        assert_eq!(book_key("key.keyboard.0"), BookKey::Ignore);
-        assert_eq!(book_key("key.keyboard.f3"), BookKey::Ignore);
-        assert_eq!(book_key("key.mouse.left"), BookKey::Ignore);
-        assert_eq!(book_footer(0, 17), "1 из 17   ←/→ листать   1–9 разделы   Esc закрыть");
-    }
 
     #[test]
     fn single_atom_is_not_a_compound() {
@@ -4330,5 +4144,1093 @@ mod tests {
         assert_eq!(command_name("biolab status"), "biolab");
         assert_eq!(command_name("biolab"), "biolab");
         assert_eq!(command_name(""), "");
+    }
+}
+
+// ---- Карта исследований ----
+//
+// «Журнал лаборанта» — карта, как в Таумономиконе: пять наук, в каждой узлы,
+// связанные линиями. Узел загорается сам, когда игрок сделал что-то новое:
+// получил предмет, опознал вещество, заразился, принял лекарство. Здесь
+// только данные и чистая логика: таблица узлов, условия, раскладка экрана,
+// попадание мышью и разбор страниц. Рисует и ловит мышь экран в `biolab-deep`,
+// который подменяет собой ванильную книгу.
+
+/// Канал, по которому сервер раз в секунду сообщает клиенту изученные узлы.
+pub const NET_RESEARCH: &str = "biolab_core:research";
+/// Тексты записей: по блоку на узел, правятся без пересборки.
+pub const RESEARCH_PATH: &str = "data/biolab/research/ru.txt";
+
+/// Наука — вкладка карты.
+pub struct Science {
+    pub title: &'static str,
+    pub icon: &'static str,
+}
+
+pub const SCIENCES: [Science; 5] = [
+    Science { title: "Основы", icon: "biolab:lab_manual" },
+    Science { title: "Химия", icon: "biolab:element_carbon" },
+    Science { title: "Микробиология", icon: "biolab:culture" },
+    Science { title: "Фармакология", icon: "biolab:pill_penicillin" },
+    Science { title: "Генетика", icon: "biolab:dna_fragment" },
+];
+
+/// Что зажигает узел.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unlock {
+    /// Изучен с самого начала.
+    Start,
+    /// В инвентаре оказался любой из этих предметов.
+    Item(&'static [&'static str]),
+    /// В журнале хотя бы столько веществ.
+    Discovered(u32),
+    /// Опознано хотя бы столько веществ.
+    Identified(u32),
+    /// Игрок заражён.
+    Infected,
+    /// Штамм игрока стал стойче дикого: курс брошен на полпути.
+    Hardened,
+    /// Держится иммунитет от вакцины.
+    Immune,
+    /// В крови есть лекарство.
+    Medicine,
+    /// Передозировка или ломка.
+    Overdose,
+    /// У игрока есть хотя бы один ген.
+    Gene,
+}
+
+/// Узел карты.
+pub struct Research {
+    pub id: &'static str,
+    /// Номер науки в `SCIENCES`.
+    pub science: usize,
+    /// Клетка на карте: столбец 0–5, строка 0–3.
+    pub at: (u8, u8),
+    pub icon: &'static str,
+    pub title: &'static str,
+    /// Узлы той же науки, после которых этот становится доступен.
+    pub after: &'static [&'static str],
+    pub unlock: Unlock,
+    /// Подсказка, как узел открыть.
+    pub hint: &'static str,
+}
+
+const ELEMENT_ITEMS: &[&str] = &[
+    "biolab:element_hydrogen", "biolab:element_carbon", "biolab:element_nitrogen",
+    "biolab:element_oxygen", "biolab:element_sodium", "biolab:element_magnesium",
+    "biolab:element_silicon", "biolab:element_phosphorus", "biolab:element_sulfur",
+    "biolab:element_chlorine", "biolab:element_potassium", "biolab:element_calcium",
+    "biolab:element_iron", "biolab:element_copper", "biolab:element_iodine",
+    "biolab:element_gold", "biolab:element_glaurium", "biolab:element_redstonium",
+];
+
+const fn node(
+    id: &'static str,
+    science: usize,
+    at: (u8, u8),
+    icon: &'static str,
+    title: &'static str,
+    after: &'static [&'static str],
+    unlock: Unlock,
+    hint: &'static str,
+) -> Research {
+    Research { id, science, at, icon, title, after, unlock, hint }
+}
+
+pub const RESEARCH: [Research; 45] = [
+    // Основы
+    node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
+    node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол."),
+    node("flask", 0, (2, 0), "biolab:flask", "Колба", &["bench"], Unlock::Item(&["biolab:flask"]), "Сделайте колбу."),
+    node("analyzer", 0, (3, 0), "biolab:analyzer", "Анализатор крови", &["flask"], Unlock::Item(&["biolab:analyzer"]), "Соберите анализатор крови."),
+    node("swab", 0, (2, 2), "biolab:swab", "Ватная палочка", &["bench"], Unlock::Item(&["biolab:swab"]), "Сделайте ватную палочку."),
+    node("agar", 0, (3, 2), "biolab:agar", "Агар", &["swab"], Unlock::Item(&["biolab:agar"]), "Перегоните сушёную ламинарию в агар."),
+    node("bandage", 0, (4, 2), "biolab:bandage", "Бинт", &["agar"], Unlock::Item(&["biolab:bandage"]), "Сделайте бинт из шерсти и агара."),
+    // Химия
+    node("still", 1, (0, 1), "biolab:still", "Перегонный куб", &[], Unlock::Item(&["biolab:still"]), "Соберите перегонный куб."),
+    node("elements", 1, (1, 1), "biolab:element_carbon", "Элементы", &["still"], Unlock::Item(ELEMENT_ITEMS), "Добудьте любой элемент в перегонном кубе."),
+    node("synth", 1, (2, 1), "biolab:synthesizer", "Синтезатор", &["elements"], Unlock::Item(&["biolab:synthesizer"]), "Соберите синтезатор."),
+    node("bonds", 1, (2, 0), "biolab:element_hydrogen", "Правило связей", &["synth"], Unlock::Discovered(1), "Соберите в синтезаторе любое вещество."),
+    node("spectro", 1, (3, 1), "biolab:spectrometer", "Спектрометр", &["synth"], Unlock::Item(&["biolab:spectrometer"]), "Соберите спектрометр."),
+    node("identify", 1, (4, 0), "biolab:flask", "Опознание", &["spectro"], Unlock::Identified(1), "Опознайте вещество спектрометром."),
+    node("blueprint", 1, (4, 1), "biolab:blueprint", "Чертежи", &["spectro"], Unlock::Item(&["biolab:blueprint"]), "Получите чертёж из спектрометра."),
+    node("reactor", 1, (3, 2), "biolab:reactor", "Реактор", &["synth"], Unlock::Item(&["biolab:reactor"]), "Соберите реактор."),
+    node("collection", 1, (5, 0), "biolab:element_gold", "Десять веществ", &["identify"], Unlock::Identified(10), "Опознайте десять веществ."),
+    // Микробиология
+    node("incubator", 2, (0, 1), "biolab:incubator", "Инкубатор", &[], Unlock::Item(&["biolab:incubator"]), "Соберите инкубатор."),
+    node("culture", 2, (1, 1), "biolab:culture", "Культура", &["incubator"], Unlock::Item(&["biolab:culture"]), "Вырастите культуру из мазка."),
+    node("strain", 2, (2, 0), "biolab:microscope", "Штамм", &["culture"], Unlock::Item(&["biolab:microscope"]), "Соберите микроскоп."),
+    node("weakened", 2, (2, 1), "biolab:culture_weakened", "Ослабленная культура", &["culture"], Unlock::Item(&["biolab:culture_weakened"]), "Нагрейте культуру в реакторе."),
+    node("vaccine", 2, (3, 1), "biolab:syringe_vaccine", "Вакцина", &["weakened"], Unlock::Item(&["biolab:syringe_vaccine"]), "Наберите вакцину в шприц."),
+    node("immunity", 2, (4, 1), "minecraft:golden_apple", "Иммунитет", &["vaccine"], Unlock::Immune, "Привейтесь вакциной."),
+    node("infection", 2, (0, 3), "minecraft:rotten_flesh", "Заражение", &[], Unlock::Infected, "Подхватите заразу: гнилая плоть, зомби рядом, лужа."),
+    node("remedy", 2, (1, 3), "biolab:remedy", "Лекарство", &["infection"], Unlock::Item(&["biolab:remedy"]), "Сделайте лекарство из культуры."),
+    node("hardened", 2, (2, 3), "minecraft:fermented_spider_eye", "Стойкий штамм", &["remedy"], Unlock::Hardened, "Бросьте курс лечения на полпути."),
+    // Фармакология
+    node("mold", 3, (0, 1), "biolab:mold", "Плесень", &[], Unlock::Item(&["biolab:mold"]), "Положите хлеб в инкубатор."),
+    node("fermenter", 3, (1, 1), "biolab:fermenter", "Ферментер", &["mold"], Unlock::Item(&["biolab:fermenter"]), "Соберите ферментер."),
+    node("extracts", 3, (2, 1), "biolab:extract_penicillin", "Экстракты", &["fermenter"], Unlock::Item(&["biolab:extract_penicillin", "biolab:extract_salicylate", "biolab:extract_caffeine", "biolab:extract_sedative", "biolab:extract_venom", "biolab:extract_raw"]), "Получите любой экстракт."),
+    node("pills", 3, (3, 0), "biolab:press", "Таблетки", &["extracts"], Unlock::Item(&["biolab:pill_penicillin", "biolab:pill_analgesic", "biolab:pill_stimulant", "biolab:pill_antidote"]), "Спрессуйте таблетку."),
+    node("injections", 3, (3, 1), "biolab:syringe", "Инъекции", &["extracts"], Unlock::Item(&["biolab:syringe_penicillin", "biolab:syringe_sedative", "biolab:syringe_stimulant", "biolab:syringe_venom"]), "Наберите лекарство в шприц."),
+    node("topical", 3, (3, 2), "biolab:ointment_analgesic", "Мази и аэрозоли", &["extracts"], Unlock::Item(&["biolab:ointment_analgesic", "biolab:spray_analgesic", "biolab:spray_stimulant"]), "Сделайте мазь или аэрозоль."),
+    node("antidote", 3, (2, 3), "biolab:pill_antidote", "Антидот", &["extracts"], Unlock::Item(&["biolab:pill_antidote"]), "Спрессуйте антидот из угля."),
+    node("window", 3, (4, 0), "biolab:pill_analgesic", "Терапевтическое окно", &["pills"], Unlock::Medicine, "Примите любое лекарство."),
+    node("overdose", 3, (5, 0), "biolab:pill_stimulant", "Передозировка", &["window"], Unlock::Overdose, "Перестарайтесь с дозой или бросьте стимулятор."),
+    node("darts", 3, (4, 1), "biolab:dart_sedative", "Дротики", &["injections"], Unlock::Item(&["biolab:dart_sedative", "biolab:dart_venom"]), "Сделайте дротик."),
+    // Генетика
+    node("scalpel", 4, (0, 1), "biolab:scalpel", "Скальпель", &[], Unlock::Item(&["biolab:scalpel"]), "Сделайте скальпель."),
+    node("tissue", 4, (1, 1), "biolab:mutant_tissue", "Ткань мутанта", &["scalpel"], Unlock::Item(&["biolab:mutant_tissue"]), "Добудьте мутанта скальпелем."),
+    node("extractor", 4, (2, 1), "biolab:extractor", "Экстрактор ДНК", &["tissue"], Unlock::Item(&["biolab:extractor"]), "Соберите экстрактор ДНК."),
+    node("fragment", 4, (3, 1), "biolab:dna_fragment", "Фрагмент ДНК", &["extractor"], Unlock::Item(&["biolab:dna_fragment"]), "Достаньте ген из ткани."),
+    node("mutagen", 4, (2, 3), "biolab:mutagen", "Мутаген", &["extractor"], Unlock::Item(&["biolab:mutagen", "biolab:mutagen_bucket", "biolab:syringe_mutagen"]), "Сделайте мутаген."),
+    node("splicing", 4, (4, 0), "biolab:microscope", "Сплайсинг", &["fragment"], Unlock::Item(&["biolab:microscope"]), "Соберите микроскоп."),
+    node("vat", 4, (5, 0), "biolab:cloning_vat", "Клонирующий чан", &["splicing"], Unlock::Item(&["biolab:cloning_vat"]), "Соберите клонирующий чан."),
+    node("pen", 4, (5, 1), "biolab:pen", "Вольер и пульт", &["vat"], Unlock::Item(&["biolab:pen", "biolab:console"]), "Сделайте вольер или пульт."),
+    node("therapy", 4, (4, 2), "biolab:syringe", "Генотерапия", &["fragment"], Unlock::Gene, "Примените фрагмент ДНК на себе."),
+    node("crops", 4, (5, 2), "biolab:gm_plot", "ГМ-грядка", &["therapy"], Unlock::Item(&["biolab:gm_plot", "biolab:gm_crop"]), "Сделайте ГМ-грядку."),
+];
+
+/// Номер узла по id.
+pub fn research_index(id: &str) -> Option<usize> {
+    RESEARCH.iter().position(|r| r.id == id)
+}
+
+/// Бит узла в маске изученного.
+pub fn research_bit(index: usize) -> u64 {
+    1u64 << index
+}
+
+/// Что игрок сейчас держит и что записано в журнале: всё, что нужно
+/// условиям, кроме самого состояния игрока.
+pub struct ResearchFacts<'a> {
+    pub items: &'a [String],
+    pub discovered: u32,
+    pub identified: u32,
+}
+
+/// Выполнено ли условие узла.
+pub fn research_met(r: &Research, s: &PlayerState, f: &ResearchFacts) -> bool {
+    match r.unlock {
+        Unlock::Start => true,
+        Unlock::Item(ids) => f.items.iter().any(|item| ids.contains(&item.as_str())),
+        Unlock::Discovered(n) => f.discovered >= n,
+        Unlock::Identified(n) => f.identified >= n,
+        Unlock::Infected => s.infection > 0,
+        Unlock::Hardened => s.strain[0] > 0 && i32::from(s.strain[3]) > WILD.resistance,
+        Unlock::Immune => s.immunity > 0,
+        Unlock::Medicine => s.drugs.iter().any(|d| d.blood > 0),
+        Unlock::Overdose => {
+            s.withdrawal > 0
+                || DRUGS.iter().zip(&s.drugs).any(|(drug, state)| {
+                    state.blood > window_with_tolerance(drug.window, state.tolerance).1
+                })
+        }
+        Unlock::Gene => s.genes.iter().any(|g| *g > 0),
+    }
+}
+
+/// Маска узлов, чьи условия выполнены прямо сейчас.
+pub fn research_now(s: &PlayerState, f: &ResearchFacts) -> u64 {
+    RESEARCH
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| research_met(r, s, f))
+        .fold(0, |mask, (i, _)| mask | research_bit(i))
+}
+
+/// Изученное: записать новые узлы в состояние игрока и сохранить. Вернёт
+/// всю маску и номера только что открытых узлов.
+pub fn research_tick(
+    world: &std::path::Path,
+    uuid: u128,
+    facts: &ResearchFacts,
+) -> (u64, Vec<usize>) {
+    let Ok(mut table) = states().lock() else {
+        return (0, Vec::new());
+    };
+    let state = table.entry((world.to_path_buf(), uuid)).or_default();
+    let fresh = research_now(state, facts) & !state.research;
+    if fresh != 0 {
+        state.research |= fresh;
+        let path = state_path(world, uuid);
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, state_to_text(state));
+    }
+    let opened = (0..RESEARCH.len())
+        .filter(|i| fresh & research_bit(*i) != 0)
+        .collect();
+    (state.research, opened)
+}
+
+/// Сообщение в чат об открытом узле.
+pub fn research_message(index: usize) -> String {
+    format!("Журнал лаборанта: новая запись «{}»", RESEARCH[index].title)
+}
+
+/// Маска изученного в файле: id через запятую, чтобы перестановка таблицы
+/// не путала сохранения.
+pub fn research_to_text(mask: u64) -> String {
+    RESEARCH
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| mask & research_bit(*i) != 0)
+        .map(|(_, r)| r.id)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Маска из файла: незнакомые id пропускаем.
+pub fn research_from_text(text: &str) -> u64 {
+    text.split(',')
+        .filter_map(|id| research_index(id.trim()))
+        .fold(0, |mask, i| mask | research_bit(i))
+}
+
+/// Пакет для клиента: маска, восемь байт.
+pub fn research_packet(mask: u64) -> Vec<u8> {
+    mask.to_le_bytes().to_vec()
+}
+
+pub fn research_from_packet(data: &[u8]) -> Option<u64> {
+    Some(u64::from_le_bytes(data.get(..8)?.try_into().ok()?))
+}
+
+fn known_research() -> &'static std::sync::atomic::AtomicU64 {
+    static KNOWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    &KNOWN
+}
+
+/// Клиент запомнил, что изучено (пришло с сервера).
+pub fn remember_research(mask: u64) {
+    known_research().store(mask, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Что изучено, как его знает клиент. Первый узел изучен всегда.
+pub fn shown_research() -> u64 {
+    known_research().load(std::sync::atomic::Ordering::Relaxed) | research_bit(0)
+}
+
+/// Как узел выглядит на карте.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NodeState {
+    /// Изучен: золотая рамка.
+    Done,
+    /// Все предшественники изучены: можно открыть, подсказка видна.
+    Open,
+    /// Часть предшественников изучена: виден знак вопроса.
+    Locked,
+    /// Ни один предшественник и ни один потомок не изучен: узла не видно.
+    Hidden,
+}
+
+pub fn node_state(mask: u64, index: usize) -> NodeState {
+    if mask & research_bit(index) != 0 {
+        return NodeState::Done;
+    }
+    let parents: Vec<usize> = RESEARCH[index]
+        .after
+        .iter()
+        .filter_map(|id| research_index(id))
+        .collect();
+    let done = parents.iter().filter(|p| mask & research_bit(**p) != 0).count();
+    // Игрок мог забежать вперёд: изученный потомок показывает пропущенный
+    // узел вопросом, чтобы у него была связь с остальной картой.
+    let child_done = RESEARCH.iter().enumerate().any(|(i, r)| {
+        mask & research_bit(i) != 0 && r.after.contains(&RESEARCH[index].id)
+    });
+    if done == parents.len() {
+        NodeState::Open
+    } else if done > 0 || child_done {
+        NodeState::Locked
+    } else {
+        NodeState::Hidden
+    }
+}
+
+/// Сколько изучено: подпись в углу карты.
+pub fn research_progress(mask: u64) -> String {
+    let done = (0..RESEARCH.len()).filter(|i| mask & research_bit(*i) != 0).count();
+    format!("Изучено {done} из {}", RESEARCH.len())
+}
+
+/// Подсказка у курсора над узлом.
+pub fn research_tooltip(mask: u64, index: usize) -> Vec<String> {
+    let r = &RESEARCH[index];
+    match node_state(mask, index) {
+        NodeState::Done => vec![r.title.to_string(), "Изучено — щёлкните, чтобы читать".to_string()],
+        NodeState::Open => vec![r.title.to_string(), r.hint.to_string()],
+        NodeState::Locked | NodeState::Hidden => {
+            let missing: Vec<&str> = r
+                .after
+                .iter()
+                .filter_map(|id| research_index(id))
+                .filter(|p| mask & research_bit(*p) == 0)
+                .map(|p| RESEARCH[p].title)
+                .collect();
+            vec!["???".to_string(), format!("Сначала: {}", missing.join(", "))]
+        }
+    }
+}
+
+/// Страницы записи узла из файла записей: блок от `= id` до следующего `= `,
+/// страницы внутри разделены `---`. Нет блока — страница из подсказки.
+pub fn research_pages(text: &str, index: usize) -> Vec<String> {
+    let r = &RESEARCH[index];
+    let mut block: Option<String> = None;
+    let mut inside = false;
+    for line in text.lines() {
+        if let Some(id) = line.strip_prefix("= ") {
+            if inside {
+                break;
+            }
+            inside = id.trim() == r.id;
+            if inside {
+                block = Some(String::new());
+            }
+            continue;
+        }
+        if inside && let Some(b) = block.as_mut() {
+            b.push_str(line);
+            b.push('\n');
+        }
+    }
+    let pages: Vec<String> = block
+        .unwrap_or_default()
+        .split("\n---")
+        .map(|p| p.trim_matches('\n').to_string())
+        .filter(|p| !p.trim().is_empty())
+        .take(MANUAL_MAX_PAGES)
+        .collect();
+    if pages.is_empty() {
+        vec![format!("# {}\n{}", r.title, r.hint)]
+    } else {
+        pages
+    }
+}
+
+// Раскладка экрана в пикселях интерфейса. Рамка по центру, вкладки слева от
+// неё, внутри — поле узлов 6×4 клетки с полосой заголовка и подписью снизу.
+
+pub const RESEARCH_COLS: f32 = 6.0;
+pub const RESEARCH_ROWS: f32 = 4.0;
+pub const NODE_SIZE: f32 = 24.0;
+pub const TAB_SIZE: f32 = 22.0;
+/// Высота полосы заголовка и подписи внизу поля.
+pub const RESEARCH_HEADER: f32 = 16.0;
+pub const RESEARCH_FOOTER: f32 = 13.0;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ResearchLayout {
+    /// Рамка-обложка.
+    pub frame: [f32; 4],
+    /// Тёмное поле внутри рамки.
+    pub field: [f32; 4],
+    /// Сетка узлов: поле без заголовка и подписи.
+    pub grid: [f32; 4],
+    /// Страница записи поверх поля.
+    pub page: [f32; 4],
+}
+
+pub fn research_layout(width: f32, height: f32) -> ResearchLayout {
+    let w = (width - 64.0).clamp(220.0, 400.0);
+    let h = (height - 20.0).clamp(160.0, 240.0);
+    // Вкладки торчат слева: сдвигаем рамку вправо на их ширину пополам.
+    let x = ((width - w) / 2.0 + TAB_SIZE / 2.0).floor();
+    let y = ((height - h) / 2.0).floor();
+    let field = [x + 6.0, y + 6.0, w - 12.0, h - 12.0];
+    let grid = [
+        field[0],
+        field[1] + RESEARCH_HEADER,
+        field[2],
+        field[3] - RESEARCH_HEADER - RESEARCH_FOOTER,
+    ];
+    let page = [field[0] + 6.0, field[1] + 4.0, field[2] - 12.0, field[3] - 8.0];
+    ResearchLayout { frame: [x, y, w, h], field, grid, page }
+}
+
+pub fn tab_rect(l: &ResearchLayout, science: usize) -> [f32; 4] {
+    [
+        l.frame[0] - TAB_SIZE,
+        l.frame[1] + 10.0 + science as f32 * (TAB_SIZE + 4.0),
+        TAB_SIZE,
+        TAB_SIZE,
+    ]
+}
+
+pub fn node_center(l: &ResearchLayout, r: &Research) -> [f32; 2] {
+    let [x, y, w, h] = l.grid;
+    let (cw, ch) = (w / RESEARCH_COLS, h / RESEARCH_ROWS);
+    [
+        (x + cw * (f32::from(r.at.0) + 0.5)).floor(),
+        (y + ch * (f32::from(r.at.1) + 0.5)).floor(),
+    ]
+}
+
+pub fn node_rect(l: &ResearchLayout, r: &Research) -> [f32; 4] {
+    let [cx, cy] = node_center(l, r);
+    [cx - NODE_SIZE / 2.0, cy - NODE_SIZE / 2.0, NODE_SIZE, NODE_SIZE]
+}
+
+/// Кнопки внизу страницы: назад, вперёд и «к карте».
+pub fn page_buttons(l: &ResearchLayout) -> [[f32; 4]; 3] {
+    let [x, y, w, h] = l.page;
+    let row = y + h - 14.0;
+    [
+        [x + 6.0, row, 18.0, 12.0],
+        [x + w - 24.0, row, 18.0, 12.0],
+        [x + w / 2.0 - 28.0, row, 56.0, 12.0],
+    ]
+}
+
+pub fn inside(rect: [f32; 4], at: [f32; 2]) -> bool {
+    at[0] >= rect[0] && at[1] >= rect[1] && at[0] < rect[0] + rect[2] && at[1] < rect[1] + rect[3]
+}
+
+/// Что сейчас открыто на экране журнала.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ResearchView {
+    pub open: bool,
+    pub science: usize,
+    /// Открытая запись: узел и страница.
+    pub page: Option<(usize, usize)>,
+}
+
+fn research_view_cell() -> &'static std::sync::Mutex<ResearchView> {
+    static VIEW: std::sync::OnceLock<std::sync::Mutex<ResearchView>> = std::sync::OnceLock::new();
+    VIEW.get_or_init(Default::default)
+}
+
+pub fn research_view() -> ResearchView {
+    research_view_cell().lock().map(|v| *v).unwrap_or_default()
+}
+
+pub fn set_research_view(view: ResearchView) {
+    if let Ok(mut v) = research_view_cell().lock() {
+        *v = view;
+    }
+}
+
+/// Открыть журнал на карте той науки, что была открыта в прошлый раз.
+pub fn open_research() {
+    let view = research_view();
+    set_research_view(ResearchView { open: true, page: None, ..view });
+}
+
+pub fn close_research() {
+    let view = research_view();
+    set_research_view(ResearchView { open: false, page: None, ..view });
+}
+
+/// Куда попал щелчок.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResearchHit {
+    Tab(usize),
+    Node(usize),
+    PagePrevious,
+    PageNext,
+    PageBack,
+    Nothing,
+}
+
+pub fn research_hit(l: &ResearchLayout, view: &ResearchView, mask: u64, at: [f32; 2]) -> ResearchHit {
+    for science in 0..SCIENCES.len() {
+        if inside(tab_rect(l, science), at) {
+            return ResearchHit::Tab(science);
+        }
+    }
+    if view.page.is_some() {
+        let [previous, next, back] = page_buttons(l);
+        return if inside(previous, at) {
+            ResearchHit::PagePrevious
+        } else if inside(next, at) {
+            ResearchHit::PageNext
+        } else if inside(back, at) || !inside(l.page, at) {
+            ResearchHit::PageBack
+        } else {
+            ResearchHit::Nothing
+        };
+    }
+    RESEARCH
+        .iter()
+        .enumerate()
+        .find(|(i, r)| {
+            r.science == view.science
+                && node_state(mask, *i) != NodeState::Hidden
+                && inside(node_rect(l, r), at)
+        })
+        .map_or(ResearchHit::Nothing, |(i, _)| ResearchHit::Node(i))
+}
+
+/// Щелчок меняет вид: вкладка, запись, страница. `pages` — сколько страниц у
+/// открытой записи.
+pub fn research_click(view: ResearchView, hit: ResearchHit, mask: u64, pages: usize) -> ResearchView {
+    match hit {
+        ResearchHit::Tab(science) => ResearchView { science, page: None, ..view },
+        ResearchHit::Node(i) => match node_state(mask, i) {
+            NodeState::Done | NodeState::Open => ResearchView { page: Some((i, 0)), ..view },
+            NodeState::Locked | NodeState::Hidden => view,
+        },
+        ResearchHit::PagePrevious => ResearchView {
+            page: view.page.map(|(i, p)| (i, p.saturating_sub(1))),
+            ..view
+        },
+        ResearchHit::PageNext => ResearchView {
+            page: view.page.map(|(i, p)| (i, (p + 1).min(pages.max(1) - 1))),
+            ..view
+        },
+        ResearchHit::PageBack => ResearchView { page: None, ..view },
+        ResearchHit::Nothing => view,
+    }
+}
+
+/// Клавиша на экране журнала (`escape`, `left`, `right`, `1`…). Вернёт новый
+/// вид и надо ли закрыть экран.
+pub fn research_key(view: ResearchView, key: &str, pages: usize) -> (ResearchView, bool) {
+    match key {
+        "escape" | "backspace" | "e" => match view.page {
+            Some(_) => (ResearchView { page: None, ..view }, false),
+            None => (ResearchView { open: false, ..view }, true),
+        },
+        "left" | "a" => (research_click(view, ResearchHit::PagePrevious, 0, pages), false),
+        "right" | "d" => (research_click(view, ResearchHit::PageNext, 0, pages), false),
+        digit => match digit.parse::<usize>() {
+            Ok(n) if (1..=SCIENCES.len()).contains(&n) => {
+                (ResearchView { science: n - 1, page: None, ..view }, false)
+            }
+            _ => (view, false),
+        },
+    }
+}
+
+// Цвета экрана: ARGB для заливок, RGB для текста.
+pub const RESEARCH_SHADE: u32 = 0xD0_08050C;
+pub const RESEARCH_GOLD: u32 = 0xFF_C9A45A;
+pub const RESEARCH_LEATHER: u32 = 0xFF_3C2A1C;
+pub const RESEARCH_FIELD: u32 = 0xFF_150F1B;
+pub const RESEARCH_TAB: u32 = 0xFF_2A2033;
+pub const RESEARCH_TAB_ON: u32 = 0xFF_4A3858;
+pub const RESEARCH_TAB_EDGE: u32 = 0xFF_6D5634;
+pub const RESEARCH_DONE_EDGE: u32 = 0xFF_E8C56A;
+pub const RESEARCH_DONE_FILL: u32 = 0xFF_3B2E22;
+pub const RESEARCH_OPEN_EDGE: u32 = 0xFF_8F74B8;
+pub const RESEARCH_OPEN_GLOW: u32 = 0xFF_C2A6EE;
+pub const RESEARCH_OPEN_FILL: u32 = 0xFF_241B2C;
+pub const RESEARCH_LOCK_EDGE: u32 = 0xFF_463A50;
+pub const RESEARCH_LOCK_FILL: u32 = 0xFF_1B1520;
+pub const RESEARCH_LINE_DIM: u32 = 0xFF_3A2F44;
+pub const RESEARCH_TIP_FILL: u32 = 0xF0_100010;
+pub const RESEARCH_TIP_EDGE: u32 = 0xFF_5A2D9A;
+pub const RESEARCH_TEXT_GOLD: u32 = 0xE8C56A;
+pub const RESEARCH_TEXT_DIM: u32 = 0x9A8CAA;
+pub const RESEARCH_TEXT_WHITE: u32 = 0xFFFFFF;
+pub const RESEARCH_TEXT_LOCK: u32 = 0x6C5C78;
+
+// Рецепты для страниц: `@craft <файл>` рисует рецепт из
+// `data/biolab/recipe/<файл>.json`. JSON разбираем сами: зависимостей у
+// логики мода нет, а формат рецепта маленький.
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Json {
+    Null,
+    Bool(bool),
+    Num(f64),
+    Str(String),
+    Arr(Vec<Json>),
+    Obj(Vec<(String, Json)>),
+}
+
+impl Json {
+    pub fn parse(text: &str) -> Option<Json> {
+        let mut p = JsonParser { s: text.as_bytes(), i: 0 };
+        let value = p.value()?;
+        p.ws();
+        (p.i == p.s.len()).then_some(value)
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Json> {
+        match self {
+            Json::Obj(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    pub fn str(&self) -> Option<&str> {
+        match self {
+            Json::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn num(&self) -> Option<f64> {
+        match self {
+            Json::Num(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    pub fn arr(&self) -> Option<&[Json]> {
+        match self {
+            Json::Arr(a) => Some(a),
+            _ => None,
+        }
+    }
+}
+
+struct JsonParser<'a> {
+    s: &'a [u8],
+    i: usize,
+}
+
+impl JsonParser<'_> {
+    fn ws(&mut self) {
+        while self.s.get(self.i).is_some_and(u8::is_ascii_whitespace) {
+            self.i += 1;
+        }
+    }
+
+    fn eat(&mut self, c: u8) -> bool {
+        self.ws();
+        if self.s.get(self.i) == Some(&c) {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn literal(&mut self, word: &str, value: Json) -> Option<Json> {
+        if self.s.get(self.i..self.i + word.len())? == word.as_bytes() {
+            self.i += word.len();
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    fn value(&mut self) -> Option<Json> {
+        self.ws();
+        match *self.s.get(self.i)? {
+            b'{' => {
+                self.i += 1;
+                let mut fields = Vec::new();
+                if self.eat(b'}') {
+                    return Some(Json::Obj(fields));
+                }
+                loop {
+                    self.ws();
+                    let key = self.string()?;
+                    if !self.eat(b':') {
+                        return None;
+                    }
+                    fields.push((key, self.value()?));
+                    if self.eat(b',') {
+                        continue;
+                    }
+                    return self.eat(b'}').then_some(Json::Obj(fields));
+                }
+            }
+            b'[' => {
+                self.i += 1;
+                let mut items = Vec::new();
+                if self.eat(b']') {
+                    return Some(Json::Arr(items));
+                }
+                loop {
+                    items.push(self.value()?);
+                    if self.eat(b',') {
+                        continue;
+                    }
+                    return self.eat(b']').then_some(Json::Arr(items));
+                }
+            }
+            b'"' => self.string().map(Json::Str),
+            b't' => self.literal("true", Json::Bool(true)),
+            b'f' => self.literal("false", Json::Bool(false)),
+            b'n' => self.literal("null", Json::Null),
+            _ => {
+                let start = self.i;
+                while self
+                    .s
+                    .get(self.i)
+                    .is_some_and(|c| c.is_ascii_digit() || b"+-.eE".contains(c))
+                {
+                    self.i += 1;
+                }
+                std::str::from_utf8(&self.s[start..self.i]).ok()?.parse().ok().map(Json::Num)
+            }
+        }
+    }
+
+    fn string(&mut self) -> Option<String> {
+        if self.s.get(self.i) != Some(&b'"') {
+            return None;
+        }
+        self.i += 1;
+        let mut out = Vec::new();
+        loop {
+            let c = *self.s.get(self.i)?;
+            self.i += 1;
+            match c {
+                b'"' => break,
+                b'\\' => {
+                    let e = *self.s.get(self.i)?;
+                    self.i += 1;
+                    match e {
+                        b'n' => out.push(b'\n'),
+                        b't' => out.push(b'\t'),
+                        b'r' => out.push(b'\r'),
+                        b'u' => {
+                            let hex = std::str::from_utf8(self.s.get(self.i..self.i + 4)?).ok()?;
+                            self.i += 4;
+                            let ch = char::from_u32(u32::from_str_radix(hex, 16).ok()?).unwrap_or('?');
+                            let mut buf = [0; 4];
+                            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+                        }
+                        other => out.push(other),
+                    }
+                }
+                c => out.push(c),
+            }
+        }
+        String::from_utf8(out).ok()
+    }
+}
+
+/// Рецепт, как его рисует страница.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecipeView {
+    /// Верстак: сетка 3×3 и результат.
+    Grid {
+        cells: [Option<String>; 9],
+        result: String,
+        count: u32,
+        shapeless: bool,
+    },
+    /// Машина мода: вход, машина, время и результат.
+    Machine {
+        input: String,
+        machine: String,
+        result: String,
+        count: u32,
+        seconds: u32,
+    },
+}
+
+/// Предмет ингредиента: строка, `{"item": …}` или первый из списка. Теги
+/// (`#…`) не рисуем — у них нет одной иконки.
+fn ingredient_id(j: &Json) -> Option<String> {
+    match j {
+        Json::Str(s) if !s.starts_with('#') => Some(s.clone()),
+        Json::Obj(_) => j.get("item").and_then(Json::str).map(str::to_string),
+        Json::Arr(a) => a.first().and_then(ingredient_id),
+        _ => None,
+    }
+}
+
+pub fn recipe_path(name: &str) -> String {
+    format!("data/biolab/recipe/{name}.json")
+}
+
+pub fn recipe_view(text: &str) -> Option<RecipeView> {
+    let j = Json::parse(text)?;
+    let kind = j.get("type")?.str()?;
+    let result = j.get("result")?;
+    let (result, count) = match result {
+        Json::Str(s) => (s.clone(), 1),
+        _ => (
+            result.get("id")?.str()?.to_string(),
+            result.get("count").and_then(Json::num).map_or(1, |n| n.max(1.0) as u32),
+        ),
+    };
+    match kind {
+        "minecraft:crafting_shaped" => {
+            let pattern = j.get("pattern")?.arr()?;
+            let key = j.get("key")?;
+            let mut cells: [Option<String>; 9] = Default::default();
+            for (row, line) in pattern.iter().take(3).enumerate() {
+                for (col, ch) in line.str()?.chars().take(3).enumerate() {
+                    if ch != ' ' {
+                        cells[row * 3 + col] = key.get(&ch.to_string()).and_then(ingredient_id);
+                    }
+                }
+            }
+            Some(RecipeView::Grid { cells, result, count, shapeless: false })
+        }
+        "minecraft:crafting_shapeless" => {
+            let mut cells: [Option<String>; 9] = Default::default();
+            for (cell, ingredient) in cells.iter_mut().zip(j.get("ingredients")?.arr()?) {
+                *cell = ingredient_id(ingredient);
+            }
+            Some(RecipeView::Grid { cells, result, count, shapeless: true })
+        }
+        machine if machine.starts_with("biolab:") => {
+            let ticks = j.get("time").and_then(Json::num).unwrap_or(200.0).max(1.0) as u32;
+            Some(RecipeView::Machine {
+                input: ingredient_id(j.get("ingredient")?)?,
+                machine: machine.to_string(),
+                result,
+                count,
+                seconds: ticks.div_ceil(20),
+            })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod research_tests {
+    use super::*;
+
+    #[test]
+    fn the_map_is_consistent() {
+        assert!(RESEARCH.len() <= 64, "маска изученного — 64 бита");
+        let mut cells = std::collections::HashSet::new();
+        for (i, r) in RESEARCH.iter().enumerate() {
+            assert_eq!(research_index(r.id), Some(i), "{} дважды", r.id);
+            assert!(r.science < SCIENCES.len(), "{}", r.id);
+            assert!(f32::from(r.at.0) < RESEARCH_COLS && f32::from(r.at.1) < RESEARCH_ROWS, "{}", r.id);
+            assert!(cells.insert((r.science, r.at)), "{}: клетка занята", r.id);
+            for parent in r.after {
+                let p = research_index(parent).unwrap_or_else(|| panic!("{}: нет узла {parent}", r.id));
+                assert_eq!(RESEARCH[p].science, r.science, "{}: связь через науку", r.id);
+                assert!(p < i, "{}: предшественник ниже по таблице", r.id);
+            }
+        }
+        // У каждой науки есть корень, видимый с самого начала.
+        for science in 0..SCIENCES.len() {
+            assert!(
+                RESEARCH
+                    .iter()
+                    .enumerate()
+                    .any(|(i, r)| r.science == science && node_state(research_bit(0), i) != NodeState::Hidden),
+                "{}",
+                SCIENCES[science].title
+            );
+        }
+    }
+
+    #[test]
+    fn every_item_of_the_map_exists_in_content() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        for r in &RESEARCH {
+            let mut items: Vec<&str> = vec![r.icon];
+            if let Unlock::Item(ids) = r.unlock {
+                items.extend(ids);
+            }
+            for item in items {
+                if let Some(name) = item.strip_prefix("biolab:") {
+                    assert!(
+                        root.join(format!("assets/biolab/items/{name}.json")).exists(),
+                        "{}: нет предмета {item}",
+                        r.id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn nodes_light_up_from_what_the_player_does() {
+        let mut s = PlayerState::default();
+        let items = vec!["biolab:mold".to_string()];
+        let facts = ResearchFacts { items: &items, discovered: 0, identified: 0 };
+        let now = research_now(&s, &facts);
+        let mold = research_index("mold").unwrap();
+        assert_ne!(now & research_bit(mold), 0);
+        assert_ne!(now & research_bit(0), 0, "журнал изучен всегда");
+        assert_eq!(now & research_bit(research_index("infection").unwrap()), 0);
+
+        s.infection = 5;
+        s.drugs[0].blood = 30;
+        s.genes[0] = 1;
+        let empty: Vec<String> = Vec::new();
+        let facts = ResearchFacts { items: &empty, discovered: 1, identified: 10 };
+        let now = research_now(&s, &facts);
+        for id in ["infection", "window", "therapy", "bonds", "identify", "collection"] {
+            assert_ne!(now & research_bit(research_index(id).unwrap()), 0, "{id}");
+        }
+        assert_eq!(now & research_bit(research_index("overdose").unwrap()), 0);
+        s.drugs[0].blood = 500;
+        assert_ne!(research_now(&s, &facts) & research_bit(research_index("overdose").unwrap()), 0);
+        assert_eq!(research_now(&s, &facts) & research_bit(research_index("hardened").unwrap()), 0);
+        s.strain = WILD.values().map(|v| v as u8);
+        s.strain[3] += 1;
+        assert_ne!(research_now(&s, &facts) & research_bit(research_index("hardened").unwrap()), 0);
+    }
+
+    #[test]
+    fn research_is_saved_by_name_and_sent_as_eight_bytes() {
+        let mask = research_bit(0) | research_bit(research_index("vat").unwrap());
+        assert_eq!(research_to_text(mask), "manual,vat");
+        assert_eq!(research_from_text("manual, vat,ghost"), mask);
+        assert_eq!(research_from_packet(&research_packet(mask)), Some(mask));
+        assert_eq!(research_from_packet(&[1, 2]), None);
+        let mut s = PlayerState::default();
+        s.research = mask;
+        assert_eq!(state_from_text(&state_to_text(&s)).research, mask);
+    }
+
+    #[test]
+    fn the_tick_reports_each_node_once() {
+        let dir = std::env::temp_dir().join(format!("biolab-research-{}", std::process::id()));
+        let items = vec!["biolab:still".to_string()];
+        let facts = ResearchFacts { items: &items, discovered: 0, identified: 0 };
+        let (mask, opened) = research_tick(&dir, 7, &facts);
+        assert_eq!(opened, vec![0, research_index("still").unwrap()]);
+        assert_eq!(research_message(opened[1]), "Журнал лаборанта: новая запись «Перегонный куб»");
+        let (again, none) = research_tick(&dir, 7, &facts);
+        assert_eq!(again, mask);
+        assert!(none.is_empty());
+        let saved = std::fs::read_to_string(state_path(&dir, 7)).unwrap();
+        assert!(saved.contains("research=manual,still"), "{saved}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nodes_show_as_done_open_locked_or_hidden() {
+        let bench = research_index("bench").unwrap();
+        let flask = research_index("flask").unwrap();
+        let analyzer = research_index("analyzer").unwrap();
+        let mask = research_bit(0);
+        assert_eq!(node_state(mask, 0), NodeState::Done);
+        assert_eq!(node_state(mask, bench), NodeState::Open);
+        assert_eq!(node_state(mask, flask), NodeState::Hidden);
+        let mask = mask | research_bit(bench);
+        assert_eq!(node_state(mask, flask), NodeState::Open);
+        assert_eq!(node_state(mask, analyzer), NodeState::Hidden);
+        assert_eq!(research_tooltip(mask, flask)[1], "Сделайте колбу.");
+        assert_eq!(research_progress(mask), format!("Изучено 2 из {}", RESEARCH.len()));
+        // Частично открытые предшественники: виден вопрос.
+        let window = research_index("window").unwrap();
+        assert_eq!(node_state(research_bit(research_index("pills").unwrap()), window), NodeState::Open);
+        assert_eq!(research_tooltip(0, flask), vec!["???".to_string(), "Сначала: Лабораторный стол".to_string()]);
+        // Забежал вперёд: бинт изучен, агар перед ним виден вопросом.
+        let agar = research_index("agar").unwrap();
+        let bandage = research_bit(research_index("bandage").unwrap());
+        assert_eq!(node_state(research_bit(0) | bandage, agar), NodeState::Locked);
+    }
+
+    #[test]
+    fn layout_fits_small_and_large_screens() {
+        for (w, h) in [(320.0, 200.0), (427.0, 240.0), (640.0, 360.0), (960.0, 540.0)] {
+            let l = research_layout(w, h);
+            assert!(tab_rect(&l, 0)[0] >= 0.0, "{w}×{h}: вкладки за краем");
+            assert!(l.frame[0] + l.frame[2] <= w + 1.0 && l.frame[1] >= 0.0, "{w}×{h}");
+            for (i, r) in RESEARCH.iter().enumerate() {
+                let rect = node_rect(&l, r);
+                assert!(rect[0] >= l.grid[0] && rect[0] + rect[2] <= l.grid[0] + l.grid[2], "{w}×{h}: {i}");
+                assert!(rect[1] >= l.field[1] && rect[1] + rect[3] <= l.field[1] + l.field[3], "{w}×{h}: {i}");
+            }
+            // Узлы одной науки не налезают друг на друга.
+            for a in 0..RESEARCH.len() {
+                for b in a + 1..RESEARCH.len() {
+                    if RESEARCH[a].science == RESEARCH[b].science {
+                        let (ra, rb) = (node_rect(&l, &RESEARCH[a]), node_rect(&l, &RESEARCH[b]));
+                        let apart = ra[0] + ra[2] <= rb[0] || rb[0] + rb[2] <= ra[0] || ra[1] + ra[3] <= rb[1] || rb[1] + rb[3] <= ra[1];
+                        assert!(apart, "{w}×{h}: {} и {}", RESEARCH[a].id, RESEARCH[b].id);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn clicks_open_records_switch_tabs_and_turn_pages() {
+        let l = research_layout(427.0, 240.0);
+        let mask = research_bit(0);
+        let view = ResearchView { open: true, science: 0, page: None };
+        let bench = research_index("bench").unwrap();
+        let center = node_center(&l, &RESEARCH[bench]);
+        assert_eq!(research_hit(&l, &view, mask, center), ResearchHit::Node(bench));
+        let opened = research_click(view, ResearchHit::Node(bench), mask, 1);
+        assert_eq!(opened.page, Some((bench, 0)));
+        // Скрытый узел не ловит мышь.
+        let flask = research_index("flask").unwrap();
+        assert_eq!(research_hit(&l, &view, mask, node_center(&l, &RESEARCH[flask])), ResearchHit::Nothing);
+        let tab = tab_rect(&l, 3);
+        assert_eq!(research_hit(&l, &view, mask, [tab[0] + 2.0, tab[1] + 2.0]), ResearchHit::Tab(3));
+        // Страницы листаются в пределах записи, щелчок мимо закрывает её.
+        let [previous, next, back] = page_buttons(&l);
+        assert_eq!(research_hit(&l, &opened, mask, [next[0] + 1.0, next[1] + 1.0]), ResearchHit::PageNext);
+        assert_eq!(research_hit(&l, &opened, mask, [previous[0] + 1.0, previous[1] + 1.0]), ResearchHit::PagePrevious);
+        assert_eq!(research_hit(&l, &opened, mask, [back[0] + 1.0, back[1] + 1.0]), ResearchHit::PageBack);
+        assert_eq!(research_hit(&l, &opened, mask, [1.0, 1.0]), ResearchHit::PageBack);
+        let turned = research_click(opened, ResearchHit::PageNext, mask, 3);
+        assert_eq!(turned.page, Some((bench, 1)));
+        let last = research_click(research_click(turned, ResearchHit::PageNext, mask, 2), ResearchHit::PageNext, mask, 2);
+        assert_eq!(last.page, Some((bench, 1)));
+        // Клавиши: Esc закрывает запись, потом экран; цифры — науки.
+        let (back_to_map, close) = research_key(opened, "escape", 1);
+        assert_eq!((back_to_map.page, close), (None, false));
+        assert!(research_key(back_to_map, "escape", 1).1);
+        assert_eq!(research_key(view, "5", 1).0.science, 4);
+        assert_eq!(research_key(view, "9", 1).0, view);
+    }
+
+    #[test]
+    fn records_are_read_by_node_and_split_into_pages() {
+        let text = "= manual\n# Один\nтекст\n---\n# Два\n= bench\n# Стол\n";
+        let manual = research_pages(text, 0);
+        assert_eq!(manual, vec!["# Один\nтекст".to_string(), "# Два".to_string()]);
+        assert_eq!(research_pages(text, research_index("bench").unwrap()), vec!["# Стол".to_string()]);
+        let flask = research_index("flask").unwrap();
+        assert_eq!(research_pages(text, flask), vec!["# Колба\nСделайте колбу.".to_string()]);
+    }
+
+    #[test]
+    fn every_node_has_a_record_and_its_recipes_exist() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let text = std::fs::read_to_string(root.join(RESEARCH_PATH)).unwrap();
+        for (i, r) in RESEARCH.iter().enumerate() {
+            assert!(text.contains(&format!("= {}\n", r.id)), "нет записи {}", r.id);
+            for page in research_pages(&text, i) {
+                for line in page_lines(&page) {
+                    if let Line::Craft(name) = line {
+                        let json = std::fs::read_to_string(root.join(recipe_path(&name)))
+                            .unwrap_or_else(|_| panic!("{}: нет рецепта {name}", r.id));
+                        assert!(recipe_view(&json).is_some(), "{}: рецепт {name} не разобрался", r.id);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_recipe_of_the_mod_parses() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(recipe_view(&text).is_some(), "{}", path.display());
+        }
+    }
+
+    #[test]
+    fn recipes_become_grids_and_machine_lines() {
+        let shaped = r#"{"type":"minecraft:crafting_shaped","pattern":[" g "," i ","iii"],"key":{"g":"minecraft:glass_pane","i":{"item":"minecraft:iron_ingot"}},"result":{"id":"biolab:microscope","count":1}}"#;
+        let Some(RecipeView::Grid { cells, result, count, shapeless }) = recipe_view(shaped) else {
+            panic!("не сетка");
+        };
+        assert_eq!(cells[1].as_deref(), Some("minecraft:glass_pane"));
+        assert_eq!(cells[0], None);
+        assert_eq!(cells[8].as_deref(), Some("minecraft:iron_ingot"));
+        assert_eq!((result.as_str(), count, shapeless), ("biolab:microscope", 1, false));
+        let machine = "{\n \"type\": \"biolab:press\",\n \"ingredient\": \"biolab:extract_salicylate\",\n \"result\": {\"id\": \"biolab:pill_analgesic\", \"count\": 2},\n \"time\": 100\n}";
+        assert_eq!(
+            recipe_view(machine),
+            Some(RecipeView::Machine {
+                input: "biolab:extract_salicylate".into(),
+                machine: "biolab:press".into(),
+                result: "biolab:pill_analgesic".into(),
+                count: 2,
+                seconds: 5,
+            })
+        );
+        assert_eq!(Json::parse(r#"{"a":"Ж\n","b":[1,-2.5e1,true,null]}"#).unwrap().get("a").and_then(Json::str), Some("Ж\n"));
+        assert_eq!(Json::parse("{\"a\":1,}"), None);
+        assert_eq!(recipe_view("{\"type\":\"minecraft:smelting\",\"result\":\"x\"}"), None);
     }
 }

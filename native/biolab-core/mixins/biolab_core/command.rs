@@ -38,29 +38,9 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
             return;
         }
         Some("book") => {
-            // Новая книга: пригодится после обновления мода или если потеряли.
-            let text = game
-                .native_data(m::MANUAL_PATH)
-                .and_then(|bytes| String::from_utf8(bytes).ok());
-            let pages = match text.as_deref() {
-                Some(text) => m::manual_pages(text),
-                None => m::manual_fallback(),
-            };
-            let count = pages.len();
-            let mut book = horizon_client::items::ItemStack {
-                item: m::MANUAL_ID.into(),
-                count: 1,
-                damage: 0,
-                extra: None,
-            };
-            let data = book.extra.get_or_insert_with(Default::default);
-            data.written = Some(horizon_client::item_data::WrittenBook {
-                title: m::MANUAL_TITLE.to_string(),
-                author: m::MANUAL_AUTHOR.to_string(),
-                generation: 0,
-                pages,
-                page_tags: Vec::new(),
-            });
+            // Новая книга: пригодится, если потеряли. Изученное хранится у
+            // игрока, а не в книге, так что новая знает всё то же.
+            let book = horizon_client::items::ItemStack::new(m::MANUAL_ID, 1);
             let mut placed = false;
             for slot in 0..36 {
                 if let Some(place) = game.native_carried_slot(slot)
@@ -72,7 +52,7 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
                 }
             }
             game.native_chat(&if placed {
-                format!("Журнал лаборанта: {count} страниц")
+                "Выдан журнал лаборанта".to_string()
             } else {
                 "Некуда положить книгу: освободите слот".to_string()
             });

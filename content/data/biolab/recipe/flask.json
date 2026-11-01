@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "minecraft:glass_bottle",
+  "minecraft:clay_ball"
+ ],
+ "result": {
+  "id": "biolab:flask",
+  "count": 1
+ }
+}

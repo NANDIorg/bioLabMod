@@ -10,30 +10,10 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
     let Some(state) = m::player_tick(&world, uuid) else {
         return;
     };
-    // Первый вход в мир: игрок получает «Журнал лаборанта». Страницы берём
-    // из данных мода, чтобы правка текста не требовала пересборки.
+    // Первый вход в мир: игрок получает «Журнал лаборанта» — карту
+    // исследований. Что изучено, хранится у игрока, а не в книге.
     if state.ticks <= 2 && m::take_manual(&world, uuid) {
-        let text = game
-            .native_data(m::MANUAL_PATH)
-            .and_then(|bytes| String::from_utf8(bytes).ok());
-        let pages = match text.as_deref() {
-            Some(text) => m::manual_pages(text),
-            None => m::manual_fallback(),
-        };
-        let mut book = horizon_client::items::ItemStack {
-            item: m::MANUAL_ID.into(),
-            count: 1,
-            damage: 0,
-            extra: None,
-        };
-        let data = book.extra.get_or_insert_with(Default::default);
-        data.written = Some(horizon_client::item_data::WrittenBook {
-            title: m::MANUAL_TITLE.to_string(),
-            author: m::MANUAL_AUTHOR.to_string(),
-            generation: 0,
-            pages,
-            page_tags: Vec::new(),
-        });
+        let book = horizon_client::items::ItemStack::new(m::MANUAL_ID, 1);
         let mut placed = false;
         for slot in 0..36 {
             if let Some(place) = game.native_carried_slot(slot)
@@ -45,7 +25,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             }
         }
         if placed {
-            game.native_chat("Выдан журнал лаборанта: прочтите, с чего начать");
+            game.native_chat("Выдан журнал лаборанта: откройте его, там карта исследований");
         }
     }
 
@@ -176,6 +156,28 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             m::NET_INFECTION,
             &m::pharma_packet(&after, journal),
         );
+
+        // Карта исследований: что игрок держит и что записано в журнале
+        // зажигает узлы. Новое — в чат, вся маска — клиенту для экрана.
+        let mut items = Vec::new();
+        for slot in (0..36).chain([-106]) {
+            if let Some(Some(stack)) = game.native_carried_slot(slot).map(|s| s.as_ref()) {
+                items.push(stack.item.to_string());
+            }
+        }
+        let entries = m::discoveries(&world);
+        let facts = m::ResearchFacts {
+            items: &items,
+            discovered: entries.len() as u32,
+            identified: entries.iter().filter(|e| e.identified).count() as u32,
+        };
+        let (mask, opened) = m::research_tick(&world, uuid, &facts);
+        for index in opened {
+            if index != 0 {
+                game.native_chat(&m::research_message(index));
+            }
+        }
+        let _ = game.native_net_send_to_player(uuid, m::NET_RESEARCH, &m::research_packet(mask));
     }
 
     // Симптомы: подновляем короткими эффектами, чтобы они гасли сами, когда

@@ -1,6 +1,12 @@
 // Сервер прислал состояние для анализатора: заражение, журнал и кровь.
 fn biolab_core_net_from_server(channel: &str, data: &[u8]) {
     use crate::game::biolab_core as m;
+    if channel == m::NET_RESEARCH {
+        if let Some(mask) = m::research_from_packet(data) {
+            m::remember_research(mask);
+        }
+        return;
+    }
     if channel != m::NET_INFECTION {
         return;
     }
