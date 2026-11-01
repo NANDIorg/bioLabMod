@@ -116,8 +116,20 @@ fn biolab_core_machine_tick(
             return;
         }
 
-        // Готово: забираем все элементы и выдаём колбу с веществом.
-        for slot in 0..output_slot {
+        // Готово: забираем элементы и выдаём колбу с веществом. Чертёж
+        // остаётся в своём слоте — какие слоты чистить, решает
+        // `synth_spent_slots` (раньше чистились все входы, и чертёж пропадал).
+        let inputs: Vec<Option<String>> = (0..output_slot)
+            .map(|slot| {
+                entity
+                    .items
+                    .get(slot)
+                    .and_then(|s| s.as_ref())
+                    .map(|stack| stack.item.to_string())
+            })
+            .collect();
+        let ids: Vec<Option<&str>> = inputs.iter().map(|id| id.as_deref()).collect();
+        for slot in m::synth_spent_slots(&ids) {
             if let Some(stack) = entity.items.get_mut(slot) {
                 *stack = None;
             }

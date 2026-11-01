@@ -2,7 +2,10 @@
 // поведение и вид.
 //
 // Своих видов мобов платформа не поддерживает (виды — закрытый enum Species),
-// поэтому мутант — это обычный зомби, которому при рождении выпал геном.
+// поэтому мутант — это обычный моб любого вида, которому при рождении выпал
+// геном (шансы по видам — `roll_for` в бинарнике). Всё ниже не зависит от
+// вида: оттенок и размер ложатся поверх ванильных, а здоровье считается от
+// базового здоровья вида (`scaled_stats`).
 // Геном — до трёх генов, у каждого сила 1–3; суммарная «цена» генов не
 // превышает предела стабильности, иначе организм нежизнеспособен.
 //
@@ -210,6 +213,35 @@ pub fn stats(genome: &Genome) -> [f64; 5] {
         }
     }
     total
+}
+
+/// Здоровье зомби: под него подобраны прибавки `GENE_STATS`.
+pub const REFERENCE_HEALTH: f64 = 20.0;
+
+/// Прибавки генома для моба с базовым здоровьем `base_health`.
+///
+/// Прибавки здоровья в таблице — для зомби. Курице (4 сердца пополам) те же
+/// +18 гигантизма сделали бы её крепче зомби, а −21 тонкой кожи с
+/// карликовостью — сразу трупом с одним очком здоровья. Поэтому здоровье
+/// масштабируется по виду (от четверти до двойной прибавки) и никогда не
+/// срезает больше половины базового. Урон, броня, скорость и отбрасывание
+/// не масштабируются: урон мерится здоровьем игрока, а скорость и так в
+/// долях базы.
+pub fn scaled_stats(genome: &Genome, base_health: f64) -> [f64; 5] {
+    let mut total = stats(genome);
+    let base = if base_health > 0.0 { base_health } else { REFERENCE_HEALTH };
+    let factor = (base / REFERENCE_HEALTH).clamp(0.25, 2.0);
+    total[0] = (total[0] * factor).max(-base / 2.0);
+    total
+}
+
+/// Оттенок мутанта поверх ванильного цвета тела (оба в ABGR): каналы
+/// перемножаются. Так у мокрого волка остаётся тень, а у тропической рыбы —
+/// узор её красителя, просто окрашенный геном; прозрачность — ванильная.
+pub fn tint_over(vanilla: u32, tint: u32) -> u32 {
+    let channel = |c: u32, shift: u32| (c >> shift) & 0xFF;
+    let mul = |shift: u32| (channel(vanilla, shift) * channel(tint, shift) / 255) << shift;
+    (vanilla & 0xFF00_0000) | mul(16) | mul(8) | mul(0)
 }
 
 /// Что ген делает, кроме чисел: по этим меткам работают тик моба и тик мира.
@@ -636,6 +668,42 @@ mod tests {
         assert!(stats(&mixed)[3] > 0.0, "хитин даёт броню");
         assert_eq!(stats(&Genome::default()), [0.0; 5]);
         assert_eq!(GENE_STATS.len(), GENE_NAMES.len());
+    }
+
+    #[test]
+    fn health_bonus_follows_the_species() {
+        let mut giant = Genome::default();
+        giant.add(gene("gigantism", 3));
+        // Зомби — эталон: прибавка как в таблице.
+        assert_eq!(scaled_stats(&giant, 20.0), stats(&giant));
+        // Курица крепнет соразмерно себе, а не на зомбиные +18.
+        let chicken = scaled_stats(&giant, 4.0);
+        assert!((chicken[0] - 18.0 * 0.25).abs() < 1e-9, "{chicken:?}");
+        assert_eq!(chicken[2], stats(&giant)[2], "урон не масштабируется");
+        // Равагер не получает впятеро больше: потолок — вдвое.
+        assert!((scaled_stats(&giant, 100.0)[0] - 36.0).abs() < 1e-9);
+
+        // Тонкая кожа с карликовостью не убивают моба самим геномом.
+        let mut frail = Genome::default();
+        frail.add(gene("thin_skin", 3));
+        frail.add(gene("dwarfism", 3));
+        assert!(stats(&frail)[0] < -20.0);
+        for base in [4.0, 8.0, 10.0, 20.0, 40.0, 100.0] {
+            let health = base + scaled_stats(&frail, base)[0];
+            assert!(health >= base / 2.0 - 1e-9, "база {base}: осталось {health}");
+        }
+        // Неизвестная база (0) считается как у зомби.
+        assert_eq!(scaled_stats(&giant, 0.0), stats(&giant));
+    }
+
+    #[test]
+    fn tint_lies_over_the_vanilla_colour() {
+        let tint = 0xFF40_80C0;
+        assert_eq!(tint_over(0xFFFF_FFFF, tint), tint, "обычный моб — чистый оттенок");
+        assert_eq!(tint_over(0x80FF_FFFF, tint) >> 24, 0x80, "прозрачность ванильная");
+        let shaded = tint_over(0xFFBF_BFBF, tint);
+        assert!(shaded & 0xFF < tint & 0xFF, "тень мокрого волка остаётся");
+        assert_eq!(tint_over(0xFF00_0000, tint), 0xFF00_0000);
     }
 
     #[test]

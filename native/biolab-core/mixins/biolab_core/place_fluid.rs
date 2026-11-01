@@ -79,5 +79,30 @@ fn biolab_core_use_item_on(
     if game.native_set_block(&dimension, at, state, horizon_world::level::flags::UPDATE_ALL) {
         game.native_set_block_property(at, "layers", &m::FLUID_LAYERS.to_string());
         *claimed = true;
+        // Вылитое ведро пустеет, как ванильное: в выживании в руке остаётся
+        // `minecraft:bucket`, в творческом — то же ведро. Режим — флаг
+        // `creative` игры: по нему ванилла не тратит предметы (`consume_held`)
+        // и не меняет ведро (`SolidBucketItem.useOn`); у гостя LAN в его ход
+        // флаг подменён на гостевой. Руку ищем как соседний код грядки:
+        // основная, если в ней это ведро, иначе левая (-106).
+        if let Some(empty) = m::emptied_bucket(&stack.item, game.creative) {
+            let main = game.selected as i32;
+            let slot = if game
+                .native_carried_stack(main)
+                .is_some_and(|held| &*held.item == &*stack.item)
+            {
+                main
+            } else {
+                -106
+            };
+            if let Some(held) = game.native_carried_stack(slot)
+                && &*held.item == &*stack.item
+            {
+                held.item = empty.into();
+                held.count = 1;
+                held.damage = 0;
+                held.extra = None;
+            }
+        }
     }
 }

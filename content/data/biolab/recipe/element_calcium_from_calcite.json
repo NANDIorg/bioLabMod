@@ -1,9 +1,9 @@
 {
  "type": "biolab:reactor",
- "ingredient": "biolab:element_calcium",
+ "ingredient": "minecraft:calcite",
  "result": {
-  "id": "biolab:element_oxygen",
-  "count": 1
+  "id": "biolab:element_calcium",
+  "count": 2
  },
  "temperature": [
   400,

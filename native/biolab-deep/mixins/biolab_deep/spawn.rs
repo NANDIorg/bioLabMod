@@ -25,7 +25,10 @@ fn biolab_deep_mutate(m: &mut crate::mobs::Mob) {
 
     // Прибавки ставим заново: модификатор с тем же именем заменяется, так что
     // усиленный ген не складывается сам с собой.
-    let stats = mut_::stats(&genome);
+    // Мутант бывает любого вида: здоровье считаем от базового здоровья вида
+    // (без модификаторов), чтобы курица не стала крепче зомби.
+    let base_health = crate::mobs::finalize::base_value(m, Attr::MaxHealth);
+    let stats = mut_::scaled_stats(&genome, base_health);
     let rows = [
         (Attr::MaxHealth, mut_::STAT_MODIFIERS[0], stats[0], Op::AddValue),
         (

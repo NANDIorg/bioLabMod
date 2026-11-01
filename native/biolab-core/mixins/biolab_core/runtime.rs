@@ -120,9 +120,9 @@ pub const ITEM_HINTS: [(&str, &[&str]); 58] = [
     // Химия.
     ("biolab:flask", &["Центрифуга разложит, спектрометр опознает"]),
     ("biolab:blueprint", &["В синтезаторе задаёт состав, не тратится"]),
-    ("biolab:acid_puddle_bucket", &["ПКМ по блоку — разлить: кислота жжёт"]),
-    ("biolab:sludge_bucket", &["ПКМ по блоку — разлить: шлам травит"]),
-    ("biolab:slime_bucket", &["ПКМ по блоку — разлить: слизь заражает"]),
+    ("biolab:acid_puddle_bucket", &["ПКМ по блоку — разлить: кислота жжёт", "Ведро остаётся пустым"]),
+    ("biolab:sludge_bucket", &["ПКМ по блоку — разлить: шлам травит", "Ведро остаётся пустым"]),
+    ("biolab:slime_bucket", &["ПКМ по блоку — разлить: слизь заражает", "Ведро остаётся пустым"]),
     // Болезни и штаммы.
     ("biolab:agar", &["Основа бинта, раствора и ГМ-грядки"]),
     ("biolab:swab", &["В инкубаторе вырастает в культуру"]),
@@ -164,7 +164,7 @@ pub const ITEM_HINTS: [(&str, &[&str]); 58] = [
     ("biolab:gm_crop", &["ПКМ — съесть: действует по геному", "Сажается в грядку, экстрактор даст ген"]),
     ("biolab:mutagen", &["Со шприцем — инъекция, два в ведре — лужа"]),
     ("biolab:syringe_mutagen", &["ПКМ по мобу — копит мутацию генома"]),
-    ("biolab:mutagen_bucket", &["ПКМ по блоку — разлить лужу мутагена"]),
+    ("biolab:mutagen_bucket", &["ПКМ по блоку — разлить лужу мутагена", "Ведро остаётся пустым"]),
     // Книга.
     ("biolab:lab_manual", &["ПКМ — открыть карту исследований"]),
 ];
@@ -686,6 +686,20 @@ pub fn synth_status(formula: &Formula, blueprint: Option<&Formula>) -> i32 {
     } else {
         SYNTH_UNSTABLE
     }
+}
+
+/// Какие входные слоты синтезатор опустошает, когда вещество готово: только
+/// те, где лежат элементы — они и стали веществом. Чертёж остаётся в своём
+/// слоте (по нему собирают сколько угодно раз), а чужой предмет, случайно
+/// положенный в сетку, не пропадает. Раньше чистились все входы, и чертёж
+/// уходил вместе с элементами. `items` — id предметов во входах по порядку.
+pub fn synth_spent_slots(items: &[Option<&str>]) -> Vec<usize> {
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.is_some_and(|id| element(id).is_some()))
+        .map(|(slot, _)| slot)
+        .collect()
 }
 
 // ---- Звуки ----
@@ -2042,6 +2056,17 @@ pub fn fluid_of_block(block: &str) -> Option<&'static Fluid> {
 /// Лужа, которую разливает это ведро.
 pub fn fluid_of_bucket(item: &str) -> Option<&'static Fluid> {
     FLUIDS.iter().find(|f| f.bucket == item)
+}
+
+/// Пустое ведро — ванильное.
+pub const EMPTY_BUCKET: &str = "minecraft:bucket";
+
+/// Что остаётся в руке, когда ведро лужи вылито: в выживании пустое ведро,
+/// в творческом — то же ведро, как у ванильных вёдер
+/// (`BucketItem.getEmptySuccessItem`). None — рука не меняется: творческий
+/// режим или это не наше ведро.
+pub fn emptied_bucket(item: &str, creative: bool) -> Option<&'static str> {
+    (fluid_of_bucket(item).is_some() && !creative).then_some(EMPTY_BUCKET)
 }
 
 /// Как часто лужа действует на стоящего в ней.
@@ -3914,9 +3939,13 @@ mod tests {
             assert!(hint(dart).contains(&format!("до {} блоков", DART_RANGE as i32)), "{dart}");
         }
         // Ведро разливает лужу по блоку (`place_fluid.rs`).
+        // Вылитое ведро пустеет (`emptied_bucket`), и подсказка это говорит.
         for fluid in &FLUIDS {
             assert!(hint(fluid.bucket).contains("ПКМ по блоку"), "{}", fluid.bucket);
+            assert!(hint(fluid.bucket).contains("пустым"), "{}", fluid.bucket);
         }
+        // Чертёж в синтезаторе не тратится (`synth_spent_slots`).
+        assert!(hint(BLUEPRINT_ID).contains("не тратится"));
         // Фрагмент: по мобу (`inject.rs`) и по себе (`remedy.rs`).
         assert!(hint(FRAGMENT_ID).contains("по мобу") && hint(FRAGMENT_ID).contains("по себе"));
         assert!(hint(MICROSCOPE_ID).contains("по мобу"));
@@ -4186,6 +4215,94 @@ mod tests {
         assert!(temperature_fits(300, Some((200, 400))));
         assert!(!temperature_fits(100, Some((200, 400))));
         assert!(!temperature_fits(500, Some((200, 400))));
+    }
+
+    /// Рецепт реактора выполним, только если какой-то источник тепла держит
+    /// температуру в его диапазоне сам: нагрев ползёт к потолку источника и
+    /// стоит на нём, а выход из диапазона сбрасывает прогресс. Раньше
+    /// ослабленная культура требовала 60–140 °C при самом слабом источнике в
+    /// 300 °C, и её приходилось вымучивать огнивом.
+    #[test]
+    fn every_reactor_recipe_has_a_steady_heat_source() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let j = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            if j.get("type").and_then(Json::str) != Some(REACTOR) {
+                continue;
+            }
+            let Some(range) = j.get("temperature").and_then(Json::arr) else {
+                continue;
+            };
+            let (min, max) = (range[0].num().unwrap() as i32, range[1].num().unwrap() as i32);
+            let time = j.get("time").and_then(Json::num).map_or(DEFAULT_TIME, |t| t as i32);
+            let steady: Vec<&str> = HEAT_SOURCES
+                .iter()
+                .filter(|(_, ceiling)| (min..=max).contains(ceiling))
+                .map(|(block, _)| *block)
+                .collect();
+            assert!(!steady.is_empty(), "{}: ни один источник не стоит в {min}–{max} °C", path.display());
+            // И на деле: от комнатной температуры реактор доходит до диапазона
+            // и держится в нём всё время рецепта, без рук игрока.
+            for block in steady {
+                let mut t = ROOM_TEMPERATURE;
+                let mut inside = 0;
+                for _ in 0..2000 {
+                    t = next_temperature(t, heat_target(block));
+                    if temperature_fits(t, Some((min, max))) {
+                        inside += 1;
+                    } else {
+                        assert_eq!(inside, 0, "{}: на {block} вышел из диапазона", path.display());
+                    }
+                }
+                assert!(inside >= time, "{}: на {block} в диапазоне {inside} тиков", path.display());
+                assert!(t <= OVERHEAT);
+            }
+            checked += 1;
+        }
+        assert!(checked >= 3, "рецептов реактора с температурой: {checked}");
+    }
+
+    #[test]
+    fn weakened_culture_cooks_on_a_campfire() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let view = recipe_view(&std::fs::read_to_string(root.join(recipe_path("culture_weakened"))).unwrap());
+        assert!(matches!(view, Some(RecipeView::Machine { ref machine, .. }) if machine == REACTOR));
+        let j = Json::parse(&std::fs::read_to_string(root.join(recipe_path("culture_weakened"))).unwrap()).unwrap();
+        let range = j.get("temperature").and_then(Json::arr).unwrap();
+        let (min, max) = (range[0].num().unwrap() as i32, range[1].num().unwrap() as i32);
+        for block in ["minecraft:campfire", "minecraft:soul_campfire"] {
+            assert!((min..=max).contains(&heat_target(block).unwrap()), "{block}");
+        }
+        assert!(!(min..=max).contains(&heat_target("minecraft:magma_block").unwrap()), "на магме культура сгорает");
+    }
+
+    #[test]
+    fn synthesizer_spends_elements_and_keeps_the_blueprint() {
+        let inputs = [
+            Some("biolab:element_hydrogen"),
+            Some(BLUEPRINT_ID),
+            None,
+            Some("biolab:element_oxygen"),
+            Some("minecraft:dirt"),
+            None,
+            None,
+            Some("biolab:element_hydrogen"),
+        ];
+        assert_eq!(synth_spent_slots(&inputs), vec![0, 3, 7], "чертёж и чужой предмет остаются");
+        assert!(synth_spent_slots(&[Some(BLUEPRINT_ID), None]).is_empty());
+        assert!(synth_spent_slots(&[]).is_empty());
+    }
+
+    #[test]
+    fn poured_buckets_empty_in_survival_only() {
+        for fluid in &FLUIDS {
+            assert_eq!(emptied_bucket(fluid.bucket, false), Some(EMPTY_BUCKET), "{}", fluid.bucket);
+            assert_eq!(emptied_bucket(fluid.bucket, true), None, "{}: в творческом ведро остаётся", fluid.bucket);
+        }
+        assert_eq!(emptied_bucket("minecraft:water_bucket", false), None, "ванильные вёдра — не наши");
+        assert_eq!(emptied_bucket(EMPTY_BUCKET, false), None);
     }
 
     #[test]
@@ -5624,7 +5741,7 @@ pub const RESEARCH: [Research; 47] = [
     node("incubator", 2, (0, 1), "biolab:incubator", "Инкубатор", &[], Unlock::Item(&["biolab:incubator"]), "Сделайте инкубатор: медь, стекло, печь."),
     node("culture", 2, (1, 1), "biolab:culture", "Культура", &["incubator"], Unlock::Item(&["biolab:culture"]), "Положите ватную палочку в инкубатор."),
     node("strain", 2, (2, 0), "biolab:microscope", "Штамм", &["culture"], Unlock::Item(&["biolab:microscope"]), "Соберите микроскоп на лабораторном столе."),
-    node("weakened", 2, (2, 1), "biolab:culture_weakened", "Ослабленная культура", &["culture"], Unlock::Item(&["biolab:culture_weakened"]), "Нагрейте культуру в реакторе до 60–140 °C."),
+    node("weakened", 2, (2, 1), "biolab:culture_weakened", "Ослабленная культура", &["culture"], Unlock::Item(&["biolab:culture_weakened"]), "Культуру — в реактор над костром, 250–400 °C."),
     node("vaccine", 2, (3, 1), "biolab:syringe_vaccine", "Вакцина", &["weakened"], Unlock::Item(&["biolab:syringe_vaccine"]), "Соберите на столе шприц и ослабленный штамм."),
     node("immunity", 2, (4, 1), "minecraft:golden_apple", "Иммунитет", &["vaccine"], Unlock::Immune, "Вакцину в руку и ПКМ в воздух."),
     node("infection", 2, (0, 3), "minecraft:rotten_flesh", "Заражение", &[], Unlock::Infected, "Съешьте гнилую плоть или подойдите к зомби."),
@@ -5643,7 +5760,7 @@ pub const RESEARCH: [Research; 47] = [
     node("darts", 3, (4, 1), "biolab:dart_sedative", "Дротики", &["injections"], Unlock::Item(&["biolab:dart_sedative", "biolab:dart_venom"]), "Соберите дротик: шприц, перо и палка."),
     // Генетика
     node("scalpel", 4, (0, 1), "biolab:scalpel", "Скальпель", &[], Unlock::Item(&["biolab:scalpel"]), "Соберите скальпель на лабораторном столе."),
-    node("tissue", 4, (1, 1), "biolab:mutant_tissue", "Ткань мутанта", &["scalpel"], Unlock::Item(&["biolab:mutant_tissue"]), "Убейте мутанта: сейчас это любой зомби."),
+    node("tissue", 4, (1, 1), "biolab:mutant_tissue", "Ткань мутанта", &["scalpel"], Unlock::Item(&["biolab:mutant_tissue"]), "Убейте мутанта: моба необычного цвета."),
     node("extractor", 4, (2, 1), "biolab:extractor", "Экстрактор ДНК", &["tissue"], Unlock::Item(&["biolab:extractor"]), "Сделайте экстрактор ДНК: нужен микроскоп."),
     node("fragment", 4, (3, 1), "biolab:dna_fragment", "Фрагмент ДНК", &["extractor"], Unlock::Item(&["biolab:dna_fragment"]), "Положите мутантную ткань в экстрактор."),
     node("mutagen", 4, (2, 3), "biolab:mutagen", "Мутаген", &["extractor"], Unlock::Item(&["biolab:mutagen", "biolab:mutagen_bucket", "biolab:syringe_mutagen"]), "Соберите мутаген на лабораторном столе."),

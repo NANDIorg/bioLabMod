@@ -62,7 +62,7 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     };
 
     let mut orders: Vec<(u32, Option<Who>, Vec<(&'static str, i32, i32)>, f32)> = Vec::new();
-    for (id, at, _, _, genes) in &mobs {
+    for (id, at, own, _, genes) in &mobs {
         if genes.is_empty() {
             continue;
         }
@@ -70,11 +70,14 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
         let mut effects: Vec<(&'static str, i32, i32)> = Vec::new();
         let mut heal = 0.0;
 
-        // Хищник: ближайшее мирное животное становится целью.
-        if m::behaviour_strength(genes, "predator") > 0 {
+        // Хищник: ближайшее мирное животное становится целью. Мутантом
+        // теперь бывает любой вид, и ген могут вколоть корове — сама добыча
+        // не охотится (атаки у неё нет, цель её ИИ всё равно бросит), а
+        // хищник не охотится на свой вид.
+        if m::behaviour_strength(genes, "predator") > 0 && !prey(*own) {
             let mut best: Option<(u32, f64)> = None;
             for (other, spot, species, _, _) in &mobs {
-                if other == id || !prey(*species) {
+                if other == id || !prey(*species) || species == own {
                     continue;
                 }
                 let away = (spot[0] - at[0]).powi(2)
@@ -91,12 +94,14 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
             }
         }
 
-        // Стая: рядом свои — все злее и быстрее.
+        // Стая: рядом свои — все злее и быстрее. Свои — мутанты того же
+        // вида: когда мутировали одни зомби, это выходило само, а теперь
+        // мутант-корова зомби в стаю не годится.
         if m::behaviour_strength(genes, "pack") > 0 {
             let friends = mobs
                 .iter()
-                .filter(|(other, spot, _, marked, _)| {
-                    other != id && *marked && near(*at, *spot, m::PACK_RANGE)
+                .filter(|(other, spot, species, marked, _)| {
+                    other != id && *marked && species == own && near(*at, *spot, m::PACK_RANGE)
                 })
                 .count();
             if friends >= m::PACK_NEIGHBOURS {

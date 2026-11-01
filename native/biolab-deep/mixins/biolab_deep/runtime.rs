@@ -256,34 +256,175 @@ pub const GENE_MARKERS: [&str; 96] = [
     "biolab:gene/rending_claws/3",
 ];
 
-/// Доля мутантов среди зомби, в процентах. Прототип: мутируют все.
-pub const MUTATION_PERCENT: u32 = 100;
+// ---- Кто бывает мутантом ----
+//
+// Естественный мутант — любой живой моб, которому при появлении в мире выпал
+// геном. Шанс зависит от нрава вида: среди враждебных мутантов больше, чтобы
+// ткань добывалась обычной охотой, среди мирных и нейтральных — редкость,
+// иначе стадо у дома превращалось бы в зоопарк. Вид узнаём по id, как его
+// называют хук-поинты (`minecraft:zombie`): так таблица — чистая функция и
+// проверяется тестами без игры.
+
+/// Нрав вида: от него зависят шанс мутации и гены, которые ему годятся.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Temperament {
+    /// Нападает на игрока сам.
+    Hostile,
+    /// Нападает, только если его задели (волк, пчела, эндермен).
+    Neutral,
+    /// Не нападает никогда: скот, рыбы, летучая мышь.
+    Passive,
+}
+
+/// Шанс мутации враждебного вида, в процентах.
+pub const HOSTILE_PERCENT: u32 = 15;
+/// Шанс мутации нейтрального и мирного вида, в процентах.
+pub const CALM_PERCENT: u32 = 5;
+
+/// Кто не мутирует никогда, и почему. Таблица явная: незнакомый вид из
+/// обновления игры и так не мутирует (`temperament` даёт None), а здесь —
+/// осознанные исключения среди известных.
+pub const NEVER_MUTANT: [(&str, &str); 15] = [
+    ("ender_dragon", "босс"),
+    ("wither", "босс"),
+    ("elder_guardian", "страж крепости, мини-босс"),
+    ("warden", "страж Глубин: и без генома на пределе честного"),
+    ("villager", "на нём держатся торговля и деревня"),
+    ("wandering_trader", "торговец"),
+    ("trader_llama", "ходит с торговцем, его часть"),
+    ("iron_golem", "защитник деревни, его строит игрок"),
+    ("snow_golem", "его строит игрок"),
+    ("copper_golem", "его строит игрок, он помощник"),
+    ("allay", "помощник игрока"),
+    ("armadillo", "источник щитков: его держат ради ресурса"),
+    ("creaking", "умирает только с сердцем — ткань с него не срезать"),
+    ("giant", "сам в мире не появляется, только командой"),
+    ("mannequin", "манекен, а не существо"),
+];
+
+/// Враждебные виды.
+pub const HOSTILE_KINDS: [&str; 34] = [
+    "zombie", "husk", "drowned", "zombie_villager", "skeleton", "stray", "bogged",
+    "parched", "wither_skeleton", "creeper", "spider", "cave_spider", "endermite",
+    "silverfish", "slime", "magma_cube", "witch", "phantom", "pillager", "vindicator",
+    "evoker", "illusioner", "vex", "ravager", "piglin_brute", "hoglin", "zoglin",
+    "ghast", "blaze", "guardian", "shulker", "breeze", "camel_husk", "zombie_nautilus",
+];
+
+/// Нейтральные виды: нападают в ответ.
+pub const NEUTRAL_KINDS: [&str; 12] = [
+    "enderman", "piglin", "zombified_piglin", "wolf", "bee", "polar_bear", "llama",
+    "panda", "dolphin", "goat", "pufferfish", "nautilus",
+];
+
+/// Мирные виды: не нападают никогда.
+pub const PASSIVE_KINDS: [&str; 30] = [
+    "pig", "cow", "mooshroom", "sheep", "chicken", "rabbit", "horse", "donkey", "mule",
+    "skeleton_horse", "zombie_horse", "camel", "cat", "ocelot", "parrot", "turtle",
+    "frog", "tadpole", "axolotl", "fox", "squid", "glow_squid", "cod", "salmon",
+    "tropical_fish", "bat", "sniffer", "happy_ghast", "strider", "sulfur_cube",
+];
+
+/// Вид без пространства имён: хук-поинты пишут `minecraft:zombie`, сама
+/// игра — `zombie`.
+fn bare_kind(kind: &str) -> &str {
+    kind.strip_prefix("minecraft:").unwrap_or(kind)
+}
+
+/// Нрав вида; None — вид не мутирует: исключение или незнакомый вид.
+pub fn temperament(kind: &str) -> Option<Temperament> {
+    let kind = bare_kind(kind);
+    if NEVER_MUTANT.iter().any(|(never, _)| *never == kind) {
+        return None;
+    }
+    if HOSTILE_KINDS.contains(&kind) {
+        Some(Temperament::Hostile)
+    } else if NEUTRAL_KINDS.contains(&kind) {
+        Some(Temperament::Neutral)
+    } else if PASSIVE_KINDS.contains(&kind) {
+        Some(Temperament::Passive)
+    } else {
+        None
+    }
+}
+
+/// Шанс естественной мутации вида, в процентах.
+pub fn mutation_percent(kind: &str) -> u32 {
+    match temperament(kind) {
+        Some(Temperament::Hostile) => HOSTILE_PERCENT,
+        Some(Temperament::Neutral | Temperament::Passive) => CALM_PERCENT,
+        None => 0,
+    }
+}
+
+/// Гены, которые мирному мобу при броске не выпадают: атаки у него нет, и ген
+/// либо ничего не делает, либо делает чушь.
+/// * грубая сила — это только урон;
+/// * светобоязнь — «днём не охотится», а он не охотится никогда;
+/// * хищник — цель-добычу мирный моб не атакует, его ИИ цель просто бросает;
+/// * лояльность — «не трогает людей», он и так не трогает;
+/// * рвущие когти — кровотечение от когтей того, кто не бьёт: игрок истекал
+///   бы кровью рядом с курицей от чужого удара.
+///
+/// Нейтральные виды атакуют в ответ, им годится весь набор. Уколом, фрагментом
+/// или мутагеном игрок может вписать такой ген и мирному — это его опыт, а не
+/// бросок, и поведение мутантов (`behaviour.rs` в core) от этого не ломается.
+pub const ATTACK_GENES: [&str; 5] = [
+    "brute_force",
+    "photophobia",
+    "predator",
+    "loyalty",
+    "rending_claws",
+];
+
+/// Годится ли ген виду с таким нравом при естественном броске.
+pub fn gene_fits(gene: usize, temperament: Temperament) -> bool {
+    let Some(name) = GENE_NAMES.get(gene) else {
+        return false;
+    };
+    temperament != Temperament::Passive || !ATTACK_GENES.contains(name)
+}
 
 /// Геном по «броску»: один-два гена с силой 1–3, в пределах стабильности.
-/// Детерминирован, чтобы прогон повторялся и lib выдавал то же самое.
-pub fn roll(draw: u32) -> Vec<(usize, i32)> {
-    if draw % 100 >= MUTATION_PERCENT {
+/// `percent` — шанс мутации, `temperament` отбирает подходящие гены.
+/// Детерминирован (зерно — от id моба), чтобы прогон повторялся.
+pub fn roll(draw: u32, percent: u32, temperament: Temperament) -> Vec<(usize, i32)> {
+    if draw % 100 >= percent {
         return Vec::new();
     }
-    let count = GENE_NAMES.len() as u32;
-    let first = ((draw / 100) % count) as usize;
+    let pool: Vec<usize> = (0..GENE_NAMES.len())
+        .filter(|gene| gene_fits(*gene, temperament))
+        .collect();
+    let count = pool.len() as u32;
+    if count < 2 {
+        return Vec::new();
+    }
+    let pick = ((draw / 100) % count) as usize;
+    let first = pool[pick];
     // Дорогой ген не может быть сильным: тройные кислотные железы в шесть
     // очков стабильности не укладываются, и такой моб был бы нежизнеспособен.
     let strength = (1 + ((draw / 300) % 3) as i32).min(STABILITY / GENE_COSTS[first]);
     let mut genome = vec![(first, strength)];
-    let mut spent = GENE_COSTS[first] * strength;
-    // Второй ген достаётся не каждому: треть бросков обходится одним.
+    let spent = GENE_COSTS[first] * strength;
+    // Второй ген достаётся не каждому: треть бросков обходится одним. Шаг
+    // по пулу не бывает нулевым, поэтому второй ген всегда другой.
     if (draw / 900) % 3 != 0 {
         let step = 1 + ((draw / 2700) % (count - 1)) as usize;
-        let second = (first + step) % GENE_NAMES.len();
+        let second = pool[(pick + step) % pool.len()];
         let strength = 1 + ((draw / 8100) % 3) as i32;
         if spent + GENE_COSTS[second] * strength <= STABILITY {
-            spent += GENE_COSTS[second] * strength;
             genome.push((second, strength));
         }
     }
-    let _ = spent;
     genome
+}
+
+/// Естественный геном моба этого вида; пусто — моб обычный.
+pub fn roll_for(kind: &str, draw: u32) -> Vec<(usize, i32)> {
+    match temperament(kind) {
+        Some(t) => roll(draw, mutation_percent(kind), t),
+        None => Vec::new(),
+    }
 }
 
 /// Цена генома: по ней проверяется стабильность.
@@ -325,29 +466,137 @@ pub fn our_modifier(id: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    const ALL_TEMPERS: [Temperament; 3] =
+        [Temperament::Hostile, Temperament::Neutral, Temperament::Passive];
+
     #[test]
     fn a_roll_stays_inside_stability() {
-        for draw in 0..5000 {
-            let genome = roll(draw);
-            assert!(!genome.is_empty(), "мутируют все: бросок {draw}");
-            assert!(genome.len() <= MAX_GENES);
-            assert!(cost(&genome) <= STABILITY, "перебор на броске {draw}: {genome:?}");
-            for (gene, strength) in &genome {
-                assert!(*gene < GENE_NAMES.len());
-                assert!((1..=3).contains(strength));
-            }
-            // Один ген дважды в геном не попадает.
-            for (i, (gene, _)) in genome.iter().enumerate() {
-                assert!(!genome[i + 1..].iter().any(|(other, _)| other == gene), "{genome:?}");
+        for temper in ALL_TEMPERS {
+            for draw in 0..5000 {
+                let genome = roll(draw, 100, temper);
+                assert!(!genome.is_empty(), "при шансе 100% мутируют все: бросок {draw}");
+                assert!(genome.len() <= MAX_GENES);
+                assert!(cost(&genome) <= STABILITY, "перебор на броске {draw}: {genome:?}");
+                for (gene, strength) in &genome {
+                    assert!(*gene < GENE_NAMES.len());
+                    assert!((1..=3).contains(strength));
+                    assert!(gene_fits(*gene, temper), "{temper:?}: {}", GENE_NAMES[*gene]);
+                }
+                // Один ген дважды в геном не попадает.
+                for (i, (gene, _)) in genome.iter().enumerate() {
+                    assert!(!genome[i + 1..].iter().any(|(other, _)| other == gene), "{genome:?}");
+                }
             }
         }
-        assert_eq!(roll(7), roll(7), "бросок детерминирован");
+        assert_eq!(roll(7, 100, Temperament::Hostile), roll(7, 100, Temperament::Hostile), "бросок детерминирован");
+        assert!(roll(7, 0, Temperament::Hostile).is_empty(), "при шансе 0% мутантов нет");
     }
 
     #[test]
     fn some_rolls_give_two_genes() {
-        let pairs = (0..5000).filter(|d| roll(*d).len() == 2).count();
-        assert!(pairs > 500, "двойных геномов всего {pairs}");
+        for temper in ALL_TEMPERS {
+            let pairs = (0..5000).filter(|d| roll(*d, 100, temper).len() == 2).count();
+            assert!(pairs > 500, "{temper:?}: двойных геномов всего {pairs}");
+        }
+    }
+
+    /// Все виды Horizon (`mobs/species.rs`, 26.3) и дракон, который живёт
+    /// отдельно от мобов. Новый вид из обновления игры надо разобрать сюда.
+    const HORIZON_KINDS: [&str; 89] = [
+        "pig", "cow", "mooshroom", "sheep", "chicken", "rabbit", "zombie_horse",
+        "skeleton_horse", "giant", "horse", "donkey", "mule", "llama", "trader_llama",
+        "goat", "panda", "polar_bear", "fox", "wolf", "cat", "ocelot", "parrot", "bee",
+        "turtle", "armadillo", "frog", "axolotl", "squid", "glow_squid", "tadpole", "cod",
+        "salmon", "tropical_fish", "pufferfish", "dolphin", "bat", "villager",
+        "wandering_trader", "iron_golem", "snow_golem", "copper_golem", "zombie", "husk",
+        "drowned", "zombie_villager", "skeleton", "stray", "parched", "bogged",
+        "wither_skeleton", "creeper", "spider", "cave_spider", "enderman", "endermite",
+        "silverfish", "slime", "magma_cube", "witch", "phantom", "evoker", "illusioner",
+        "allay", "creaking", "camel", "happy_ghast", "sniffer", "breeze", "wither",
+        "ravager", "vex", "shulker", "guardian", "elder_guardian", "pillager", "vindicator",
+        "piglin", "piglin_brute", "zombified_piglin", "hoglin", "zoglin", "ghast", "blaze",
+        "strider", "warden", "camel_husk", "nautilus", "zombie_nautilus", "sulfur_cube",
+    ];
+
+    #[test]
+    fn every_kind_is_sorted_exactly_once() {
+        let mut problems = Vec::new();
+        for kind in HORIZON_KINDS.iter().chain(["mannequin", "ender_dragon"].iter()) {
+            let places = [
+                NEVER_MUTANT.iter().any(|(k, _)| k == kind),
+                HOSTILE_KINDS.contains(kind),
+                NEUTRAL_KINDS.contains(kind),
+                PASSIVE_KINDS.contains(kind),
+            ]
+            .iter()
+            .filter(|found| **found)
+            .count();
+            if places != 1 {
+                problems.push(format!("{kind}: в таблицах {places} раз"));
+            }
+        }
+        let tables = NEVER_MUTANT.len() + HOSTILE_KINDS.len() + NEUTRAL_KINDS.len() + PASSIVE_KINDS.len();
+        assert_eq!(tables, HORIZON_KINDS.len() + 2, "в таблицах есть вид, которого нет в игре");
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn chance_depends_on_temperament() {
+        assert_eq!(mutation_percent("minecraft:zombie"), HOSTILE_PERCENT);
+        assert_eq!(mutation_percent("creeper"), HOSTILE_PERCENT);
+        assert_eq!(mutation_percent("minecraft:wolf"), CALM_PERCENT);
+        assert_eq!(mutation_percent("minecraft:cow"), CALM_PERCENT);
+        assert_eq!(temperament("minecraft:cow"), Some(Temperament::Passive));
+        assert_eq!(temperament("minecraft:enderman"), Some(Temperament::Neutral));
+        for (never, why) in NEVER_MUTANT {
+            assert_eq!(mutation_percent(never), 0, "{never}");
+            assert_eq!(mutation_percent(&format!("minecraft:{never}")), 0, "{never}");
+            assert!(roll_for(never, 0).is_empty(), "{never}");
+            assert!(!why.is_empty());
+        }
+        assert_eq!(mutation_percent("minecraft:player"), 0, "незнакомый вид не мутирует");
+        assert!(HOSTILE_PERCENT > CALM_PERCENT, "враждебных мутантов больше");
+    }
+
+    /// Доля мутантов на тех же зёрнах, что в игре (`joined.rs`): id подряд,
+    /// умноженный на константу Кнута.
+    #[test]
+    fn natural_share_is_close_to_the_table() {
+        let share = |kind: &str| {
+            let mutants = (0u32..20_000)
+                .filter(|id| !roll_for(kind, id.wrapping_mul(2_654_435_761)).is_empty())
+                .count();
+            mutants as f64 / 20_000.0 * 100.0
+        };
+        let zombie = share("minecraft:zombie");
+        let cow = share("minecraft:cow");
+        assert!((12.0..18.0).contains(&zombie), "зомби-мутантов {zombie:.1}%");
+        assert!((3.0..7.0).contains(&cow), "коров-мутантов {cow:.1}%");
+        assert_eq!(share("minecraft:villager"), 0.0);
+    }
+
+    #[test]
+    fn passive_mobs_never_roll_attack_genes() {
+        for name in ATTACK_GENES {
+            let gene = GENE_NAMES.iter().position(|n| *n == name).expect(name);
+            assert!(!gene_fits(gene, Temperament::Passive), "{name}");
+            assert!(gene_fits(gene, Temperament::Neutral), "{name}");
+            assert!(gene_fits(gene, Temperament::Hostile), "{name}");
+        }
+        let mut seen = [false; 32];
+        for draw in 0..200_000 {
+            for (gene, _) in roll(draw, 100, Temperament::Passive) {
+                assert!(!ATTACK_GENES.contains(&GENE_NAMES[gene]), "корове выпал {}", GENE_NAMES[gene]);
+                seen[gene] = true;
+            }
+        }
+        // Остальные гены мирным достаются: фильтр не выкосил лишнего.
+        let missing: Vec<&str> = (0..GENE_NAMES.len())
+            .filter(|g| !seen[*g] && gene_fits(*g, Temperament::Passive))
+            .map(|g| GENE_NAMES[g])
+            .collect();
+        assert!(missing.is_empty(), "мирным не выпадают: {missing:?}");
+        assert!(!gene_fits(GENE_NAMES.len(), Temperament::Hostile));
     }
 
     #[test]

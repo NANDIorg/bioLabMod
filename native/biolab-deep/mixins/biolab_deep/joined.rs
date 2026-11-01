@@ -1,11 +1,12 @@
 // Мобы появились в мире (родились, призваны или загрузились с диска).
 // Загруженному мутанту возвращаем наши модификаторы из сырого NBT: ванилла
-// пишет их в сейв, но обратно не читает. Новому зомби без меток выдаём геном.
-// Вид и поведение в lib-крейте сами узнают геном по меткам на мобе.
+// пишет их в сейв, но обратно не читает. Новому мобу любого вида без меток
+// бросаем геном: шанс и подходящие гены — по таблице видов
+// (`biolab_deep::roll_for`). Вид и поведение в lib-крейте сами узнают геном
+// по меткам на мобе.
 fn biolab_deep_mobs_joined(game: &mut crate::game::Game<'_>, from: usize) {
     use crate::game::biolab_deep as d;
     use horizon_client::mobs::finalize::{Attr, Op, add_modifier, has_modifier};
-    use horizon_client::mobs::species::Species;
     use horizon_world::nbt::Tag;
     if !game.native_on(d::ID) {
         return;
@@ -73,16 +74,24 @@ fn biolab_deep_mobs_joined(game: &mut crate::game::Game<'_>, from: usize) {
             continue;
         }
 
-        // 2. Новый моб: пока мутируют только зомби. Уже помеченного (клон из
-        // чана, укол вектором) не трогаем — геном ему задали нарочно.
-        if m.species() != Species::Zombie
-            || d::GENE_MARKERS
-                .iter()
-                .any(|marker| has_modifier(m, Attr::FollowRange, marker))
+        // 2. Моб с диска без наших меток — обычный, и таким остаётся. Бросать
+        // ему заново нельзя: id сессионный, и каждый перезаход давал бы стаду
+        // у дома новый шанс, пока мутантами не стали бы все.
+        if game.persist.raw.contains_key(&id) {
+            continue;
+        }
+        // 3. Новый моб любого вида. Уже помеченного (клон из чана, укол
+        // вектором) не трогаем — геном ему задали нарочно.
+        let m = &mut game.mobs[index];
+        if d::GENE_MARKERS
+            .iter()
+            .any(|marker| has_modifier(m, Attr::FollowRange, marker))
         {
             continue;
         }
-        let genome = d::roll(m.id.wrapping_mul(2_654_435_761));
+        // Вид так, как его называют хук-поинты (`minecraft:zombie`).
+        let kind = ["minecraft:", m.kind.id.trim_start_matches("minecraft:")].concat();
+        let genome = d::roll_for(&kind, m.id.wrapping_mul(2_654_435_761));
         if genome.is_empty() {
             continue;
         }

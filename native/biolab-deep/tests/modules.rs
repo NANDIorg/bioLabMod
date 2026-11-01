@@ -68,8 +68,9 @@ fn binary_and_lib_genes_agree() {
 /// генов, и по стабильности.
 #[test]
 fn every_rolled_genome_fits_the_lib() {
-    for draw in 0..4000 {
-        let rolled = biolab_deep::roll(draw);
+    use biolab_deep::Temperament as T;
+    for (draw, temper) in (0..4000).flat_map(|d| [(d, T::Hostile), (d, T::Neutral), (d, T::Passive)]) {
+        let rolled = biolab_deep::roll(draw, 100, temper);
         let mut genome = mutants::Genome::default();
         for (gene, strength) in &rolled {
             assert!(
