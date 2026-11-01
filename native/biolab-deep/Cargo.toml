@@ -8,3 +8,9 @@ description = "BioLab: поведение своих эффектов, мута�
 
 [lib]
 path = "mixins/biolab_deep/runtime.rs"
+
+# Только для тестов: пакет генов игроков собирает `biolab-core`, а разбирает
+# `biolab_players` этого бандла — контракт проверяется настоящим кодом обеих
+# сторон. В игру бандлы собираются отдельно, зависимости между ними нет.
+[dev-dependencies]
+biolab-core = { path = "../biolab-core" }

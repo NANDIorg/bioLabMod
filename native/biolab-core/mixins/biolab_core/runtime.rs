@@ -3562,6 +3562,101 @@ pub fn world_player_gene(world: &std::path::Path, uuid: u128, name: &str) -> i32
         .unwrap_or(0)
 }
 
+// ---- Гены игроков — клиенту, для наростов (GDD 4.19, этап «игрок») ----
+//
+// Гены игрока живут в состоянии мира на сервере (`PlayerState.genes`), а
+// наросты рисует окно. Меток-модификаторов у игрока нет, а общая память
+// процесса есть только в одиночной игре, поэтому гены идут тем же путём, что
+// и состояние анализатора: пакетом с сервера (`native_net_send_to_player`).
+// Принимает его `biolab-deep` (свой перехват `native_net_from_server`) и
+// раскладывает по моделям игроков.
+//
+// Гены в пакете — по именам, а не по номерам таблицы: пакет не зависит от
+// порядка генов в двух бандлах. Формат (версия 1):
+//   [версия]
+//   по игроку: [uuid, 16 байт big-endian][n], n раз [длина имени][имя][сила 1–3]
+// Первая запись — сам получатель, даже без генов: так клиент узнаёт, что
+// наросты пора снять. Дальше — другие игроки этого мира, у которых есть хоть
+// один ген: их видно в многопользовательской игре.
+
+/// Канал генов игроков. Слушает `biolab-deep` (`biolab_players::CHANNEL`).
+pub const NET_GENES: &str = "biolab_core:genes";
+/// Версия формата пакета генов: первый байт.
+pub const GENES_PACKET_VERSION: u8 = 1;
+/// Предел полезной нагрузки сообщения мода (`native_net_send_to_player`).
+pub const NET_MAX_BYTES: usize = 30_000;
+
+/// Пакет генов: получатель первым, потом другие игроки. Игрок, который уже
+/// не влезает в предел сообщения, отбрасывается целиком (и все после него):
+/// лучше без чужих наростов, чем обрезанный пакет, который клиент не разберёт.
+pub fn genes_packet(players: &[(u128, PlayerState)]) -> Vec<u8> {
+    let mut data = vec![GENES_PACKET_VERSION];
+    for (uuid, state) in players {
+        let genes = player_genes(state);
+        let mut entry = uuid.to_be_bytes().to_vec();
+        entry.push(genes.len() as u8);
+        for (name, strength) in genes {
+            entry.push(name.len() as u8);
+            entry.extend_from_slice(name.as_bytes());
+            entry.push(strength.clamp(1, 3) as u8);
+        }
+        if data.len() + entry.len() > NET_MAX_BYTES {
+            break;
+        }
+        data.extend_from_slice(&entry);
+    }
+    data
+}
+
+/// Разбор пакета генов. Клиент разбирает его своей копией в `biolab-deep`
+/// (`biolab_players::decode`), здесь — эталон формата для тестов.
+/// `None` — чужая версия или обрезанный пакет.
+pub fn genes_from_packet(data: &[u8]) -> Option<Vec<(u128, Vec<(String, u8)>)>> {
+    let (&version, mut rest) = data.split_first()?;
+    if version != GENES_PACKET_VERSION {
+        return None;
+    }
+    let mut out = Vec::new();
+    while !rest.is_empty() {
+        let uuid = u128::from_be_bytes(rest.get(..16)?.try_into().ok()?);
+        let count = *rest.get(16)?;
+        rest = &rest[17..];
+        let mut genes = Vec::new();
+        for _ in 0..count {
+            let len = usize::from(*rest.first()?);
+            let name = std::str::from_utf8(rest.get(1..1 + len)?).ok()?;
+            let strength = *rest.get(1 + len)?;
+            genes.push((name.to_owned(), strength));
+            rest = &rest[2 + len..];
+        }
+        out.push((uuid, genes));
+    }
+    Some(out)
+}
+
+/// Кого класть в пакет генов для игрока `uuid`: его самого первым (`own` —
+/// его состояние после этого тика), потом других игроков этого мира с генами,
+/// по порядку uuid. Чужие состояния — из памяти сервера: там все, кто заходил
+/// в мир за сессию; вышедший не мешает — модели с его uuid у клиента нет.
+pub fn genes_view(world: &std::path::Path, uuid: u128, own: &PlayerState) -> Vec<(u128, PlayerState)> {
+    let mut others: Vec<(u128, PlayerState)> = states()
+        .lock()
+        .map(|table| {
+            table
+                .iter()
+                .filter(|((w, id), state)| {
+                    w.as_path() == world && *id != uuid && state.genes.iter().any(|g| *g > 0)
+                })
+                .map(|((_, id), state)| (*id, *state))
+                .collect()
+        })
+        .unwrap_or_default();
+    others.sort_by_key(|(id, _)| *id);
+    let mut out = vec![(uuid, *own)];
+    out.extend(others);
+    out
+}
+
 /// Сообщение о генотерапии.
 pub fn splice_message(result: Splice, name: &str, strength: i32) -> String {
     let title = gene(name).map_or("Ген", |k| k.title);
@@ -5271,6 +5366,73 @@ mod tests {
         assert!(lines.iter().any(|l| l.starts_with("Яд: ")), "{lines:?}");
         assert!(lines.iter().any(|l| l.contains("привык.")), "{lines:?}");
         assert!(blood_lines(&[DrugState::default(); DRUG_COUNT]).is_empty());
+    }
+
+    /// Гены игрока доходят до клиента по именам и с силой; получатель —
+    /// первым, даже без генов (так клиент снимает наросты).
+    #[test]
+    fn the_genes_packet_survives_the_wire() {
+        let mut me = PlayerState::default();
+        assert_eq!(splice_player(&mut me, "tail", 2), Splice::Done);
+        assert_eq!(splice_player(&mut me, "polymelia", 3), Splice::Done);
+        let mut other = PlayerState::default();
+        assert_eq!(splice_player(&mut other, "horns", 1), Splice::Done);
+        let data = genes_packet(&[(7, me), (u128::MAX - 1, other), (9, PlayerState::default())]);
+        assert_eq!(data[0], GENES_PACKET_VERSION);
+        let back = genes_from_packet(&data).expect("пакет разбирается");
+        assert_eq!(back.len(), 3);
+        assert_eq!(back[0].0, 7);
+        let mut mine = back[0].1.clone();
+        mine.sort();
+        assert_eq!(mine, vec![("polymelia".to_owned(), 3), ("tail".to_owned(), 2)]);
+        assert_eq!(back[1], (u128::MAX - 1, vec![("horns".to_owned(), 1)]));
+        assert_eq!(back[2], (9, Vec::new()), "без генов — пустая запись");
+        // Чужая версия и обрезанный пакет не разбираются, а не врут.
+        assert!(genes_from_packet(&[GENES_PACKET_VERSION + 1]).is_none());
+        assert!(genes_from_packet(&data[..data.len() - 1]).is_none());
+        assert!(genes_from_packet(&[]).is_none());
+        assert_eq!(genes_from_packet(&[GENES_PACKET_VERSION]), Some(Vec::new()));
+    }
+
+    /// Пакет не выходит за предел сообщения мода: лишние игроки отбрасываются
+    /// целиком, получатель остаётся.
+    #[test]
+    fn the_genes_packet_fits_a_mod_message() {
+        let mut full = PlayerState::default();
+        for (i, kind) in GENES.iter().enumerate() {
+            full.genes[i] = 1 + (i % 3) as u8;
+            assert!(kind.name.len() < 256);
+        }
+        let players: Vec<(u128, PlayerState)> = (0..200).map(|i| (i, full)).collect();
+        let data = genes_packet(&players);
+        assert!(data.len() <= NET_MAX_BYTES, "{}", data.len());
+        let back = genes_from_packet(&data).unwrap();
+        assert!(!back.is_empty() && back.len() < 200);
+        assert_eq!(back[0].0, 0);
+        assert_eq!(back[0].1.len(), GENES.len());
+    }
+
+    /// В пакет игроку идут он сам и другие игроки этого мира с генами; чужие
+    /// миры и игроки без генов — нет.
+    #[test]
+    fn the_genes_view_lists_the_world_players() {
+        let world = std::env::temp_dir().join(format!("biolab-genes-view-{}", std::process::id()));
+        let elsewhere = world.join("other");
+        let _ = std::fs::remove_dir_all(&world);
+        assert_eq!(splice_world_player(&world, 30, "tentacles", 2), Some(Splice::Done));
+        assert_eq!(splice_world_player(&world, 20, "horns", 1), Some(Splice::Done));
+        assert!(player_tick(&world, 25).is_some(), "без генов");
+        assert_eq!(splice_world_player(&elsewhere, 40, "tail", 3), Some(Splice::Done));
+        let me = PlayerState::default();
+        let view = genes_view(&world, 10, &me);
+        let ids: Vec<u128> = view.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, vec![10, 20, 30]);
+        assert_eq!(view[0].1, me);
+        assert_eq!(player_gene(&view[2].1, "tentacles"), 2);
+        // Сам игрок с генами — один раз и первым.
+        let mine = genes_view(&world, 30, &view[2].1);
+        assert_eq!(mine.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![30, 20]);
+        let _ = std::fs::remove_dir_all(&world);
     }
 
     #[test]

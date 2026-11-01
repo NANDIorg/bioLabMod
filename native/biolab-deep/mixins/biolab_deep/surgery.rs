@@ -311,15 +311,19 @@ pub fn read_markers(m: &crate::mobs::Mob) -> Surgery {
     }
 }
 
-/// Лежит ли моб на операционном столе.
+/// Лежит ли моб на операционном столе. Модель игрока — не моб: у своей id 0,
+/// как у первого моба сервера, и без проверки она легла бы вместе с ним.
 #[cfg(not(test))]
 pub fn on_table(m: &crate::mobs::Mob) -> bool {
-    state_of(m.id).on_table
+    !crate::biolab_players::is_player(m) && state_of(m.id).on_table
 }
 
-/// Какие конечности срезаны: маска по номерам.
+/// Какие конечности срезаны: маска по номерам (у модели игрока — никаких).
 #[cfg(not(test))]
 pub fn flayed(m: &crate::mobs::Mob) -> [bool; 4] {
+    if crate::biolab_players::is_player(m) {
+        return [false; 4];
+    }
     state_of(m.id).flayed
 }
 

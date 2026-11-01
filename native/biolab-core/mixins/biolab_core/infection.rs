@@ -260,6 +260,14 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             m::NET_INFECTION,
             &m::pharma_packet(&after, journal),
         );
+        // Гены — клиенту, для наростов на модели игрока (GDD 4.19): свои
+        // первыми, за ними гены других игроков мира — их модели тоже видно.
+        // Принимает `biolab-deep`; без него пакет просто никто не слушает.
+        let _ = game.native_net_send_to_player(
+            uuid,
+            m::NET_GENES,
+            &m::genes_packet(&m::genes_view(&world, uuid, &after)),
+        );
 
         // Карта исследований: что игрок держит и что записано в журнале
         // зажигает узлы. Новое — в чат, вся маска — клиенту для экрана.
