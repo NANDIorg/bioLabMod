@@ -1,6 +1,23 @@
-{ "variants": {
-  "facing=north": {"model": "biolab:block/operating_table"},
-  "facing=east": {"model": "biolab:block/operating_table", "y": 90},
-  "facing=south": {"model": "biolab:block/operating_table", "y": 180},
-  "facing=west": {"model": "biolab:block/operating_table", "y": 270}
-} }
+{ "multipart": [
+  {"apply": {"model": "biolab:block/operating_table_core"}},
+  {"when": {"north": "true"}, "apply": {"model": "biolab:block/operating_table_rail"}},
+  {"when": {"north": "false"}, "apply": {"model": "biolab:block/operating_table_join"}},
+  {"when": {"OR": [{"north": "true"}, {"west": "true"}]}, "apply": {"model": "biolab:block/operating_table_cap"}},
+  {"when": {"north": "true", "west": "true"}, "apply": {"model": "biolab:block/operating_table_leg"}},
+  {"when": {"east": "true"}, "apply": {"model": "biolab:block/operating_table_rail", "y": 90}},
+  {"when": {"east": "false"}, "apply": {"model": "biolab:block/operating_table_join", "y": 90}},
+  {"when": {"OR": [{"east": "true"}, {"north": "true"}]}, "apply": {"model": "biolab:block/operating_table_cap", "y": 90}},
+  {"when": {"east": "true", "north": "true"}, "apply": {"model": "biolab:block/operating_table_leg", "y": 90}},
+  {"when": {"south": "true"}, "apply": {"model": "biolab:block/operating_table_rail", "y": 180}},
+  {"when": {"south": "false"}, "apply": {"model": "biolab:block/operating_table_join", "y": 180}},
+  {"when": {"OR": [{"south": "true"}, {"east": "true"}]}, "apply": {"model": "biolab:block/operating_table_cap", "y": 180}},
+  {"when": {"south": "true", "east": "true"}, "apply": {"model": "biolab:block/operating_table_leg", "y": 180}},
+  {"when": {"west": "true"}, "apply": {"model": "biolab:block/operating_table_rail", "y": 270}},
+  {"when": {"west": "false"}, "apply": {"model": "biolab:block/operating_table_join", "y": 270}},
+  {"when": {"OR": [{"west": "true"}, {"south": "true"}]}, "apply": {"model": "biolab:block/operating_table_cap", "y": 270}},
+  {"when": {"west": "true", "south": "true"}, "apply": {"model": "biolab:block/operating_table_leg", "y": 270}},
+  {"when": {"OR": [{"north": "false", "east": "true", "west": "true"}, {"south": "false", "east": "true", "west": "true"}]}, "apply": {"model": "biolab:block/operating_table_straps"}},
+  {"when": {"OR": [{"east": "false"}, {"west": "false"}, {"north": "true", "south": "true", "east": "true", "west": "true"}]}, "apply": {"model": "biolab:block/operating_table_straps", "y": 90}},
+  {"when": {"north": "true", "south": "false"}, "apply": {"model": "biolab:block/operating_table_head"}},
+  {"when": {"OR": [{"west": "true", "east": "false"}, {"north": "true", "south": "true", "east": "true", "west": "true"}]}, "apply": {"model": "biolab:block/operating_table_head", "y": 270}}
+] }

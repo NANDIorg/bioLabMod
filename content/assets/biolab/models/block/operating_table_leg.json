@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {"particle": "biolab:block/operating_table_side", "steel": "biolab:block/machine_steel"},
+  "elements": [
+    {"from": [0, 1, 0], "to": [2, 12, 2], "faces": {"north": {"uv": [14, 4, 16, 15], "texture": "#steel"}, "south": {"uv": [0, 4, 2, 15], "texture": "#steel"}, "west": {"uv": [0, 4, 2, 15], "texture": "#steel"}, "east": {"uv": [14, 4, 16, 15], "texture": "#steel"}}}
+  ]
+}

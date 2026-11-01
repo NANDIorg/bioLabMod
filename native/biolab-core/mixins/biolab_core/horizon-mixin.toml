@@ -259,6 +259,26 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
 
+# Секции операционного стола (шаблон `mushroom_stem`) соединяются по сторонам:
+# ванильный `updateShape` гриба ставит сторону в `false` при соседе-секции, но
+# обратно в `true` не возвращает. Отвечаем за свои секции сами, в обе стороны.
+# Стабильный хук API 32 (уровень, только у сервера). `new` — новое состояние,
+# собственный `updateShape` гриба тогда не вызывается. Поле в привязке
+# недопустимо (только параметр), поэтому реестр блоков хелпер берёт сам из
+# `level.registry`.
+[[injection]]
+id = "table-shape"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::GameLevel<'_>::native_update_shape"
+helper = "table_shape.rs"
+bindings = [
+  { name = "level", ty = "&crate::game::GameLevel<'_>", value = "self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "direction", ty = "horizon_core::geometry::Direction", value = "direction" },
+  { name = "neighbour", ty = "horizon_world::registry::BlockStateId", value = "neighbour" },
+  { name = "new", ty = "&mut Option<horizon_world::registry::BlockStateId>", value = "&mut *new" },
+]
+
 # Удар по мутанту: шипы и ядовитая кровь. Стабильный хук API 39.
 [[injection]]
 id = "hurt-enemy"

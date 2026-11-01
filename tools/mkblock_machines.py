@@ -1035,35 +1035,161 @@ def lab_bench():
     ]
 
 
-def operating_table():
-    """Операционный стол (GDD 4.17): стальной стол на четырёх опорах, полотно
-    с двумя ремнями, над изголовьем (север) — лампа на кронштейне.
+# Операционный стол из секций (GDD 4.17). Каждая функция — часть модели в
+# «северной» ориентации: изголовье и сторона, о которой речь, — север (z = 0).
+# Blockstate (multipart) поворачивает части по `y` к нужной стороне.
+#
+# Шаблон блока — `minecraft:mushroom_stem`: свойства north/east/south/west/
+# up/down, `false` — за стороной соседняя секция, `true` — сторона открыта.
+# Рама и полотно идут сплошь через весь ряд: на соединённой стороне их
+# достраивает до границы блока полоса `join`. Борт (`rail`) — по открытым
+# сторонам, ножка — в углу, где открыты обе стороны (на концах ряда), уголок
+# борта (`cap`) — где открыта хотя бы одна, чтобы борт шёл без щелей от секции
+# к секции. Ремни — на каждой секции, поперёк ряда.
+#
+# Лампа над изголовьем — на одном торце: изголовье однозначно задаёт сам
+# стол. Пациента кладут головой к секции с меньшей координатой
+# (`TableRow::yaw` в biolab_core): у ряда вдоль X — к западному концу, вдоль
+# Z — к северному; одиночная секция считается рядом вдоль X. Так лампа и
+# голова всегда на одном конце, и выбирать «оба торца или ни одного» не нужно.
+
+
+def operating_table_core():
+    """Основа каждой секции: дно, тумба, рама и полотно с отступом 1 от краёв.
 
     Столешница — на высоте полного блока (y = 16): моба кладут на верхнюю
-    грань блока, и отрисовка поворачивает его так, чтобы он лёг ровно на неё.
-    Для игры стол — сплошной куб, поэтому между опорами — тумба (как у
-    лабораторного стола): сквозь открытые бока был бы виден провал на месте
-    граней соседних блоков. Ремни и лампа выше 16 — не больше чем на 4."""
-    legs = [E([x, 1, z], [x + 2, 13, z + 2], "steel", faces=("north", "south", "west", "east"))
-            for x, z in ((0, 0), (14, 0), (0, 14), (14, 14))]
-    straps = []
-    for z in (4.5, 10.5):
-        straps.append(E([0.5, 13.5, z], [15.5, 16.5, z + 1.5], "strap", faces=NO_D))
-        straps.append(E([10.5, 16.5, z - 0.25], [12.5, 16.75, z + 1.75], "steel", faces=NO_D))
+    грань, отрисовка поворачивает его так, чтобы он лёг ровно на неё. Для
+    игры секция — сплошной куб, поэтому под рамой тумба: сквозь открытые бока
+    был бы виден провал на месте граней соседних блоков."""
     return [
         E([0, 0, 0], [16, 1, 16], "frame"),
-        *legs,
         E([1, 1, 1], [15, 12, 15], "side", faces=("north", "south", "west", "east")),
         E([0, 12, 0], [16, 14, 16], "frame", up="steel"),
         E([1, 14, 1], [15, 16, 15], "pad", faces=NO_D),
+    ]
+
+
+def operating_table_rail():
+    """Открытая сторона: стальной борт по краю рамы, ниже полотна. Торцов
+    у борта нет: их закрывают уголки (`cap`), которые есть всегда, когда есть
+    борт."""
+    return [E([1, 14, 0], [15, 15, 1], "steel", faces=("up", "north"))]
+
+
+def operating_table_join():
+    """Соединённая сторона: тумба и полотно до границы блока, чтобы у соседней
+    секции они продолжались без щели."""
+    return [
+        E([1, 1, 0], [15, 12, 1], "side", faces=("west", "east")),
+        E([1, 14, 0], [15, 16, 1], "pad", faces=("up", "west", "east")),
+    ]
+
+
+def operating_table_cap():
+    """Северо-западный уголок борта: замыкает борт на углу секции."""
+    return [E([0, 14, 0], [1, 15, 1], "steel", faces=("up", "north", "west"))]
+
+
+def operating_table_leg():
+    """Северо-западная ножка: только на конце ряда, где открыты обе стороны."""
+    return [E([0, 1, 0], [2, 12, 2], "steel", faces=("north", "south", "west", "east"))]
+
+
+def operating_table_straps():
+    """Два ремня поперёк стола (вдоль X — для ряда вдоль Z) с пряжками; через
+    полотно и вниз по бокам."""
+    out = []
+    for z in (4.5, 10.5):
+        out.append(E([0.5, 13.5, z], [15.5, 16.5, z + 1.5], "strap", faces=NO_D))
+        out.append(E([10.5, 16.5, z - 0.25], [12.5, 16.75, z + 1.75], "steel", faces=NO_D))
+    return out
+
+
+def operating_table_head():
+    """Изголовье (север): подушка и лампа на кронштейне. Светится всегда.
+    Лампа выше 16 — не больше чем на 4."""
+    return [
         E([3, 16, 1.5], [13, 17, 4], "pad", faces=NO_D),
-        *straps,
         E([14, 14, 0.5], [15.5, 20, 2], "steel", faces=NO_D),
         E([8, 19, 0.75], [14, 20, 1.75], "steel", faces=("up", "down", "north", "south", "west")),
         E([7.5, 17.5, 0], [12.5, 19, 4], "accent", faces=("up", "north", "south", "west", "east")),
         E([8, 17.25, 0.5], [12, 17.5, 3.5], "lamp", faces=("down", "north", "south", "west", "east"),
           glow=True),
     ]
+
+
+TABLE_PARTS = {
+    "core": operating_table_core,
+    "rail": operating_table_rail,
+    "join": operating_table_join,
+    "cap": operating_table_cap,
+    "leg": operating_table_leg,
+    "straps": operating_table_straps,
+    "head": operating_table_head,
+}
+# Поворот части blockstate'ом: сторона модели «север» уходит на эту сторону.
+TABLE_TURN = {"north": 0, "east": 90, "south": 180, "west": 270}
+# Сторона «слева» от данной (её угол с ней — угол частей `cap` и `leg`): для
+# севера — запад; поворот на 90° переводит запад в север, север в восток.
+TABLE_LEFT = {"north": "west", "east": "north", "south": "east", "west": "south"}
+TURN_FACE = {"north": "east", "east": "south", "south": "west", "west": "north",
+             "up": "up", "down": "down"}
+
+
+def turn_y(e, times):
+    """Элемент, повёрнутый по часовой (сверху) на 90° `times` раз — как
+    поворот `y` в blockstate: север уходит на восток."""
+    for _ in range(times % 4):
+        (x1, y1, z1), (x2, y2, z2) = e["f"], e["t"]
+        e = dict(e, f=[16 - z2, y1, x1], t=[16 - z1, y2, x2],
+                 faces=tuple(TURN_FACE[f] for f in e["faces"]),
+                 over={TURN_FACE[k]: v for k, v in e["over"].items()},
+                 uv={TURN_FACE[k]: v for k, v in e["uv"].items()})
+    return e
+
+
+def operating_table():
+    """Одиночная секция целиком — иконка в инвентаре: основа, борта и уголки
+    со всех сторон, четыре ножки, ремни поперёк, изголовье на севере."""
+    out = list(operating_table_core())
+    for deg in TABLE_TURN.values():
+        for part in (operating_table_rail, operating_table_cap, operating_table_leg):
+            out += [turn_y(e, deg // 90) for e in part()]
+    return out + operating_table_straps() + operating_table_head()
+
+
+def table_multipart():
+    """Части по сторонам: условия на свойства гриба (`"true"` — открыта)."""
+    def apply(name, deg=0):
+        a = {"model": f"biolab:block/operating_table_{name}"}
+        if deg:
+            a["y"] = deg
+        return a
+
+    all_open = {"north": "true", "south": "true", "east": "true", "west": "true"}
+    parts = [{"apply": apply("core")}]
+    for side, deg in TABLE_TURN.items():
+        left = TABLE_LEFT[side]
+        parts.append({"when": {side: "true"}, "apply": apply("rail", deg)})
+        parts.append({"when": {side: "false"}, "apply": apply("join", deg)})
+        parts.append({"when": {"OR": [{side: "true"}, {left: "true"}]}, "apply": apply("cap", deg)})
+        parts.append({"when": {side: "true", left: "true"}, "apply": apply("leg", deg)})
+    # Ремни поперёк ряда: базовые идут вдоль X — это ряд вдоль Z; ряду вдоль X
+    # и одиночной секции (она — ряд вдоль X) их поворачиваем на 90°. Секция,
+    # соединённая по обеим осям (крест), считается рядом вдоль X — как в
+    # `table_row` при равенстве.
+    parts.append({"when": {"OR": [
+        {"north": "false", "east": "true", "west": "true"},
+        {"south": "false", "east": "true", "west": "true"},
+    ]}, "apply": apply("straps")})
+    parts.append({"when": {"OR": [{"east": "false"}, {"west": "false"}, dict(all_open)]},
+                  "apply": apply("straps", 90)})
+    # Изголовье — на конце ряда с меньшей координатой: северный конец ряда
+    # вдоль Z, западный конец ряда вдоль X (и одиночная секция).
+    parts.append({"when": {"north": "true", "south": "false"}, "apply": apply("head")})
+    parts.append({"when": {"OR": [{"west": "true", "east": "false"}, dict(all_open)]},
+                  "apply": apply("head", 270)})
+    return parts
 
 
 MACHINES = {
@@ -1159,28 +1285,26 @@ def main():
 
 
 def write_operating_table():
-    """Операционный стол: шаблон — глазурованная терракота, у неё есть
-    `facing` (ставится по взгляду игрока), поэтому лампа над изголовьем
-    поворачивается вместе со столом. Светится всегда — `light_emission`."""
+    """Операционный стол: шаблон — `mushroom_stem`, секции соединяются в ряд
+    (см. комментарий к частям выше). Иконка — одиночная секция."""
     operating_table_textures()
-    elements = operating_table()
     own = {k: f"biolab:block/operating_table_{k}" for k in ("side", "pad", "strap", "accent", "lamp")}
-    tex = texture_map("operating_table", used_keys(elements), own=(), extra=own)
-    tex["particle"] = "biolab:block/operating_table_side"
-    dump_model(os.path.join(MODELS, "operating_table.json"), {
-        "parent": "minecraft:block/block", "textures": tex,
-        "elements": [element_json(e, True) for e in elements]})
+    models = {"operating_table": operating_table()}
+    for name, build in TABLE_PARTS.items():
+        models[f"operating_table_{name}"] = build()
+    for name, elements in models.items():
+        tex = texture_map("operating_table", used_keys(elements), own=(), extra=own)
+        tex["particle"] = "biolab:block/operating_table_side"
+        dump_model(os.path.join(MODELS, name + ".json"), {
+            "parent": "minecraft:block/block", "textures": tex,
+            "elements": [element_json(e, True) for e in elements]})
     with open(os.path.join(STATES, "operating_table.json"), "w") as f:
-        rows = []
-        for facing, y in (("north", 0), ("east", 90), ("south", 180), ("west", 270)):
-            v = {"model": "biolab:block/operating_table"}
-            if y:
-                v["y"] = y
-            rows.append(f'  "facing={facing}": {json.dumps(v)}')
-        f.write('{ "variants": {\n' + ",\n".join(rows) + "\n} }\n")
+        rows = [json.dumps(p, ensure_ascii=False) for p in table_multipart()]
+        f.write('{ "multipart": [\n' + ",\n".join("  " + r for r in rows) + "\n] }\n")
     with open(os.path.join(ASSETS, "items", "operating_table.json"), "w") as f:
         f.write('{ "model": { "type": "minecraft:model", "model": "biolab:block/operating_table" } }\n')
-    print(f"{'operating_table':13s} элементов {len(elements):2d}")
+    print(f"{'operating_table':13s} элементов {len(models['operating_table']):2d} "
+          f"(частей секции {len(TABLE_PARTS)})")
 
 
 if __name__ == "__main__":
