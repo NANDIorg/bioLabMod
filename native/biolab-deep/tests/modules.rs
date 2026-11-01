@@ -11,6 +11,8 @@ mod effects;
 mod mutants;
 #[path = "../mixins/biolab_deep/tab.rs"]
 mod tab;
+#[path = "../mixins/biolab_deep/surgery.rs"]
+mod surgery;
 
 /// Урон своих эффектов у игрока (`runtime.rs`, бинарник) и у мобов
 /// (`effects.rs`, библиотека) считается двумя копиями одной логики: они не
