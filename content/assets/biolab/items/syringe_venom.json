@@ -1,29 +1,12 @@
 {
   "model": {
-    "type": "minecraft:select",
-    "cases": [
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/syringe",
+    "tints": [
       {
-        "model": {
-          "type": "minecraft:model",
-          "model": "biolab:item/syringe_venom"
-        },
-        "when": [
-          "ground",
-          "fixed",
-          "on_shelf"
-        ]
+        "type": "minecraft:constant",
+        "value": 6866012
       }
-    ],
-    "fallback": {
-      "type": "minecraft:model",
-      "model": "biolab:item/3d/syringe",
-      "tints": [
-        {
-          "type": "minecraft:constant",
-          "value": 6866012
-        }
-      ]
-    },
-    "property": "minecraft:display_context"
+    ]
   }
 }

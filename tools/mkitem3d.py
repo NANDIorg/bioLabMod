@@ -746,7 +746,10 @@ ITEMS = {
 GUI_3D = {"flask", "syringe", "syringe_mutagen", "syringe_penicillin", "syringe_sedative",
           "syringe_stimulant", "syringe_vaccine", "syringe_venom", "ointment_analgesic"}
 
-FLAT_CONTEXTS = ["gui", "ground", "fixed", "on_shelf"]
+# Плоская иконка остаётся только в инвентаре: на земле, в рамке и на полке
+# предмет лежит моделью (пользователь попросил 01.11.2026 — выпавший шприц
+# плоской картинкой смотрелся чужим).
+FLAT_CONTEXTS = ["gui"]
 
 
 def dump(path, data):
@@ -782,6 +785,10 @@ def write_items():
             r, g, b = hexrgb(colour)
             solid["tints"] = [{"type": "minecraft:constant", "value": (r << 16) | (g << 8) | b}]
         when = [c for c in FLAT_CONTEXTS if not (item in GUI_3D and c == "gui")]
+        if not when:
+            # Объёмный везде: выбирать нечего.
+            dump(os.path.join(ITEMS_DIR, item + ".json"), {"model": solid})
+            continue
         dump(os.path.join(ITEMS_DIR, item + ".json"), {
             "model": {
                 "type": "minecraft:select",

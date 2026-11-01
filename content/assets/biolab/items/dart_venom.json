@@ -8,10 +8,7 @@
           "model": "biolab:item/dart_venom"
         },
         "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
+          "gui"
         ]
       }
     ],

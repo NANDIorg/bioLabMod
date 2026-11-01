@@ -8,10 +8,7 @@
           "model": "biolab:item/dna_fragment"
         },
         "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
+          "gui"
         ]
       }
     ],

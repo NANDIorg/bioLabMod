@@ -8,10 +8,7 @@
           "model": "biolab:item/pill_analgesic"
         },
         "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
+          "gui"
         ]
       }
     ],

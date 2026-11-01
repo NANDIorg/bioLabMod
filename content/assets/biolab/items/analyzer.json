@@ -8,10 +8,7 @@
           "model": "biolab:item/analyzer"
         },
         "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
+          "gui"
         ]
       }
     ],

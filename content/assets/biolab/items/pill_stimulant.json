@@ -8,10 +8,7 @@
           "model": "biolab:item/pill_stimulant"
         },
         "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
+          "gui"
         ]
       }
     ],

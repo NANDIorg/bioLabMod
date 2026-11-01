@@ -8,10 +8,7 @@
           "model": "biolab:item/extract_salicylate"
         },
         "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
+          "gui"
         ]
       }
     ],

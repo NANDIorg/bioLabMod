@@ -8,10 +8,7 @@
           "model": "biolab:item/dart_sedative"
         },
         "when": [
-          "gui",
-          "ground",
-          "fixed",
-          "on_shelf"
+          "gui"
         ]
       }
     ],
