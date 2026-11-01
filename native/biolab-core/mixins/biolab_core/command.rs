@@ -37,6 +37,47 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
             }
             return;
         }
+        Some("book") => {
+            // Новая книга: пригодится после обновления мода или если потеряли.
+            let text = game
+                .native_data(m::MANUAL_PATH)
+                .and_then(|bytes| String::from_utf8(bytes).ok());
+            let pages = match text.as_deref() {
+                Some(text) => m::manual_pages(text),
+                None => m::manual_fallback(),
+            };
+            let count = pages.len();
+            let mut book = horizon_client::items::ItemStack {
+                item: m::MANUAL_ID.into(),
+                count: 1,
+                damage: 0,
+                extra: None,
+            };
+            let data = book.extra.get_or_insert_with(Default::default);
+            data.written = Some(horizon_client::item_data::WrittenBook {
+                title: m::MANUAL_TITLE.to_string(),
+                author: m::MANUAL_AUTHOR.to_string(),
+                generation: 0,
+                pages,
+                page_tags: Vec::new(),
+            });
+            let mut placed = false;
+            for slot in 0..36 {
+                if let Some(place) = game.native_carried_slot(slot)
+                    && place.is_none()
+                {
+                    *place = Some(book.clone());
+                    placed = true;
+                    break;
+                }
+            }
+            game.native_chat(&if placed {
+                format!("Журнал лаборанта: {count} страниц")
+            } else {
+                "Некуда положить книгу: освободите слот".to_string()
+            });
+            return;
+        }
         Some("journal") => {
             // Весь журнал открытий: что собрано, как названо, что не опознано.
             let world = game.world_root.clone();

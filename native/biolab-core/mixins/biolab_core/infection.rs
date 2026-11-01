@@ -10,6 +10,45 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
     let Some(state) = m::player_tick(&world, uuid) else {
         return;
     };
+    // Первый вход в мир: игрок получает «Журнал лаборанта». Страницы берём
+    // из данных мода, чтобы правка текста не требовала пересборки.
+    if state.ticks <= 2 && m::take_manual(&world, uuid) {
+        let text = game
+            .native_data(m::MANUAL_PATH)
+            .and_then(|bytes| String::from_utf8(bytes).ok());
+        let pages = match text.as_deref() {
+            Some(text) => m::manual_pages(text),
+            None => m::manual_fallback(),
+        };
+        let mut book = horizon_client::items::ItemStack {
+            item: m::MANUAL_ID.into(),
+            count: 1,
+            damage: 0,
+            extra: None,
+        };
+        let data = book.extra.get_or_insert_with(Default::default);
+        data.written = Some(horizon_client::item_data::WrittenBook {
+            title: m::MANUAL_TITLE.to_string(),
+            author: m::MANUAL_AUTHOR.to_string(),
+            generation: 0,
+            pages,
+            page_tags: Vec::new(),
+        });
+        let mut placed = false;
+        for slot in 0..36 {
+            if let Some(place) = game.native_carried_slot(slot)
+                && place.is_none()
+            {
+                *place = Some(book.clone());
+                placed = true;
+                break;
+            }
+        }
+        if placed {
+            game.native_chat("Выдан журнал лаборанта: прочтите, с чего начать");
+        }
+    }
+
     // Стоим в луже: она действует и подсыхает.
     if state.ticks % m::FLUID_EVERY == 0
         && let Some(player) = game.native_player()

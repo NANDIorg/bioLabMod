@@ -116,3 +116,21 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "from", ty = "usize", value = "from" },
 ]
+
+# Модуль своей вкладки: в lib-крейте, где живёт `creative`.
+[[module]]
+id = "tab"
+file = "crates/horizon-client/src/lib.rs"
+name = "biolab_tab"
+source = "tab.rs"
+
+# Вкладка творческого инвентаря: дописываем её после перестройки списка.
+[[injection]]
+id = "creative-tab"
+kind = "RETURN"
+target = "horizon_client::creative::Creative::rebuild"
+helper = "creative.rs"
+bindings = [
+  { name = "creative", ty = "&mut crate::creative::Creative", value = "&mut *self" },
+  { name = "value", ty = "()", value = "$value" },
+]

@@ -94,6 +94,8 @@ pub struct PlayerState {
     pub mutagenesis: u32,
     /// Штамм, которым игрок болен: четыре характеристики, нули — здоров.
     pub strain: [u8; 4],
+    /// Выдана ли книга-руководство: второй раз она не приходит.
+    pub manual: bool,
 }
 
 /// Как часто писать состояние на диск, в тиках (раз в 5 секунд).
@@ -111,8 +113,8 @@ pub fn state_path(world: &std::path::Path, uuid: u128) -> std::path::PathBuf {
 /// Состояние строками `ключ=значение`: без зависимостей, читается глазами.
 pub fn state_to_text(s: &PlayerState) -> String {
     let mut text = format!(
-        "ticks={}\ninfection={}\nimmunity={}\nwithdrawal={}\nmutagenesis={}\n",
-        s.ticks, s.infection, s.immunity, s.withdrawal, s.mutagenesis
+        "ticks={}\ninfection={}\nimmunity={}\nwithdrawal={}\nmutagenesis={}\nmanual={}\n",
+        s.ticks, s.infection, s.immunity, s.withdrawal, s.mutagenesis, u8::from(s.manual)
     );
     // Вещества пишем по имени, а не по номеру: новая версия мода может
     // переставить таблицу, и старый файл всё равно прочитается.
@@ -166,6 +168,7 @@ pub fn state_from_text(text: &str) -> PlayerState {
             "immunity" => s.immunity = value.trim().parse().unwrap_or(s.immunity),
             "withdrawal" => s.withdrawal = value.trim().parse().unwrap_or(s.withdrawal),
             "mutagenesis" => s.mutagenesis = value.trim().parse().unwrap_or(s.mutagenesis),
+            "manual" => s.manual = value.trim() == "1",
             "strain" => {
                 if let Some(strain) = strain_from_text(value.trim()) {
                     s.strain = strain.values().map(|v| v as u8);
@@ -977,6 +980,75 @@ pub fn journal_lines(world: &std::path::Path) -> Vec<String> {
         });
     }
     lines
+}
+
+// ---- Книга-руководство ----
+//
+// Мод большой, и разбираться в нём по вики — не тот опыт, который хочется
+// дать. Поэтому при первом входе в мир игрок получает «Журнал лаборанта»:
+// что для чего, из чего крафтится и с чего начинать. Текст лежит данными
+// мода (`data/biolab/manual/ru.txt`), страницы разделены строкой `---`, так
+// что правка текста не требует пересборки нативной части.
+
+/// Книга — ванильная `written_book`: свой предмет с тем же шаблоном клиент
+/// как книгу не открывает (проверено в игре — экран не появлялся), а имя
+/// ей всё равно даёт заголовок внутри.
+pub const MANUAL_ID: &str = "minecraft:written_book";
+/// Где лежит текст книги внутри данных мода.
+pub const MANUAL_PATH: &str = "data/biolab/manual/ru.txt";
+pub const MANUAL_TITLE: &str = "Журнал лаборанта";
+pub const MANUAL_AUTHOR: &str = "BioLab";
+/// Сколько страниц книга вмещает и какой длины бывает страница.
+pub const MANUAL_MAX_PAGES: usize = 100;
+pub const MANUAL_MAX_PAGE: usize = 1024;
+
+/// Страницы книги из текста: разделитель — строка из трёх дефисов.
+pub fn manual_pages(text: &str) -> Vec<String> {
+    text.split("\n---\n")
+        .map(|page| page.trim().to_string())
+        .filter(|page| !page.is_empty())
+        .map(|mut page| {
+            if page.len() > MANUAL_MAX_PAGE {
+                page.truncate(MANUAL_MAX_PAGE);
+            }
+            page
+        })
+        .take(MANUAL_MAX_PAGES)
+        .collect()
+}
+
+/// Запасная страница: если данные мода не прочитались, книга всё равно
+/// должна объяснить, куда смотреть.
+pub fn manual_fallback() -> Vec<String> {
+    vec![format!(
+        "{MANUAL_TITLE}\n\nТекст руководства не прочитался: проверьте файл\n{MANUAL_PATH}\n\nКоманда /biolab покажет, что умеет мод."
+    )]
+}
+
+/// Отметить, что книга выдана; false — она уже была.
+pub fn take_manual(world: &std::path::Path, uuid: u128) -> bool {
+    let Ok(mut table) = states().lock() else {
+        return false;
+    };
+    let state = table
+        .entry((world.to_path_buf(), uuid))
+        .or_insert_with(|| {
+            std::fs::read_to_string(state_path(world, uuid))
+                .map(|t| state_from_text(&t))
+                .unwrap_or_default()
+        });
+    if state.manual {
+        return false;
+    }
+    state.manual = true;
+    let saved = *state;
+    drop(table);
+    let path = state_path(world, uuid);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, state_to_text(&saved));
+    true
 }
 
 /// Спектрометр: опознаёт вещество в колбе и печатает чертёж.
@@ -3829,6 +3901,39 @@ mod tests {
     #[test]
     fn the_canon_is_wide_enough() {
         assert!(KNOWN.len() >= 30, "канонических веществ всего {}", KNOWN.len());
+    }
+
+    #[test]
+    fn the_manual_splits_into_pages() {
+        let text = "Первая\n\nстрока\n---\nВторая\n---\n\n---\nТретья\n";
+        let pages = manual_pages(text);
+        assert_eq!(pages.len(), 3, "пустая страница не считается: {pages:?}");
+        assert_eq!(pages[0], "Первая\n\nстрока");
+        assert_eq!(pages[2], "Третья");
+        assert!(manual_pages("").is_empty());
+
+        // Слишком длинная страница обрезается, слишком длинная книга — тоже.
+        let long = "а".repeat(MANUAL_MAX_PAGE * 2);
+        assert_eq!(manual_pages(&long)[0].len(), MANUAL_MAX_PAGE);
+        let many = (0..MANUAL_MAX_PAGES + 20)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        assert_eq!(manual_pages(&many).len(), MANUAL_MAX_PAGES);
+
+        assert!(!manual_fallback().is_empty(), "без данных книга всё равно что-то говорит");
+    }
+
+    #[test]
+    fn the_manual_comes_once() {
+        let dir = std::env::temp_dir().join(format!("biolab-manual-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let uuid = 0x4d41_4e55_u128;
+        assert!(take_manual(&dir, uuid), "первый вход в мир");
+        assert!(!take_manual(&dir, uuid), "второй раз книга не приходит");
+        let state = state_from_text(&std::fs::read_to_string(state_path(&dir, uuid)).unwrap());
+        assert!(state.manual, "отметка пережила запись на диск");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
