@@ -164,6 +164,22 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
+    // Лужи жгут не только игрока: моб, стоящий в луже, получает своё.
+    // Раньше лужи действовали лишь на того, кто в них встал ногами игрока.
+    for (id, at, _, _, _) in &mobs {
+        let under = [
+            at[0].floor() as i32,
+            at[1].floor() as i32,
+            at[2].floor() as i32,
+        ];
+        let Some(fluid) = m::fluid_of_block(&game.native_block(under)) else {
+            continue;
+        };
+        if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == *id) {
+            mob.add_effect(fluid.effect, 60, 0);
+        }
+    }
+
     // Ауры на игрока: кислота жжёт, холод сковывает.
     if let Some(spot) = player {
         let mut acid = false;

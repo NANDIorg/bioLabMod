@@ -53,7 +53,9 @@ pub const CONTENTS_KEY: &str = "biolab_contents";
 pub const ML_KEY: &str = "biolab_ml";
 /// Чем заполнена новая колба, пока нет машин: прототип проверяет запись и
 /// сохранение данных в предмете.
-pub const DEFAULT_FILL: (&str, i32) = ("water", 250);
+/// Чем наполняется пустая колба. Формулой, а не словом: так спектрометр,
+/// журнал и чертежи видят в ней то же вещество, что и синтезатор.
+pub const DEFAULT_FILL: (&str, i32) = ("H2O", 250);
 
 /// Название вещества для подписи на предмете.
 pub fn compound_name(id: &str) -> &str {
@@ -264,7 +266,7 @@ pub struct Machine {
     pub menu: &'static str,
 }
 
-pub const MACHINES: [Machine; 9] = [
+pub const MACHINES: [Machine; 10] = [
     Machine { id: "biolab:still", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:incubator", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:fermenter", slots: 3, menu: "minecraft:furnace" },
@@ -274,6 +276,7 @@ pub const MACHINES: [Machine; 9] = [
     Machine { id: "biolab:press", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:extractor", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:cloning_vat", slots: 3, menu: "minecraft:furnace" },
+    Machine { id: "biolab:spectrometer", slots: 3, menu: "minecraft:furnace" },
 ];
 
 /// Машина с таким id, если она наша.
@@ -722,7 +725,7 @@ pub fn colour_of(formula: &Formula) -> u32 {
 /// Известные вещества. Ключ — формула в записи движка (углерод и водород
 /// впереди, остальные по алфавиту), поэтому «поваренная соль» хранится как
 /// `ClNa`: игроку видно название, а не формулу.
-pub const KNOWN: [(&str, &str); 10] = [
+pub const KNOWN: [(&str, &str); 34] = [
     ("H2O", "вода"),
     ("CO2", "углекислый газ"),
     ("CH4", "болотный газ"),
@@ -733,6 +736,30 @@ pub const KNOWN: [(&str, &str); 10] = [
     ("C6H12O6", "глюкоза"),
     ("C8H10N4O2", "бодрящий алкалоид"),
     ("Gl2Rs2", "светящийся сплав"),
+    ("H2O2", "перекись"),
+    ("H3N", "аммиак"),
+    ("HCl", "соляная кислота"),
+    ("H2S", "сероводород"),
+    ("H2O4S", "серная кислота"),
+    ("CaO", "негашёная известь"),
+    ("H2CaO2", "гашёная известь"),
+    ("KNO3", "селитра"),
+    ("Fe2O3", "ржавчина"),
+    ("CuO", "окалина меди"),
+    ("CuO4S", "медный купорос"),
+    ("C2H6O", "этанол"),
+    ("C3H8O3", "глицерин"),
+    ("CHCl3", "хлороформ"),
+    ("CH2O", "формальдегид"),
+    ("C2H4O2", "уксусная кислота"),
+    ("MgO", "жжёная магнезия"),
+    ("ClK", "калийная соль"),
+    ("HNaO", "щёлочь"),
+    ("O10P4", "фосфорный ангидрид"),
+    ("O2S", "сернистый газ"),
+    ("AuCl3", "хлорид золота"),
+    ("C2H2", "ацетилен"),
+    ("Cl2Mg", "горькая соль"),
 ];
 
 /// Название вещества: каноническое, если формула известна, иначе сама формула.
@@ -798,47 +825,173 @@ pub fn flask_tooltip(contents: &str, ml: i32) -> Vec<String> {
 }
 
 /// Журнал открытий: какие вещества игрок уже собирал в этом мире.
+/// Строка записи — `формула<таб>имя<таб>опознано`. Старые записи из одной
+/// формулы читаются как неопознанные и безымянные.
 pub fn journal_path(world: &std::path::Path) -> std::path::PathBuf {
     world.join("biolab").join("journal.txt")
 }
 
-/// Записать вещество в журнал; true, если оно там впервые.
-pub fn remember_compound(world: &std::path::Path, contents: &str) -> bool {
-    let path = journal_path(world);
-    let known = std::fs::read_to_string(&path).unwrap_or_default();
-    if known.lines().any(|line| line == contents) {
-        return false;
+/// Запись журнала.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Discovery {
+    pub formula: String,
+    /// Имя от спектрометра или от игрока; пусто — безымянное.
+    pub name: String,
+    /// Опознано ли вещество: до спектрометра свойства не подтверждены.
+    pub identified: bool,
+}
+
+/// Разобрать строку журнала.
+pub fn discovery_from_line(line: &str) -> Option<Discovery> {
+    let mut parts = line.split('\t');
+    let formula = parts.next()?.trim().to_string();
+    if formula.is_empty() {
+        return None;
     }
+    Some(Discovery {
+        formula,
+        name: parts.next().unwrap_or("").trim().to_string(),
+        identified: parts.next().is_some_and(|v| v.trim() == "1"),
+    })
+}
+
+/// Записать строку журнала.
+pub fn discovery_to_line(entry: &Discovery) -> String {
+    format!("{}\t{}\t{}", entry.formula, entry.name, u8::from(entry.identified))
+}
+
+/// Все открытия этого мира.
+pub fn discoveries(world: &std::path::Path) -> Vec<Discovery> {
+    std::fs::read_to_string(journal_path(world))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(discovery_from_line)
+        .collect()
+}
+
+/// Переписать журнал целиком.
+fn write_discoveries(world: &std::path::Path, entries: &[Discovery]) {
+    let path = journal_path(world);
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(&path, format!("{known}{contents}\n"));
+    let text: String = entries.iter().map(|e| discovery_to_line(e) + "\n").collect();
+    let _ = std::fs::write(&path, text);
+}
+
+/// Записать вещество в журнал; true, если оно там впервые. Новое вещество
+/// попадает туда неопознанным: свойства ещё надо подтвердить спектрометром.
+pub fn remember_compound(world: &std::path::Path, contents: &str) -> bool {
+    let mut entries = discoveries(world);
+    if entries.iter().any(|e| e.formula == contents) {
+        return false;
+    }
+    entries.push(Discovery {
+        formula: contents.to_string(),
+        name: String::new(),
+        identified: false,
+    });
+    write_discoveries(world, &entries);
     true
+}
+
+/// Опознать вещество: запись закрывается, имя берётся из таблицы известных
+/// или выдаётся по номеру открытия. None — уже было опознано.
+pub fn identify_compound(world: &std::path::Path, contents: &str) -> Option<String> {
+    let mut entries = discoveries(world);
+    let index = entries.iter().position(|e| e.formula == contents);
+    let number = index.map_or(entries.len() + 1, |i| i + 1);
+    let name = KNOWN
+        .iter()
+        .find(|(text, _)| *text == contents)
+        .map(|(_, name)| (*name).to_string())
+        .unwrap_or_else(|| format!("соединение №{number}"));
+    match index {
+        Some(i) => {
+            if entries[i].identified {
+                return None;
+            }
+            entries[i].name = name.clone();
+            entries[i].identified = true;
+        }
+        None => entries.push(Discovery {
+            formula: contents.to_string(),
+            name: name.clone(),
+            identified: true,
+        }),
+    }
+    write_discoveries(world, &entries);
+    Some(name)
+}
+
+/// Дать опознанному веществу своё имя; false — такого в журнале нет или оно
+/// ещё не опознано.
+pub fn rename_compound(world: &std::path::Path, contents: &str, name: &str) -> bool {
+    let name = name.trim();
+    if name.is_empty() {
+        return false;
+    }
+    let mut entries = discoveries(world);
+    let Some(entry) = entries.iter_mut().find(|e| e.formula == contents && e.identified) else {
+        return false;
+    };
+    entry.name = name.to_string();
+    write_discoveries(world, &entries);
+    true
+}
+
+/// Как называть вещество игроку: своё имя из журнала, если оно опознано.
+pub fn compound_display(world: &std::path::Path, contents: &str) -> Option<String> {
+    discoveries(world)
+        .into_iter()
+        .find(|e| e.formula == contents && e.identified && !e.name.is_empty())
+        .map(|e| e.name)
+}
+
+/// Опознано ли вещество в этом мире.
+pub fn is_identified(world: &std::path::Path, contents: &str) -> bool {
+    discoveries(world)
+        .iter()
+        .any(|e| e.formula == contents && e.identified)
 }
 
 /// Сколько веществ в журнале.
 pub fn journal_count(world: &std::path::Path) -> u32 {
-    std::fs::read_to_string(journal_path(world))
-        .map(|text| text.lines().filter(|l| !l.is_empty()).count() as u32)
-        .unwrap_or(0)
+    discoveries(world).len() as u32
 }
 
-/// Строки журнала для чата.
+/// Строки журнала для чата: что собрано, как названо и что ещё не опознано.
 pub fn journal_lines(world: &std::path::Path) -> Vec<String> {
-    let text = std::fs::read_to_string(journal_path(world)).unwrap_or_default();
+    let entries = discoveries(world);
     let mut lines = vec!["Лабораторный журнал".to_string()];
-    let mut count = 0;
-    for entry in text.lines().filter(|l| !l.is_empty()) {
-        count += 1;
-        match formula_from_text(entry) {
-            Some(f) => lines.push(format!("{count}. {} — {}", formula_text(&f), compound_name_of(&f))),
-            None => lines.push(format!("{count}. {entry}")),
-        }
-    }
-    if count == 0 {
+    if entries.is_empty() {
         lines.push("Пока пусто: соберите вещество в синтезаторе.".to_string());
+        return lines;
+    }
+    for (i, entry) in entries.iter().enumerate() {
+        let number = i + 1;
+        lines.push(match (entry.identified, entry.name.is_empty()) {
+            (true, false) => format!("{number}. {} — {}", entry.formula, entry.name),
+            (true, true) => format!("{number}. {}", entry.formula),
+            (false, _) => format!("{number}. {} — не опознано", entry.formula),
+        });
     }
     lines
+}
+
+/// Спектрометр: опознаёт вещество в колбе и печатает чертёж.
+pub const SPECTROMETER: &str = "biolab:spectrometer";
+/// Сколько тиков идёт анализ.
+pub const ANALYSIS_TIME: i32 = 160;
+/// Чертёж: предмет с формулой, по которому синтезатор собирает вещество.
+pub const BLUEPRINT_ID: &str = "biolab:blueprint";
+
+/// Подпись чертежа.
+pub fn blueprint_label(contents: &str, name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("Чертёж: {name} ({contents})"),
+        None => format!("Чертёж: {contents}"),
+    }
 }
 
 /// Реактор: температура внутри и пределы работы.
@@ -2813,7 +2966,7 @@ mod tests {
         assert_eq!(lines[0], "H2O, 250 мл");
         assert!(lines.iter().any(|l| l == "Газ"));
         assert!(!lines.iter().any(|l| l == "Не опознано"), "вода известна");
-        let unknown = flask_tooltip("CuO", 250);
+        let unknown = flask_tooltip("CFe2", 250);
         assert!(unknown.iter().any(|l| l == "Не опознано"));
     }
 
@@ -3626,6 +3779,59 @@ mod tests {
     }
 
     #[test]
+    fn the_journal_keeps_names_and_what_is_still_unknown() {
+        let dir = std::env::temp_dir().join(format!("biolab-journal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(remember_compound(&dir, "H2O"), "первая запись");
+        assert!(!remember_compound(&dir, "H2O"), "повтор не пишется");
+        assert!(remember_compound(&dir, "CFe2"));
+        assert_eq!(journal_count(&dir), 2);
+        assert!(!is_identified(&dir, "H2O"), "собрал — ещё не значит опознал");
+        assert_eq!(compound_display(&dir, "H2O"), None);
+        let lines = journal_lines(&dir);
+        assert!(lines.iter().any(|l| l.contains("H2O — не опознано")), "{lines:?}");
+
+        // Спектрометр закрывает запись: известному веществу — его имя.
+        assert_eq!(identify_compound(&dir, "H2O").as_deref(), Some("вода"));
+        assert!(is_identified(&dir, "H2O"));
+        assert_eq!(compound_display(&dir, "H2O").as_deref(), Some("вода"));
+        assert_eq!(identify_compound(&dir, "H2O"), None, "второй раз нечего опознавать");
+        // Незнакомому — номер открытия.
+        assert_eq!(identify_compound(&dir, "CFe2").as_deref(), Some("соединение №2"));
+
+        // Своё имя закрепляется за веществом.
+        assert!(rename_compound(&dir, "CFe2", "карбид Нанди"));
+        assert_eq!(compound_display(&dir, "CFe2").as_deref(), Some("карбид Нанди"));
+        assert!(!rename_compound(&dir, "CFe2", "   "), "пустое имя не принимается");
+        assert!(!rename_compound(&dir, "H2S", "что-то"), "такого открытия нет");
+
+        // Журнал переживает перечитывание.
+        let entries = discoveries(&dir);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(discovery_from_line(&discovery_to_line(&entries[0])), Some(entries[0].clone()));
+        // Старая запись из одной формулы читается как неопознанная.
+        assert_eq!(
+            discovery_from_line("C2H6O"),
+            Some(Discovery { formula: "C2H6O".into(), name: String::new(), identified: false })
+        );
+        assert_eq!(discovery_from_line(""), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_blueprint_says_what_it_builds() {
+        assert_eq!(blueprint_label("H2O", Some("вода")), "Чертёж: вода (H2O)");
+        assert_eq!(blueprint_label("CFe2", None), "Чертёж: CFe2");
+    }
+
+    #[test]
+    fn the_canon_is_wide_enough() {
+        assert!(KNOWN.len() >= 30, "канонических веществ всего {}", KNOWN.len());
+    }
+
+    #[test]
     fn single_atom_is_not_a_compound() {
         let mut f = Formula::default();
         f[0] = 1;
@@ -3687,11 +3893,17 @@ mod tests {
 
     #[test]
     fn unknown_formula_keeps_its_own_name() {
+        // Углерод с железом в таблице известных не значится.
         let mut f = Formula::default();
-        f[8] = 1; // Cu
-        f[3] = 1; // O
-        assert_eq!(compound_name_of(&f), "CuO");
-        assert_eq!(colour_of(&f), 0x4FB8C8, "медь красит в голубой");
+        f[1] = 1; // C
+        f[7] = 2; // Fe
+        assert_eq!(compound_name_of(&f), "CFe2");
+        // А вот окалина меди теперь каноническая и своё имя имеет.
+        let mut known = Formula::default();
+        known[8] = 1; // Cu
+        known[3] = 1; // O
+        assert_eq!(compound_name_of(&known), "окалина меди");
+        assert_eq!(colour_of(&known), 0x4FB8C8, "медь красит в голубой");
     }
 
     #[test]

@@ -102,6 +102,11 @@ fn biolab_core_tooltip(
         Some(Tag::Int(v)) => *v,
         _ => 0,
     };
+    // Имя, которое вещество получило в журнале этого мира, главнее формулы.
+    let world = game.world_root.clone();
+    if let Some(name) = m::compound_display(&world, &contents) {
+        lines.push((horizon_client::text::Text::literal(&name), 0xAA_AAAA));
+    }
     for line in m::flask_tooltip(&contents, ml) {
         lines.push((horizon_client::text::Text::literal(&line), 0xAA_AAAA));
     }

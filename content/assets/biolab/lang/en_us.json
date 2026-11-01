@@ -85,5 +85,7 @@
  "item.biolab.dart_venom": "Venom Dart",
  "item.biolab.bandage": "Bandage",
  "item.biolab.scalpel": "Serrated Scalpel",
- "gene.biolab.rending_claws": "Rending Claws"
+ "gene.biolab.rending_claws": "Rending Claws",
+ "item.biolab.blueprint": "Blueprint",
+ "block.biolab.spectrometer": "Spectrometer"
 }

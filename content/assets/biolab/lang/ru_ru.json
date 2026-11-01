@@ -85,5 +85,7 @@
  "item.biolab.dart_venom": "Дротик с ядом",
  "item.biolab.bandage": "Бинт",
  "item.biolab.scalpel": "Зазубренный скальпель",
- "gene.biolab.rending_claws": "Рвущие когти"
+ "gene.biolab.rending_claws": "Рвущие когти",
+ "item.biolab.blueprint": "Чертёж",
+ "block.biolab.spectrometer": "Спектрометр"
 }

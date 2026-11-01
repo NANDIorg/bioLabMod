@@ -19,6 +19,27 @@ fn biolab_core_machine_tick(
         use horizon_world::nbt::Tag;
         entity.data.resize(m::DATA_SLOTS, 0);
 
+        // Чертёж в слоте задаёт цель: синтезатор собирает ровно его состав,
+        // а сам чертёж не тратится — по нему можно повторять сколько угодно.
+        let mut blueprint: Option<String> = None;
+        for slot in 0..output_slot {
+            let Some(Some(stack)) = entity.items.get(slot) else {
+                continue;
+            };
+            if &*stack.item != m::BLUEPRINT_ID {
+                continue;
+            }
+            if let Some(extra) = stack.extra.as_ref()
+                && let Some((_, data)) = extra
+                    .other
+                    .iter()
+                    .find(|(key, _)| key == "minecraft:custom_data")
+                && let Some(Tag::String(text)) = data.get(m::CONTENTS_KEY)
+            {
+                blueprint = Some(text.to_string_lossy());
+            }
+        }
+
         // Что лежит во входных слотах.
         let mut formula = m::Formula::default();
         for slot in 0..output_slot {
@@ -45,7 +66,13 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_PROGRESS] = 0;
         }
 
-        let busy = m::is_stable(&formula)
+        // С чертежом машина ждёт ровно его состав, без него — любой устойчивый.
+        let matches_blueprint = blueprint
+            .as_deref()
+            .and_then(m::formula_from_text)
+            .is_none_or(|target| target == formula);
+        let busy = matches_blueprint
+            && m::is_stable(&formula)
             && entity
                 .items
                 .get(output_slot)
@@ -249,6 +276,74 @@ fn biolab_core_machine_tick(
         }
         return;
     }
+    // Спектрометр: разбирает колбу на состав, закрывает запись в журнале и
+    // печатает чертёж. Колбу не тратит — анализ не разрушающий.
+    if entity.id == m::SPECTROMETER {
+        use horizon_world::nbt::Tag;
+        entity.data.resize(m::DATA_SLOTS, 0);
+        let contents = entity
+            .items
+            .get(m::SLOT_INPUT)
+            .and_then(|s| s.as_ref())
+            .filter(|stack| &*stack.item == m::FLASK_ID)
+            .and_then(|stack| {
+                let extra = stack.extra.as_ref()?;
+                let (_, data) = extra
+                    .other
+                    .iter()
+                    .find(|(key, _)| key == "minecraft:custom_data")?;
+                match data.get(m::CONTENTS_KEY) {
+                    Some(Tag::String(s)) => Some(s.to_string_lossy()),
+                    _ => None,
+                }
+            });
+        let free = entity
+            .items
+            .get(output_slot)
+            .is_some_and(|slot| slot.is_none());
+        let Some(contents) = contents.filter(|_| free) else {
+            entity.data[m::DATA_PROGRESS] = 0;
+            entity.data[m::DATA_TOTAL] = 0;
+            entity.data[m::DATA_LIT] = 0;
+            return;
+        };
+        entity.data[m::DATA_TOTAL] = m::ANALYSIS_TIME;
+        entity.data[m::DATA_LIT] = 1;
+        entity.data[m::DATA_LIT_TOTAL] = 1;
+        let progress = entity.data[m::DATA_PROGRESS] + 1;
+        if progress < m::ANALYSIS_TIME {
+            entity.data[m::DATA_PROGRESS] = progress;
+            return;
+        }
+        entity.data[m::DATA_PROGRESS] = 0;
+        entity.data[m::DATA_LIT] = 0;
+
+        let world = game.world_root.clone();
+        let name = m::identify_compound(&world, &contents);
+        let display = m::compound_display(&world, &contents);
+        let mut blueprint = horizon_client::items::ItemStack {
+            item: m::BLUEPRINT_ID.into(),
+            count: 1,
+            damage: 0,
+            extra: None,
+        };
+        let data = blueprint.extra.get_or_insert_with(Default::default);
+        data.other.push((
+            "minecraft:custom_data".to_string(),
+            Tag::compound([(m::CONTENTS_KEY, Tag::String(contents.as_str().into()))]),
+        ));
+        data.custom_name = Some(Tag::String(
+            m::blueprint_label(&contents, display.as_deref()).as_str().into(),
+        ));
+        if let Some(slot) = entity.items.get_mut(output_slot) {
+            *slot = Some(blueprint);
+        }
+        if let Some(name) = name {
+            game.native_chat(&format!("Спектрометр: {contents} — {name}"));
+        }
+        return;
+    }
+
     if entity.id == m::CLONING_VAT {
         let Some(text) = grow_clone(entity) else {
             return;

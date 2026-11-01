@@ -1,4 +1,5 @@
-// /biolab — состояние мода; /biolab infect N — уровень заражения для проверок.
+// /biolab — состояние мода. Команды проверок: infect N, blood, cure,
+// journal и name <имя> для вещества в руке.
 // Журнал показывает панель анализатора: запрос клиент → сервер в одиночной
 // игре не доходит, а канал сервер → клиент работает.
 fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mut bool) {
@@ -33,6 +34,47 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
             );
             for line in lines {
                 game.native_chat(&line);
+            }
+            return;
+        }
+        Some("journal") => {
+            // Весь журнал открытий: что собрано, как названо, что не опознано.
+            let world = game.world_root.clone();
+            for line in m::journal_lines(&world) {
+                game.native_chat(&line);
+            }
+            return;
+        }
+        Some("name") => {
+            // Своё имя веществу в колбе: `/biolab name <имя>`.
+            let name = command
+                .split_once(" name ")
+                .map(|(_, rest)| rest.trim().to_string())
+                .unwrap_or_default();
+            let slot = game.selected as i32;
+            let contents = game
+                .native_carried_stack(slot)
+                .filter(|stack| &*stack.item == m::FLASK_ID)
+                .and_then(|stack| {
+                    let extra = stack.extra.as_ref()?;
+                    let (_, data) = extra
+                        .other
+                        .iter()
+                        .find(|(key, _)| key == "minecraft:custom_data")?;
+                    match data.get(m::CONTENTS_KEY) {
+                        Some(horizon_world::nbt::Tag::String(s)) => Some(s.to_string_lossy()),
+                        _ => None,
+                    }
+                });
+            let Some(contents) = contents else {
+                game.native_chat("Возьмите в руку колбу с веществом");
+                return;
+            };
+            let world = game.world_root.clone();
+            if m::rename_compound(&world, &contents, &name) {
+                game.native_chat(&format!("{contents} теперь «{name}»"));
+            } else {
+                game.native_chat("Сначала опознайте вещество в спектрометре");
             }
             return;
         }
