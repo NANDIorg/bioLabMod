@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:gold_nugget",
+ "result": {
+  "id": "biolab:element_gold",
+  "count": 1
+ },
+ "time": 80
+}

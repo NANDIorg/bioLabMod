@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:birch_leaves",
+ "result": {
+  "id": "biolab:extract_salicylate",
+  "count": 1
+ },
+ "time": 100
+}

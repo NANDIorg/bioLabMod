@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:charcoal",
+ "result": {
+  "id": "biolab:element_carbon",
+  "count": 2
+ },
+ "time": 80
+}

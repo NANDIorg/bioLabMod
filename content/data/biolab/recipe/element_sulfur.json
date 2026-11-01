@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:gunpowder",
+ "result": {
+  "id": "biolab:element_sulfur",
+  "count": 2
+ },
+ "time": 80
+}

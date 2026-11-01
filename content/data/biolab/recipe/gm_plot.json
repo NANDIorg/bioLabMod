@@ -1,0 +1,13 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "minecraft:dirt",
+  "biolab:agar",
+  "minecraft:bone_meal"
+ ],
+ "result": {
+  "id": "biolab:gm_plot",
+  "count": 2
+ }
+}

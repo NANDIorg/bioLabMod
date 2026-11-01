@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:cocoa_beans",
+ "result": {
+  "id": "biolab:extract_caffeine",
+  "count": 1
+ },
+ "time": 100
+}

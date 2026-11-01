@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:dried_kelp_block",
+ "result": {
+  "id": "biolab:element_iodine",
+  "count": 2
+ },
+ "time": 80
+}

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:centrifuge",
+ "ingredient": "biolab:extract_raw",
+ "result": {
+  "id": "biolab:remedy",
+  "count": 1
+ },
+ "time": 120
+}

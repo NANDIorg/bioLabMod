@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "minecraft:bucket",
+  "biolab:element_sulfur"
+ ],
+ "result": {
+  "id": "biolab:acid_puddle_bucket",
+  "count": 1
+ }
+}

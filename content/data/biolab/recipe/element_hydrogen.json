@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:ice",
+ "result": {
+  "id": "biolab:element_hydrogen",
+  "count": 2
+ },
+ "time": 80
+}

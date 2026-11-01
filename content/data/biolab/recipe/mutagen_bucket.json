@@ -1,0 +1,13 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "minecraft:bucket",
+  "biolab:mutagen",
+  "biolab:mutagen"
+ ],
+ "result": {
+  "id": "biolab:mutagen_bucket",
+  "count": 1
+ }
+}

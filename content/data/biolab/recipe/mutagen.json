@@ -1,0 +1,14 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:flask",
+  "biolab:element_redstonium",
+  "biolab:element_glaurium",
+  "biolab:mutant_tissue"
+ ],
+ "result": {
+  "id": "biolab:mutagen",
+  "count": 1
+ }
+}

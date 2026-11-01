@@ -1,0 +1,9 @@
+{
+ "type": "biolab:press",
+ "ingredient": "biolab:extract_salicylate",
+ "result": {
+  "id": "biolab:pill_analgesic",
+  "count": 2
+ },
+ "time": 100
+}

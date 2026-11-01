@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:redstone",
+ "result": {
+  "id": "biolab:element_redstonium",
+  "count": 2
+ },
+ "time": 80
+}

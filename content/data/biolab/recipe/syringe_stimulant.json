@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:extract_caffeine"
+ ],
+ "result": {
+  "id": "biolab:syringe_stimulant",
+  "count": 1
+ }
+}

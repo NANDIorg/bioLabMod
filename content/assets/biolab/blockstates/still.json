@@ -1,0 +1,9 @@
+{ "variants": {
+  "facing=north,lit=false": { "model": "biolab:block/still" },
+  "facing=south,lit=false": { "model": "biolab:block/still", "y": 180 },
+  "facing=west,lit=false":  { "model": "biolab:block/still", "y": 270 },
+  "facing=east,lit=false":  { "model": "biolab:block/still", "y": 90 },
+  "facing=north,lit=true":  { "model": "biolab:block/still" },
+  "facing=south,lit=true":  { "model": "biolab:block/still", "y": 180 },
+  "facing=west,lit=true":   { "model": "biolab:block/still", "y": 270 },
+  "facing=east,lit=true":   { "model": "biolab:block/still", "y": 90 } } }

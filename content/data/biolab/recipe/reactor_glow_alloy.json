@@ -1,0 +1,13 @@
+{
+ "type": "biolab:reactor",
+ "ingredient": "biolab:element_glaurium",
+ "result": {
+  "id": "biolab:element_redstonium",
+  "count": 1
+ },
+ "temperature": [
+  200,
+  500
+ ],
+ "time": 120
+}

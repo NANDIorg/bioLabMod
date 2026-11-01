@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:glowstone_dust",
+ "result": {
+  "id": "biolab:element_glaurium",
+  "count": 2
+ },
+ "time": 80
+}

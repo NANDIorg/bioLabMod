@@ -1,0 +1,8 @@
+{
+ "parent": "minecraft:block/cube_bottom_top",
+ "textures": {
+  "side": "biolab:block/console_side",
+  "top": "biolab:block/console_top",
+  "bottom": "biolab:block/console_side"
+ }
+}

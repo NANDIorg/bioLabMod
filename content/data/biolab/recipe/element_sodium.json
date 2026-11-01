@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:prismarine_crystals",
+ "result": {
+  "id": "biolab:element_sodium",
+  "count": 1
+ },
+ "time": 80
+}

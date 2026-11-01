@@ -1,0 +1,9 @@
+# Сборочные каталоги Rust: собираются из исходников, весят сотни мегабайт.
+native/*/target/
+# Логи игры из прогонов.
+logs/
+# Служебное от macOS.
+.DS_Store
+
+# Личные разрешения Claude Code.
+.claude/settings.local.json

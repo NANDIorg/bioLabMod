@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:copper_ingot",
+ "result": {
+  "id": "biolab:element_copper",
+  "count": 2
+ },
+ "time": 80
+}

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:press",
+ "ingredient": "minecraft:charcoal",
+ "result": {
+  "id": "biolab:pill_antidote",
+  "count": 2
+ },
+ "time": 80
+}

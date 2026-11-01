@@ -1,0 +1,11 @@
+[package]
+name = "biolab-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "BioLab: био-химическая лаборатория для Horizon. Нативная часть на стабильных хук-поинтах."
+
+# Логика мода и её тесты: тот же файл, который бандл добавляет в игру.
+[lib]
+path = "mixins/biolab_core/runtime.rs"

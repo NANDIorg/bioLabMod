@@ -1,0 +1,10 @@
+[package]
+name = "biolab-deep"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "BioLab: поведение своих эффектов, мутанты и их внешний вид. Миксины на внутренние функции игры."
+
+[lib]
+path = "mixins/biolab_deep/runtime.rs"

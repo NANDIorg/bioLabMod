@@ -1,0 +1,9 @@
+{
+ "type": "biolab:centrifuge",
+ "ingredient": "minecraft:spider_eye",
+ "result": {
+  "id": "biolab:extract_venom",
+  "count": 1
+ },
+ "time": 120
+}

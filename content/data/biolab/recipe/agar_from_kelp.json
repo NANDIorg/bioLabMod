@@ -1,0 +1,4 @@
+{ "type": "biolab:still",
+  "ingredient": "minecraft:dried_kelp",
+  "result": { "id": "biolab:agar", "count": 1 },
+  "time": 100 }

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:prismarine_shard",
+ "result": {
+  "id": "biolab:element_magnesium",
+  "count": 1
+ },
+ "time": 80
+}

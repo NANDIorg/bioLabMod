@@ -1,0 +1,13 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:agar",
+  "biolab:flask",
+  "minecraft:sugar"
+ ],
+ "result": {
+  "id": "biolab:nutrient_broth",
+  "count": 2
+ }
+}

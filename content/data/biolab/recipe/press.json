@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iii",
+  "p p",
+  "iii"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "p": "minecraft:piston"
+ },
+ "result": {
+  "id": "biolab:press",
+  "count": 1
+ }
+}

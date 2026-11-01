@@ -1,0 +1,8 @@
+{
+ "parent": "minecraft:block/cube_bottom_top",
+ "textures": {
+  "side": "biolab:block/extractor_side",
+  "top": "biolab:block/extractor_top",
+  "bottom": "biolab:block/extractor_side"
+ }
+}

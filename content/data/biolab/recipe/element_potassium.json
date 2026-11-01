@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:seagrass",
+ "result": {
+  "id": "biolab:element_potassium",
+  "count": 1
+ },
+ "time": 80
+}

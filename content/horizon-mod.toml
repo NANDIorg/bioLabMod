@@ -1,0 +1,9 @@
+id = "biolab"
+name = "BioLab"
+version = "0.1.0"
+description = "Био-химическая лаборатория: химия, микробиология, фармакология и генетика."
+authors = ["NANDIorg"]
+api = "0.2"
+side = "both"
+capabilities = ["registries"]
+namespaces = []

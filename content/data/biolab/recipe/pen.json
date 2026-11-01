@@ -1,0 +1,16 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iii",
+  "i i",
+  "iii"
+ ],
+ "key": {
+  "i": "minecraft:iron_bars"
+ },
+ "result": {
+  "id": "biolab:pen",
+  "count": 1
+ }
+}

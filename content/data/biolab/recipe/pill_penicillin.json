@@ -1,0 +1,9 @@
+{
+ "type": "biolab:press",
+ "ingredient": "biolab:extract_penicillin",
+ "result": {
+  "id": "biolab:pill_penicillin",
+  "count": 2
+ },
+ "time": 100
+}

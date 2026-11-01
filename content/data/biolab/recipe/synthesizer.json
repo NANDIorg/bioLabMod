@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iii",
+  "gcg",
+  "iri"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "g": "minecraft:glass",
+  "c": "biolab:flask",
+  "r": "minecraft:redstone_block"
+ },
+ "result": {
+  "id": "biolab:synthesizer",
+  "count": 1
+ }
+}

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "biolab:mutant_tissue",
+ "result": {
+  "id": "biolab:element_phosphorus",
+  "count": 2
+ },
+ "time": 100
+}

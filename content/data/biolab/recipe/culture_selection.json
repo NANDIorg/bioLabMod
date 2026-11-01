@@ -1,0 +1,9 @@
+{
+ "type": "biolab:incubator",
+ "ingredient": "biolab:culture",
+ "result": {
+  "id": "biolab:culture",
+  "count": 1
+ },
+ "time": 200
+}

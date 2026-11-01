@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:poppy",
+ "result": {
+  "id": "biolab:extract_sedative",
+  "count": 1
+ },
+ "time": 100
+}

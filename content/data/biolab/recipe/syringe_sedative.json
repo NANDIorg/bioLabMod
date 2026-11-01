@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:extract_sedative"
+ ],
+ "result": {
+  "id": "biolab:syringe_sedative",
+  "count": 1
+ }
+}

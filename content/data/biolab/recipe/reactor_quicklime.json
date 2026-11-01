@@ -1,0 +1,13 @@
+{
+ "type": "biolab:reactor",
+ "ingredient": "biolab:element_calcium",
+ "result": {
+  "id": "biolab:element_oxygen",
+  "count": 1
+ },
+ "temperature": [
+  400,
+  900
+ ],
+ "time": 100
+}

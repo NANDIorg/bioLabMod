@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:sand",
+ "result": {
+  "id": "biolab:element_silicon",
+  "count": 2
+ },
+ "time": 80
+}

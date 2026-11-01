@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iii",
+  "ifi",
+  "iii"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "f": "minecraft:blast_furnace"
+ },
+ "result": {
+  "id": "biolab:reactor",
+  "count": 1
+ }
+}

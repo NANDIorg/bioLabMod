@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:extract_penicillin"
+ ],
+ "result": {
+  "id": "biolab:syringe_penicillin",
+  "count": 1
+ }
+}

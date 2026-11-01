@@ -1,0 +1,9 @@
+{
+ "type": "biolab:incubator",
+ "ingredient": "minecraft:bread",
+ "result": {
+  "id": "biolab:mold",
+  "count": 1
+ },
+ "time": 160
+}

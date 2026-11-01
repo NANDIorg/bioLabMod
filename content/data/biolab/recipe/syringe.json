@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  " n",
+  "g ",
+  "n "
+ ],
+ "key": {
+  "n": "minecraft:iron_nugget",
+  "g": "minecraft:glass_pane"
+ },
+ "result": {
+  "id": "biolab:syringe",
+  "count": 2
+ }
+}

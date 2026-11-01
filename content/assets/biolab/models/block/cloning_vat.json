@@ -1,0 +1,8 @@
+{
+ "parent": "minecraft:block/cube_bottom_top",
+ "textures": {
+  "side": "biolab:block/cloning_vat_side",
+  "top": "biolab:block/cloning_vat_top",
+  "bottom": "biolab:block/cloning_vat_side"
+ }
+}

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:iron_nugget",
+ "result": {
+  "id": "biolab:element_iron",
+  "count": 2
+ },
+ "time": 80
+}

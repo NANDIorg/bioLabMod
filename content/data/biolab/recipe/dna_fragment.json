@@ -1,0 +1,9 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "biolab:mutant_tissue",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "time": 140
+}

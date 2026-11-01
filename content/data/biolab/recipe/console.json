@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ggg",
+  "iai",
+  "iri"
+ ],
+ "key": {
+  "g": "minecraft:glass",
+  "i": "minecraft:iron_ingot",
+  "a": "biolab:analyzer",
+  "r": "minecraft:redstone"
+ },
+ "result": {
+  "id": "biolab:console",
+  "count": 1
+ }
+}

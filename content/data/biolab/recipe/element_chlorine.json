@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:sea_pickle",
+ "result": {
+  "id": "biolab:element_chlorine",
+  "count": 1
+ },
+ "time": 80
+}

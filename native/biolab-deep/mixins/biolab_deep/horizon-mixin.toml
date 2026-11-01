@@ -1,0 +1,118 @@
+[mod]
+id = "biolab_deep"
+version = "0.1.0"
+priority = 100
+
+# Этот бандл цепляется к ВНУТРЕННИМ функциям игры, а не к стабильным
+# хук-поинтам, поэтому он привязан к коммиту и после обновления Horizon
+# его цели нужно перепроверять.
+[compatibility]
+horizon_revision = "d91cab68ded29bd2b004f7050c468fb98c41a00b"
+
+[[module]]
+id = "runtime"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_deep"
+source = "runtime.rs"
+
+# Серверный тик эффектов игрока (LivingEntity.tickEffects). Ванильные эффекты
+# разбираются хардкодом по строкам, наши — здесь.
+[[injection]]
+id = "effect-tick"
+kind = "HEAD"
+target = "horizon_client::game::potions::Game<'_>::tick_mob_effects"
+helper = "tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Модуль в крейте отрисовки: там живёт атлас HUD.
+[[module]]
+id = "icons"
+file = "crates/horizon-client-render/src/lib.rs"
+name = "biolab_icons"
+source = "atlas.rs"
+
+# Иконки эффектов модов: псевдоним в атласе под ключом, который ищет движок.
+# RETURN здесь не встаёт: функция объявлена как `-> Result<Self>`, а инструменту
+# нужен конкретный тип. Поэтому правим значение самого выражения — его тип
+# объявляем сами.
+[[injection]]
+id = "atlas-icons"
+kind = "MODIFY_EXPRESSION_VALUE"
+target = "horizon_client_render::hud::HudAtlas::build_over"
+selector = 'Self::pack(root, defaults, &["gui", "item", "block", "font", "environment", "misc", "painting", "entity", "particle", "mob_effect", "map",], true,)'
+require = 1
+ordinal = 0
+helper = "icons.rs"
+bindings = [
+  { name = "value", ty = "crate::Result<crate::hud::HudAtlas>", value = "$value" },
+]
+
+# Модуль мутантов: в lib-крейте horizon-client, где живёт `mobs`.
+[[module]]
+id = "mutants"
+file = "crates/horizon-client/src/lib.rs"
+name = "biolab_mutants"
+source = "mutants.rs"
+
+# Геном для отрисовки: на тике моба узнаём его по метке на самом мобе.
+[[injection]]
+id = "mutate-on-spawn"
+kind = "HEAD"
+target = "horizon_client::mobs::ai::base_tick"
+helper = "spawn.rs"
+bindings = [
+  { name = "m", ty = "&mut crate::mobs::Mob", value = "&mut *m" },
+]
+
+# Внешность: оттенок всего тела.
+[[injection]]
+id = "mutant-tint"
+kind = "RETURN"
+target = "horizon_client::mobs::render::body_color"
+helper = "color.rs"
+bindings = [
+  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
+  { name = "value", ty = "u32", value = "$value" },
+]
+
+# Внешность: размер поверх ванильного масштаба вида.
+[[injection]]
+id = "mutant-scale"
+kind = "RETURN"
+target = "horizon_client::mobs::render::species_scale"
+helper = "scale.rs"
+bindings = [
+  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
+  { name = "value", ty = "glam::Mat4", value = "$value" },
+]
+
+# Модуль эффектов мобов: в lib-крейте, где живёт `mobs`.
+[[module]]
+id = "mob-effects"
+file = "crates/horizon-client/src/lib.rs"
+name = "biolab_effects"
+source = "effects.rs"
+
+# Эффекты мобов тикают отдельно от игрока (`m.extra.effects`).
+[[injection]]
+id = "mob-effect-tick"
+kind = "HEAD"
+target = "horizon_client::mobs::ai::tick_effects"
+helper = "mob_tick.rs"
+bindings = [
+  { name = "m", ty = "&mut crate::mobs::Mob", value = "&mut *m" },
+]
+
+# Мобы появились в мире: новым зомби — геном, загруженным мутантам — их
+# модификаторы обратно из сырого NBT. Бинарник: здесь виден `persist.raw`.
+[[injection]]
+id = "mobs-joined"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mobs_joined"
+helper = "joined.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "from", ty = "usize", value = "from" },
+]

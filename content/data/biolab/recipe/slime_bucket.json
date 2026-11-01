@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "minecraft:bucket",
+  "biolab:culture"
+ ],
+ "result": {
+  "id": "biolab:slime_bucket",
+  "count": 1
+ }
+}

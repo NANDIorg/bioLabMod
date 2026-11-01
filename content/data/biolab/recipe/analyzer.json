@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ggg",
+  "gcg",
+  "gig"
+ ],
+ "key": {
+  "g": "minecraft:glass",
+  "c": "minecraft:compass",
+  "i": "minecraft:iron_ingot"
+ },
+ "result": {
+  "id": "biolab:analyzer",
+  "count": 1
+ }
+}

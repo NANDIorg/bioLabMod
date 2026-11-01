@@ -1,0 +1,13 @@
+{
+ "type": "biolab:reactor",
+ "ingredient": "biolab:culture",
+ "result": {
+  "id": "biolab:culture_weakened",
+  "count": 1
+ },
+ "time": 160,
+ "temperature": [
+  60,
+  140
+ ]
+}

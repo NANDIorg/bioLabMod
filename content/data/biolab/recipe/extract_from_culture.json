@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "biolab:culture",
+ "result": {
+  "id": "biolab:extract_raw",
+  "count": 1
+ },
+ "time": 200
+}

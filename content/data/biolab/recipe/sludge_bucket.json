@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "minecraft:bucket",
+  "biolab:element_carbon"
+ ],
+ "result": {
+  "id": "biolab:sludge_bucket",
+  "count": 1
+ }
+}

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:kelp",
+ "result": {
+  "id": "biolab:element_oxygen",
+  "count": 2
+ },
+ "time": 80
+}

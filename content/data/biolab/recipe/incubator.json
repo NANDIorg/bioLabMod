@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "mmm",
+  "mpm",
+  "mfm"
+ ],
+ "key": {
+  "m": "minecraft:copper_ingot",
+  "p": "minecraft:glass",
+  "f": "minecraft:furnace"
+ },
+ "result": {
+  "id": "biolab:incubator",
+  "count": 1
+ }
+}

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "biolab:mold",
+ "result": {
+  "id": "biolab:extract_penicillin",
+  "count": 1
+ },
+ "time": 200
+}

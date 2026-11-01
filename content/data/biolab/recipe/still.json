@@ -1,0 +1,5 @@
+{ "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [ "ccc", "c c", "cfc" ],
+  "key": { "c": "minecraft:copper_ingot", "f": "minecraft:furnace" },
+  "result": { "id": "biolab:still", "count": 1 } }

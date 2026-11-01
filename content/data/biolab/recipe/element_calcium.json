@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "minecraft:bone_meal",
+ "result": {
+  "id": "biolab:element_calcium",
+  "count": 2
+ },
+ "time": 80
+}

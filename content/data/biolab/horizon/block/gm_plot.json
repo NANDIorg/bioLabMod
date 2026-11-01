@@ -1,0 +1,8 @@
+{
+ "template": "minecraft:snow",
+ "properties": {
+  "hardness": 0.2,
+  "sounds": "minecraft:slime_block"
+ },
+ "item": true
+}

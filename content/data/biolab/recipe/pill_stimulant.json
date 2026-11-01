@@ -1,0 +1,9 @@
+{
+ "type": "biolab:press",
+ "ingredient": "biolab:extract_caffeine",
+ "result": {
+  "id": "biolab:pill_stimulant",
+  "count": 2
+ },
+ "time": 100
+}
