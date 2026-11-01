@@ -460,10 +460,23 @@ pub fn gene_of_marker(marker: &str) -> Option<(usize, i32)> {
 /// тоже оставляет сырые данные, и по ним «новый» от «загруженного» не отличить).
 pub const CHECKED_MARKER: &str = "biolab:mutation_checked";
 
+/// Метки операционной (GDD 4.17): ставит сервер, читают отрисовка и сейв.
+/// Без них в этом списке пациент после перезахода вставал бы со стола, а
+/// срезанные конечности отрастали бы сами.
+pub const SURGERY_MARKERS: [&str; 6] = [
+    "biolab:surgery/table",
+    "biolab:surgery/flayed/0",
+    "biolab:surgery/flayed/1",
+    "biolab:surgery/flayed/2",
+    "biolab:surgery/flayed/3",
+    "biolab:surgery/slow",
+];
+
 pub fn our_modifier(id: &str) -> Option<&'static str> {
     STAT_MODIFIERS
         .iter()
         .chain(GENE_MARKERS.iter())
+        .chain(SURGERY_MARKERS.iter())
         .chain(std::iter::once(&CHECKED_MARKER))
         .find(|known| **known == id)
         .copied()
@@ -476,6 +489,9 @@ mod tests {
     #[test]
     fn the_checked_mark_survives_a_save() {
         assert_eq!(our_modifier(CHECKED_MARKER), Some(CHECKED_MARKER));
+        for marker in SURGERY_MARKERS {
+            assert_eq!(our_modifier(marker), Some(marker), "метка операционной теряется в сейве");
+        }
         assert!(!GENE_MARKERS.contains(&CHECKED_MARKER), "отметка — не ген");
     }
 

@@ -184,7 +184,7 @@ bindings = [
 ]
 
 
-# Ведро разливает лужу. Стабильный хук API 13.
+# Ведро разливает лужу, носилки укладывают на стол. Стабильный хук API 13.
 [[injection]]
 id = "use-item-on"
 kind = "HEAD"
@@ -198,7 +198,7 @@ bindings = [
   { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
 ]
 
-# Шприц по мобу: правый клик по сущности. Стабильный хук API 29.
+# Шприц, носилки и скальпель по мобу: правый клик по сущности. Стабильный хук API 29.
 [[injection]]
 id = "interact-entity"
 kind = "HEAD"
@@ -211,7 +211,8 @@ bindings = [
   { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
 ]
 
-# Мутанта убили: ткань убийце, лужа от нестабильного генома. Хук API 1.
+# Мутанта убили: лужа от нестабильного генома. Ткань — только на операционном
+# столе (GDD 4.17). Хук API 1.
 [[injection]]
 id = "mob-killed"
 kind = "HEAD"
@@ -243,6 +244,17 @@ id = "level-tick"
 kind = "HEAD"
 target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
 helper = "behaviour.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Операционная (GDD 4.17): пациент над своим столом, замедление за срезы,
+# регенерация конечностей. Тоже на тике игрока, по той же причине, что вольеры.
+[[injection]]
+id = "surgery-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "surgery.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]

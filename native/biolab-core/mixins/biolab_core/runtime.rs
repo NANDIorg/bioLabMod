@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 58] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -155,9 +155,11 @@ pub const ITEM_HINTS: [(&str, &[&str]); 58] = [
     ("biolab:dart_sedative", &["ПКМ — выстрел в моба под прицелом", "Усыпляет и замедляет, до 24 блоков"]),
     ("biolab:dart_venom", &["ПКМ — выстрел в моба под прицелом", "Отравляет, до 24 блоков"]),
     ("biolab:bandage", &["ПКМ — остановить кровотечение"]),
-    ("biolab:scalpel", &["Удар оставляет кровоточащую рану"]),
+    ("biolab:scalpel", &["ПКМ по мутанту на операционном столе", "Срезает плоть, удар — кровоточащая рана"]),
     // Генетика.
-    ("biolab:mutant_tissue", &["Экстрактор достанет из неё ген"]),
+    ("biolab:stretcher", &["ПКМ по усыплённому мобу — погрузить", "С пациентом — ПКМ по операционному столу"]),
+    ("biolab:operating_table", &["ПКМ носилками — уложить пациента", "Держит его на месте и не даёт проснуться"]),
+    ("biolab:mutant_tissue", &["Срезают скальпелем с мутанта на столе", "Экстрактор достанет из неё ген"]),
     ("biolab:dna_fragment", &["ПКМ по мобу — вживить ген, по себе — генотерапия", "Сажается в грядку, в чане растит клона"]),
     ("biolab:microscope", &["ПКМ по мобу — прочитать геном"]),
     ("biolab:nutrient_broth", &["Корм клонирующего чана"]),
@@ -196,6 +198,7 @@ pub fn item_label(item: &str, text: impl Fn(&str) -> Option<String>) -> Option<S
         FRAGMENT_ID => Some(fragment_label(&text(GENE_KEY)?)),
         CULTURE_ID => Some(culture_label(&strain_from_text(&text(STRAIN_KEY)?)?)),
         GM_CROP => Some(crop_label(&genome_from_text(&text(PLOT_GENOME_KEY)?))),
+        STRETCHER_ID => stretcher_label(&text(PATIENT_KEY)?),
         _ => None,
     }
 }
@@ -901,8 +904,12 @@ pub enum Cue {
     Remedy,
     /// Съеден урожай ГМ-грядки.
     Eat,
-    /// Скальпель: с убитого мутанта срезана ткань.
+    /// Скальпель: с мутанта на операционном столе срезана ткань.
     Tissue,
+    /// Моба погрузили на носилки или сняли со стола.
+    Stretcher,
+    /// Пациента уложили на стол и пристегнули.
+    Strap,
     /// Ген вживлён мобу.
     GeneSplice,
     /// Генотерапия: ген вписан себе.
@@ -914,7 +921,7 @@ pub enum Cue {
 }
 
 impl Cue {
-    pub const ALL: [Cue; 16] = [
+    pub const ALL: [Cue; 18] = [
         Cue::Overheat,
         Cue::SyringeSelf,
         Cue::SyringeMob,
@@ -927,6 +934,8 @@ impl Cue {
         Cue::Remedy,
         Cue::Eat,
         Cue::Tissue,
+        Cue::Stretcher,
+        Cue::Strap,
         Cue::GeneSplice,
         Cue::GeneTherapy,
         Cue::Mutagen,
@@ -935,7 +944,7 @@ impl Cue {
 }
 
 /// Событие → звук.
-pub const SOUNDS: [(Cue, Sound); 16] = [
+pub const SOUNDS: [(Cue, Sound); 18] = [
     // Набат: содержимое пропало, это надо услышать и из соседней комнаты.
     (Cue::Overheat, block("minecraft:block.bell.use", 1.0, 0.6)),
     // Укол — короткое жало пчелы; себе чуть выше и тише, мобу ниже.
@@ -956,6 +965,10 @@ pub const SOUNDS: [(Cue, Sound); 16] = [
     (Cue::Eat, player("minecraft:entity.generic.eat", 0.6, 1.0)),
     // Скальпель срезал ткань — как ножницы по шерсти.
     (Cue::Tissue, player("minecraft:entity.sheep.shear", 0.7, 1.3)),
+    // Носилки — тело мягко легло на полотно, ниже обычного: оно тяжёлое.
+    (Cue::Stretcher, player("minecraft:block.wool.place", 0.8, 0.8)),
+    // Стол — затянуты ремни, как привязанный поводок.
+    (Cue::Strap, player("minecraft:item.lead.tied", 0.7, 0.9)),
     // Ген вживлён — заряд якоря возрождения, высоко.
     (Cue::GeneSplice, player("minecraft:block.respawn_anchor.charge", 0.5, 1.5)),
     // Генотерапия — низкий «энергетический» отклик маяка.
@@ -988,6 +1001,459 @@ pub fn mob_injection_cue(item: &str) -> Cue {
     } else {
         Cue::SyringeMob
     }
+}
+
+// ---- Операционная (GDD 4.17) ----
+//
+// Ткань больше не падает с убитого мутанта: её срезают скальпелем с живого,
+// уложенного на операционный стол. Цепочка: усыпить → погрузить на носилки →
+// уложить на стол → срезать плоть. Здесь — чистая логика: таблица конечностей
+// по видам, выбор следующего среза, запись пациента в носилки и подписи.
+// Хуки (`inject.rs`, `place_fluid.rs`, `surgery.rs`) только читают и ставят
+// метки на мобе.
+//
+// Метки — модификаторы `FollowRange` с нулевой прибавкой, как метки генов:
+// их пишет в сейв ванилла и видит отрисовка (`biolab-deep`). Имена и номера
+// конечностей — контракт с отрисовкой, менять только вместе с GDD 4.17.
+
+pub const STRETCHER_ID: &str = "biolab:stretcher";
+pub const OPERATING_TABLE: &str = "biolab:operating_table";
+/// Ключ в `custom_data` носилок: пациент строкой (`patient_to_text`).
+pub const PATIENT_KEY: &str = "biolab_patient";
+
+/// Моб лежит на столе.
+pub const SURGERY_TABLE: &str = "biolab:surgery/table";
+/// Срезана конечность с этим номером.
+pub const SURGERY_FLAYED: [&str; 4] = [
+    "biolab:surgery/flayed/0",
+    "biolab:surgery/flayed/1",
+    "biolab:surgery/flayed/2",
+    "biolab:surgery/flayed/3",
+];
+/// Модификатор скорости (`MovementSpeed`, `add_multiplied_base`) за срезанные
+/// конечности. Пока моб на столе, его нет: стол и так держит телепортом.
+pub const SURGERY_SLOW: &str = "biolab:surgery/slow";
+/// Сколько скорости отнимает одна срезанная конечность: 10 % от базовой.
+pub const SLOW_PER_LIMB: f64 = -0.1;
+/// Урон от среза. Под наркозом хирург не добивает: здоровье не падает ниже
+/// одного сердца (`after_cut`), а дальше решает кровотечение.
+pub const CUT_DAMAGE: f32 = 4.0;
+/// Ген регенерации отращивает одну конечность за столько тиков (минута).
+pub const REGROW_EVERY: u64 = 1200;
+/// Снотворное, которое стол подновляет пациенту каждый тик. Короче, чем от
+/// шприца: снятый со стола моб просыпается быстро.
+pub const TABLE_SEDATION_TICKS: i32 = 100;
+/// Пациента дальше этого от точки над столом возвращают телепортом.
+pub const TABLE_HOLD: f64 = 0.2;
+/// Здоровье уложенного пациента выставляется ещё столько тиков: прибавку к
+/// максимуму от генома `biolab-deep` ставит в тике моба, уже после появления.
+pub const HEALTH_SETTLE_TICKS: u64 = 5;
+
+/// Виды, у которых не четыре конечности. Остальные — четыре: гуманоиды
+/// (руки, потом ноги) и четвероногие (передние, потом задние лапы). Номер
+/// среза → часть модели решает отрисовка (GDD 4.17), сервер только считает.
+/// 0 — конечностей нет: срезать можно один кусок тела. Пауку и нюхачу —
+/// четыре, хоть ног у них больше: меток всего четыре.
+pub const LIMBS: [(&str, u8); 34] = [
+    // Без конечностей: слизни, гасты, рыбы, кальмары и прочие.
+    ("slime", 0),
+    ("magma_cube", 0),
+    ("sulfur_cube", 0),
+    ("ghast", 0),
+    ("happy_ghast", 0),
+    ("squid", 0),
+    ("glow_squid", 0),
+    ("cod", 0),
+    ("salmon", 0),
+    ("tropical_fish", 0),
+    ("pufferfish", 0),
+    ("tadpole", 0),
+    ("dolphin", 0),
+    ("guardian", 0),
+    ("elder_guardian", 0),
+    ("shulker", 0),
+    ("phantom", 0),
+    ("bat", 0),
+    ("silverfish", 0),
+    ("endermite", 0),
+    ("blaze", 0),
+    ("breeze", 0),
+    ("nautilus", 0),
+    ("zombie_nautilus", 0),
+    // Две ноги или две руки.
+    ("chicken", 2),
+    ("parrot", 2),
+    ("strider", 2),
+    ("snow_golem", 2),
+    ("allay", 2),
+    ("vex", 2),
+    // Руки одной частью и две ноги; у пчелы три пары лапок.
+    ("villager", 3),
+    ("wandering_trader", 3),
+    ("witch", 3),
+    ("bee", 3),
+];
+
+/// Гуманоиды: срез 0–1 — руки, 2–3 — ноги. Только для подписи в чате.
+pub const HUMANOIDS: [&str; 23] = [
+    "zombie", "husk", "drowned", "zombie_villager", "giant", "skeleton", "stray", "bogged",
+    "parched", "wither_skeleton", "piglin", "piglin_brute", "zombified_piglin", "pillager",
+    "vindicator", "evoker", "illusioner", "enderman", "iron_golem", "copper_golem", "warden",
+    "creaking", "mannequin",
+];
+
+/// Вид без пространства имён: `minecraft:zombie` → `zombie`.
+fn short_kind(kind: &str) -> &str {
+    kind.strip_prefix("minecraft:").unwrap_or(kind)
+}
+
+/// Вид с пространством имён, как его ждёт `native_spawn_mob` и сейв.
+pub fn full_kind(kind: &str) -> String {
+    if kind.contains(':') {
+        kind.to_string()
+    } else {
+        format!("minecraft:{kind}")
+    }
+}
+
+/// Сколько конечностей у вида; 0 — нет ни одной.
+pub fn limbs_of(kind: &str) -> u8 {
+    let kind = short_kind(kind);
+    match LIMBS.iter().find(|(k, _)| *k == kind) {
+        Some((_, n)) => *n,
+        None => 4,
+    }
+}
+
+/// Сколько срезов можно сделать: по конечности, а у вида без них — один
+/// кусок тела.
+pub fn cuts_of(kind: &str) -> u8 {
+    limbs_of(kind).clamp(1, SURGERY_FLAYED.len() as u8)
+}
+
+/// Маска срезанного по меткам на мобе: `has(метка)` — есть ли она.
+pub fn flayed_mask(has: impl Fn(&str) -> bool) -> u8 {
+    SURGERY_FLAYED
+        .iter()
+        .enumerate()
+        .filter(|(_, marker)| has(marker))
+        .fold(0, |mask, (i, _)| mask | 1 << i)
+}
+
+/// Следующий срез: первая несрезанная конечность из `cuts`. None — плоти
+/// не осталось.
+pub fn next_cut(mask: u8, cuts: u8) -> Option<u8> {
+    (0..cuts.min(SURGERY_FLAYED.len() as u8)).find(|i| mask & (1 << i) == 0)
+}
+
+/// Сколько конечностей срезано.
+pub fn flayed_count(mask: u8) -> u32 {
+    (mask & 0b1111).count_ones()
+}
+
+/// Прибавка к скорости за срезанное (`add_multiplied_base`): −10 % за
+/// конечность, но моб не встаёт совсем.
+pub fn surgery_slow(mask: u8) -> f64 {
+    (SLOW_PER_LIMB * f64::from(flayed_count(mask))).max(-0.9)
+}
+
+/// Какая конечность отрастёт: последняя срезанная, с большим номером.
+pub fn regrown(mask: u8) -> Option<u8> {
+    (0..SURGERY_FLAYED.len() as u8).rev().find(|i| mask & (1 << i) != 0)
+}
+
+/// Пора ли мобу `id` отрастить конечность. Сдвиг на id: мутанты в одной
+/// лаборатории отращивают не все в один тик.
+pub fn regrow_due(ticks: u64, id: u32) -> bool {
+    (ticks + u64::from(id)) % REGROW_EVERY == 0
+}
+
+/// Здоровье после среза: урон, но не насмерть.
+pub fn after_cut(health: f32) -> f32 {
+    (health - CUT_DAMAGE).max(1.0)
+}
+
+/// Подпись среза: «правая рука», «левая задняя лапа», «кусок тела».
+pub fn limb_name(kind: &str, index: u8) -> String {
+    let short = short_kind(kind);
+    if limbs_of(kind) == 0 {
+        return "кусок тела".to_string();
+    }
+    let human = ["правая рука", "левая рука", "правая нога", "левая нога"];
+    let beast = ["правая передняя лапа", "левая передняя лапа", "правая задняя лапа", "левая задняя лапа"];
+    match (limbs_of(kind), HUMANOIDS.contains(&short)) {
+        (4, true) => human.get(usize::from(index)).copied().map(str::to_string),
+        (4, false) => beast.get(usize::from(index)).copied().map(str::to_string),
+        _ => None,
+    }
+    .unwrap_or_else(|| format!("конечность {}", index + 1))
+}
+
+/// Можно ли унести моба на носилках. Боссов — нельзя.
+pub fn can_carry(kind: &str) -> bool {
+    !matches!(short_kind(kind), "wither" | "ender_dragon")
+}
+
+/// Русские имена видов для чата и подсказки носилок. Незнакомый вид
+/// подписывается своим id.
+pub const MOB_TITLES: [(&str, &str); 66] = [
+    ("zombie", "Зомби"),
+    ("husk", "Кадавр"),
+    ("drowned", "Утопленник"),
+    ("zombie_villager", "Зомби-житель"),
+    ("skeleton", "Скелет"),
+    ("stray", "Зимогор"),
+    ("bogged", "Болотник"),
+    ("wither_skeleton", "Скелет-иссушитель"),
+    ("creeper", "Крипер"),
+    ("spider", "Паук"),
+    ("cave_spider", "Пещерный паук"),
+    ("enderman", "Странник Края"),
+    ("endermite", "Чешуйница Края"),
+    ("silverfish", "Чешуйница"),
+    ("witch", "Ведьма"),
+    ("slime", "Слизень"),
+    ("magma_cube", "Магмовый куб"),
+    ("phantom", "Фантом"),
+    ("pillager", "Разбойник"),
+    ("vindicator", "Поборник"),
+    ("evoker", "Заклинатель"),
+    ("illusioner", "Иллюзор"),
+    ("ravager", "Разоритель"),
+    ("piglin", "Пиглин"),
+    ("piglin_brute", "Пиглин-громила"),
+    ("zombified_piglin", "Зомбифицированный пиглин"),
+    ("hoglin", "Хоглин"),
+    ("zoglin", "Зоглин"),
+    ("ghast", "Гаст"),
+    ("blaze", "Ифрит"),
+    ("guardian", "Страж"),
+    ("shulker", "Шалкер"),
+    ("warden", "Хранитель"),
+    ("pig", "Свинья"),
+    ("cow", "Корова"),
+    ("mooshroom", "Грибная корова"),
+    ("sheep", "Овца"),
+    ("chicken", "Курица"),
+    ("rabbit", "Кролик"),
+    ("horse", "Лошадь"),
+    ("donkey", "Осёл"),
+    ("mule", "Мул"),
+    ("llama", "Лама"),
+    ("goat", "Коза"),
+    ("wolf", "Волк"),
+    ("fox", "Лиса"),
+    ("cat", "Кошка"),
+    ("ocelot", "Оцелот"),
+    ("panda", "Панда"),
+    ("polar_bear", "Белый медведь"),
+    ("camel", "Верблюд"),
+    ("armadillo", "Броненосец"),
+    ("frog", "Лягушка"),
+    ("turtle", "Черепаха"),
+    ("axolotl", "Аксолотль"),
+    ("bee", "Пчела"),
+    ("squid", "Спрут"),
+    ("glow_squid", "Светящийся спрут"),
+    ("dolphin", "Дельфин"),
+    ("bat", "Летучая мышь"),
+    ("parrot", "Попугай"),
+    ("strider", "Лавомерка"),
+    ("sniffer", "Нюхач"),
+    ("villager", "Житель"),
+    ("iron_golem", "Железный голем"),
+    ("snow_golem", "Снежный голем"),
+];
+
+/// Имя вида по-русски.
+pub fn mob_title(kind: &str) -> String {
+    let short = short_kind(kind);
+    MOB_TITLES
+        .iter()
+        .find(|(k, _)| *k == short)
+        .map_or_else(|| short.to_string(), |(_, title)| (*title).to_string())
+}
+
+/// Пациент на носилках: всё, что нужно, чтобы вернуть моба в мир тем же.
+/// Снаряжение, окрас и возраст носилки не переносят: у `native_spawn_mob`
+/// таких настроек нет.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Patient {
+    /// `minecraft:zombie`.
+    pub kind: String,
+    pub genes: Vec<(&'static str, i32)>,
+    pub health: f32,
+    /// Маска срезанных конечностей: бит на номер `SURGERY_FLAYED`.
+    pub flayed: u8,
+    /// Имя, данное моба биркой.
+    pub name: Option<String>,
+}
+
+/// Пациент строкой для `custom_data`: поля `ключ=значение` через `;`, имя
+/// последним — в нём самом может оказаться `;`.
+pub fn patient_to_text(p: &Patient) -> String {
+    let mut text = format!(
+        "kind={};health={};flayed={};genes={}",
+        full_kind(&p.kind),
+        p.health,
+        p.flayed & 0b1111,
+        genome_to_text(&p.genes)
+    );
+    if let Some(name) = &p.name {
+        text.push_str(";name=");
+        text.push_str(name);
+    }
+    text
+}
+
+/// Пациент из строки носилок. None — носилки пусты или запись битая (без
+/// вида некого возвращать в мир).
+pub fn patient_from_text(text: &str) -> Option<Patient> {
+    let mut p = Patient { kind: String::new(), genes: Vec::new(), health: 0.0, flayed: 0, name: None };
+    // Имя — хвост целиком, остальное — поля до него.
+    let (fields, name) = match text.split_once(";name=") {
+        Some((fields, name)) => (fields, Some(name)),
+        None => (text, None),
+    };
+    for field in fields.split(';') {
+        let Some((key, value)) = field.split_once('=') else {
+            continue;
+        };
+        match key {
+            "kind" => p.kind = value.trim().to_string(),
+            "health" => p.health = value.trim().parse().unwrap_or(0.0),
+            "flayed" => p.flayed = value.trim().parse::<u8>().unwrap_or(0) & 0b1111,
+            "genes" => p.genes = genome_from_text(value.trim()),
+            _ => {}
+        }
+    }
+    p.name = name.filter(|n| !n.is_empty()).map(str::to_string);
+    if p.kind.is_empty() {
+        return None;
+    }
+    p.kind = full_kind(&p.kind);
+    Some(p)
+}
+
+/// Кто на носилках: «Зомби» или «Зомби «Боб»».
+pub fn patient_title(p: &Patient) -> String {
+    match &p.name {
+        Some(name) => format!("{} «{name}»", mob_title(&p.kind)),
+        None => mob_title(&p.kind),
+    }
+}
+
+/// Подпись занятых носилок: «Носилки: Зомби».
+pub fn stretcher_label(text: &str) -> Option<String> {
+    Some(format!("Носилки: {}", patient_title(&patient_from_text(text)?)))
+}
+
+/// Строки данных носилок для подсказки: кто на них и в каком он виде.
+pub fn stretcher_tooltip(text: &str) -> Vec<String> {
+    let Some(p) = patient_from_text(text) else {
+        return vec!["Пусто".to_string()];
+    };
+    let mut lines = vec![
+        format!("На носилках: {}", patient_title(&p)),
+        format!("Здоровье: {:.0}", p.health),
+    ];
+    let genes: Vec<String> = p
+        .genes
+        .iter()
+        .filter_map(|(name, strength)| Some(format!("{} {}", gene(name)?.title, "+".repeat(*strength as usize))))
+        .collect();
+    lines.push(if genes.is_empty() {
+        "Геном: без мутаций".to_string()
+    } else {
+        format!("Геном: {}", genes.join(", "))
+    });
+    let cuts = cuts_of(&p.kind);
+    let done = flayed_count(p.flayed).min(u32::from(cuts));
+    if done > 0 {
+        lines.push(format!("Срезано: {done} из {cuts}"));
+    }
+    lines
+}
+
+/// Что сказать после среза: какая конечность и что досталось.
+pub fn cut_message(kind: &str, index: u8, given: u32, genes: &[(&'static str, i32)]) -> String {
+    format!("Срезано: {}. {}", limb_name(kind, index), tissue_message(given, genes))
+}
+
+/// Точка над столом, где лежит пациент. Стол — полный блок: моб стоит на
+/// его верхней грани.
+pub fn table_spot(table: [i32; 3]) -> [f64; 3] {
+    [f64::from(table[0]) + 0.5, f64::from(table[1]) + 1.0, f64::from(table[2]) + 0.5]
+}
+
+/// Свой стол пациента: ближайший стол под мобом — на блок вниз и вбок, на
+/// случай если его сдвинуло. `is_table(блок)` — стоит ли там стол.
+pub fn nearest_table(at: [f64; 3], is_table: impl Fn([i32; 3]) -> bool) -> Option<[i32; 3]> {
+    let base = [at[0].floor() as i32, at[1].floor() as i32, at[2].floor() as i32];
+    let mut best: Option<([i32; 3], f64)> = None;
+    for dy in -2..=0 {
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                let spot = [base[0] + dx, base[1] + dy, base[2] + dz];
+                if !is_table(spot) {
+                    continue;
+                }
+                let top = table_spot(spot);
+                let away = (top[0] - at[0]).powi(2) + (top[1] - at[1]).powi(2) + (top[2] - at[2]).powi(2);
+                if best.is_none_or(|(_, far)| away < far) {
+                    best = Some((spot, away));
+                }
+            }
+        }
+    }
+    best.map(|(spot, _)| spot)
+}
+
+/// Ушёл ли пациент от точки над столом настолько, что его пора вернуть.
+pub fn off_table(at: [f64; 3], spot: [f64; 3]) -> bool {
+    (at[0] - spot[0]).powi(2) + (at[1] - spot[1]).powi(2) + (at[2] - spot[2]).powi(2)
+        > TABLE_HOLD * TABLE_HOLD
+}
+
+/// Блок, в котором можно лежать: над столом должно быть пусто.
+pub fn is_air(block: &str) -> bool {
+    matches!(block, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
+}
+
+/// Хук операционной висит на тике игрока, а игроков бывает несколько: тик
+/// мира обрабатываем один раз, остальные вызовы того же тика пропускаем.
+fn last_surgery_pass() -> &'static std::sync::atomic::AtomicU64 {
+    static AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+    &AT
+}
+
+/// Первый ли это вызов в тике `ticks`.
+pub fn surgery_pass_due(ticks: u64) -> bool {
+    last_surgery_pass().swap(ticks, std::sync::atomic::Ordering::Relaxed) != ticks
+}
+
+fn settling() -> &'static std::sync::Mutex<std::collections::HashMap<u32, (f32, u64)>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u32, (f32, u64)>>> =
+        std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Запомнить здоровье уложенного пациента до тика `until`: пока геном
+/// поднимает ему максимум, здоровье держим тем, что было на носилках.
+pub fn settle_health(id: u32, health: f32, until: u64) {
+    if let Ok(mut table) = settling().lock() {
+        table.insert(id, (health, until));
+    }
+}
+
+/// Кому из уложенных ещё надо выставить здоровье в тике `ticks`: id и
+/// здоровье с носилок. Чей срок вышел, тот забывается — и умерший тоже.
+pub fn due_settles(ticks: u64) -> Vec<(u32, f32)> {
+    let Ok(mut table) = settling().lock() else {
+        return Vec::new();
+    };
+    table.retain(|_, (_, until)| ticks <= *until);
+    table.iter().map(|(id, (health, _))| (*id, *health)).collect()
 }
 
 // ---- Лабораторный стол ----
@@ -3107,11 +3573,6 @@ pub fn splice_world_player(
     Some(result)
 }
 
-/// Сколько ткани падает с мутанта: по куску за ген.
-pub fn tissue_drop(genes: usize) -> u32 {
-    genes.min(3) as u32
-}
-
 /// Радиус кислотной ауры по метке гена: железы жгут всех вокруг.
 /// Тот же расчёт, что в `biolab-deep` (`mutants::acid_aura`).
 pub fn aura_radius(marker: &str) -> Option<f64> {
@@ -3121,7 +3582,7 @@ pub fn aura_radius(marker: &str) -> Option<f64> {
     }
 }
 
-/// Что сказать игроку, когда с мутанта достали ткань.
+/// Что сказать игроку, когда с мутанта срезали ткань (`cut_message`).
 pub fn tissue_message(count: u32, genes: &[(&'static str, i32)]) -> String {
     let names: Vec<&str> = genes
         .iter()
@@ -4012,6 +4473,7 @@ mod tests {
             (CULTURE_ID, culture_label(&WILD)),
             (GM_CROP, crop_label(&[(GENES[0].name, 1)])),
             (BLUEPRINT_ID, blueprint_label("H2O", Some("вода"))),
+            (STRETCHER_ID, stretcher_label("kind=minecraft:zombie;health=20").expect("пациент есть")),
         ];
         for (id, label) in labelled {
             assert!(label.starts_with(&format!("{}: ", name(id))), "{id}: «{label}»");
@@ -4040,7 +4502,7 @@ mod tests {
         let dir = content_dir().join("data/biolab/horizon/item");
         let single = [
             // Свои данные в стеке: меню сливает стопки по id, разные гены слиплись бы.
-            FLASK_ID, FRAGMENT_ID, CULTURE_ID, BLUEPRINT_ID, GM_CROP,
+            FLASK_ID, FRAGMENT_ID, CULTURE_ID, BLUEPRINT_ID, GM_CROP, STRETCHER_ID,
             // Инструменты.
             SCALPEL_ID, ANALYZER_ID, MICROSCOPE_ID, MANUAL_ID,
         ];
@@ -4736,13 +5198,6 @@ mod tests {
         let full = [("bioluminescence", 1), ("hypermetabolism", 1), ("gigantism", 1)];
         assert_eq!(splice_mob(&full, "thermal", 1), Splice::NoRoom);
         assert_eq!(splice_mob(&[], "telepathy", 1), Splice::NotForHumans);
-    }
-
-    #[test]
-    fn mutants_drop_tissue_per_gene() {
-        assert_eq!(tissue_drop(0), 0);
-        assert_eq!(tissue_drop(2), 2);
-        assert_eq!(tissue_drop(9), 3, "больше трёх кусков не выпадает");
     }
 
     #[test]
@@ -5624,6 +6079,174 @@ mod tests {
         assert_eq!(mob_injection_cue("biolab:syringe_venom"), Cue::SyringeMob);
         assert_eq!(mob_injection_cue("biolab:syringe_mutagen"), Cue::Mutagen);
     }
+
+    // ---- Операционная ----
+
+    #[test]
+    fn limbs_follow_the_kind_and_cuts_never_run_out_of_markers() {
+        assert_eq!(limbs_of("minecraft:zombie"), 4);
+        assert_eq!(limbs_of("cow"), 4);
+        assert_eq!(limbs_of("minecraft:chicken"), 2);
+        assert_eq!(limbs_of("minecraft:villager"), 3);
+        assert_eq!(limbs_of("minecraft:slime"), 0);
+        // Вид без конечностей — один кусок тела; незнакомый — четыре.
+        assert_eq!(cuts_of("minecraft:slime"), 1);
+        assert_eq!(cuts_of("minecraft:squid"), 1);
+        assert_eq!(cuts_of("othermod:beast"), 4);
+        let mut seen = std::collections::HashSet::new();
+        for (kind, limbs) in &LIMBS {
+            assert!(seen.insert(*kind), "{kind} в таблице дважды");
+            assert!(!kind.contains(':'), "{kind}: вид без пространства имён");
+            assert!(*limbs < 4, "{kind}: четыре — значение по умолчанию, в таблицу не пишется");
+            assert!((1..=4).contains(&cuts_of(kind)), "{kind}");
+        }
+        for kind in &HUMANOIDS {
+            assert_eq!(limbs_of(kind), 4, "{kind}: гуманоид с четырьмя конечностями");
+        }
+    }
+
+    #[test]
+    fn markers_match_the_render_contract() {
+        // Контракт с отрисовкой (GDD 4.17): имена меток не меняются.
+        assert_eq!(SURGERY_TABLE, "biolab:surgery/table");
+        assert_eq!(SURGERY_SLOW, "biolab:surgery/slow");
+        for (i, marker) in SURGERY_FLAYED.iter().enumerate() {
+            assert_eq!(*marker, format!("biolab:surgery/flayed/{i}"));
+        }
+        let mask = flayed_mask(|m| m == SURGERY_FLAYED[0] || m == SURGERY_FLAYED[2]);
+        assert_eq!(mask, 0b101);
+        assert_eq!(flayed_mask(|_| false), 0);
+    }
+
+    #[test]
+    fn cuts_go_limb_by_limb_until_no_flesh_is_left() {
+        assert_eq!(next_cut(0, 4), Some(0));
+        assert_eq!(next_cut(0b0001, 4), Some(1));
+        assert_eq!(next_cut(0b0101, 4), Some(1), "пропуск после отращивания заполняется первым");
+        assert_eq!(next_cut(0b1111, 4), None, "плоти не осталось");
+        // У курицы две ноги: третий срез уже не нужен.
+        assert_eq!(next_cut(0b0011, cuts_of("minecraft:chicken")), None);
+        assert_eq!(next_cut(0, cuts_of("minecraft:slime")), Some(0));
+        assert_eq!(next_cut(0b0001, cuts_of("minecraft:slime")), None);
+        // Меток всего четыре, сколько бы ни попросили.
+        assert_eq!(next_cut(0b1111, 9), None);
+    }
+
+    #[test]
+    fn flayed_limbs_slow_the_mob_and_regrow_one_by_one() {
+        assert_eq!(surgery_slow(0), 0.0);
+        assert!((surgery_slow(0b0011) - -0.2).abs() < 1e-9);
+        assert!((surgery_slow(0b1111) - -0.4).abs() < 1e-9);
+        assert_eq!(regrown(0b0101), Some(2), "отрастает последняя срезанная");
+        assert_eq!(regrown(0), None);
+        // Раз в минуту, у разных мобов — в разные тики.
+        let due = (0..REGROW_EVERY * 3).filter(|t| regrow_due(*t, 7)).count();
+        assert_eq!(due, 3);
+        assert_ne!(
+            (0..REGROW_EVERY).find(|t| regrow_due(*t, 1)),
+            (0..REGROW_EVERY).find(|t| regrow_due(*t, 2))
+        );
+        // Срез ранит, но не добивает.
+        assert_eq!(after_cut(20.0), 16.0);
+        assert_eq!(after_cut(3.0), 1.0);
+    }
+
+    #[test]
+    fn a_patient_survives_the_trip_on_the_stretcher() {
+        let p = Patient {
+            kind: "minecraft:zombie".to_string(),
+            genes: vec![("chitin", 2), ("volatile", 1)],
+            health: 13.5,
+            flayed: 0b0010,
+            name: Some("Боб; доктор=нет".to_string()),
+        };
+        let text = patient_to_text(&p);
+        assert_eq!(patient_from_text(&text), Some(p.clone()));
+        // Без имени и без генов — тоже.
+        let plain = Patient { name: None, genes: Vec::new(), ..p };
+        assert_eq!(patient_from_text(&patient_to_text(&plain)), Some(plain));
+        // Вид без пространства имён дополняется, незнакомые поля пропускаются.
+        let short = patient_from_text("kind=cow;health=4;mystery=1;flayed=99").unwrap();
+        assert_eq!(short.kind, "minecraft:cow");
+        assert_eq!(short.flayed, 99 & 0b1111);
+        // Пустые носилки и битая запись — пациента нет.
+        assert_eq!(patient_from_text(""), None);
+        assert_eq!(patient_from_text("health=5"), None);
+    }
+
+    #[test]
+    fn the_stretcher_says_who_is_on_it() {
+        let p = Patient {
+            kind: "minecraft:zombie".to_string(),
+            genes: vec![("chitin", 2)],
+            health: 12.0,
+            flayed: 0b0011,
+            name: None,
+        };
+        let text = patient_to_text(&p);
+        assert_eq!(stretcher_label(&text).as_deref(), Some("Носилки: Зомби"));
+        assert_eq!(item_label(STRETCHER_ID, |key| (key == PATIENT_KEY).then(|| text.clone())), stretcher_label(&text));
+        assert_eq!(item_label(STRETCHER_ID, |_| None), None, "пустые носилки — просто «Носилки»");
+        let lines = stretcher_tooltip(&text);
+        assert_eq!(lines[0], "На носилках: Зомби");
+        assert!(lines.iter().any(|l| l.contains("Хитиновый панцирь ++")), "{lines:?}");
+        assert!(lines.iter().any(|l| l == "Срезано: 2 из 4"), "{lines:?}");
+        assert_eq!(stretcher_tooltip(""), vec!["Пусто".to_string()]);
+        let named = Patient { name: Some("Боб".to_string()), kind: "minecraft:modded_thing".to_string(), ..p };
+        assert_eq!(patient_title(&named), "modded_thing «Боб»");
+    }
+
+    #[test]
+    fn cuts_are_named_by_the_body() {
+        assert_eq!(limb_name("minecraft:zombie", 0), "правая рука");
+        assert_eq!(limb_name("minecraft:zombie", 3), "левая нога");
+        assert_eq!(limb_name("minecraft:cow", 2), "правая задняя лапа");
+        assert_eq!(limb_name("minecraft:slime", 0), "кусок тела");
+        assert_eq!(limb_name("minecraft:chicken", 1), "конечность 2");
+        let text = cut_message("minecraft:zombie", 0, 1, &[("chitin", 1)]);
+        assert!(text.starts_with("Срезано: правая рука. Мутантная ткань ×1"), "{text}");
+        assert!(can_carry("minecraft:zombie") && !can_carry("minecraft:wither"));
+        assert_eq!(mob_title("minecraft:cow"), "Корова");
+        let mut kinds: Vec<&str> = MOB_TITLES.iter().map(|(k, _)| *k).collect();
+        let before = kinds.len();
+        kinds.sort();
+        kinds.dedup();
+        assert_eq!(kinds.len(), before, "вид в таблице имён дважды");
+    }
+
+    #[test]
+    fn the_patient_keeps_to_its_own_table() {
+        let tables = [[0, 64, 0], [3, 64, 0]];
+        let is_table = |p: [i32; 3]| tables.contains(&p);
+        // Лежит на столе — этот стол и находится.
+        assert_eq!(nearest_table([0.5, 65.0, 0.5], is_table), Some([0, 64, 0]));
+        // Сползло на соседний блок — стол всё ещё свой.
+        assert_eq!(nearest_table([1.4, 65.0, 0.5], is_table), Some([0, 64, 0]));
+        // Стола рядом нет — пациент свободен.
+        assert_eq!(nearest_table([10.5, 65.0, 0.5], is_table), None);
+        let spot = table_spot([0, 64, 0]);
+        assert_eq!(spot, [0.5, 65.0, 0.5]);
+        assert!(!off_table([0.55, 65.0, 0.5], spot));
+        assert!(off_table([1.0, 65.0, 0.5], spot));
+        assert!(is_air("minecraft:air") && !is_air("minecraft:stone"));
+    }
+
+    #[test]
+    fn the_operating_room_runs_once_a_tick_and_settles_health() {
+        assert!(surgery_pass_due(1_000_001));
+        assert!(!surgery_pass_due(1_000_001), "второй игрок в том же тике ждёт");
+        assert!(surgery_pass_due(1_000_002));
+        settle_health(77, 9.5, 2_000_005);
+        assert_eq!(due_settles(2_000_000).iter().find(|(id, _)| *id == 77), Some(&(77, 9.5)));
+        assert_eq!(due_settles(2_000_006).iter().find(|(id, _)| *id == 77), None, "срок вышел");
+    }
+
+    #[test]
+    fn surgery_sounds_exist() {
+        for cue in [Cue::Stretcher, Cue::Strap, Cue::Tissue] {
+            assert!(sound(cue).is_some(), "{cue:?}");
+        }
+    }
 }
 
 // ---- Карта исследований ----
@@ -5717,7 +6340,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 47] = [
+pub const RESEARCH: [Research; 49] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -5760,7 +6383,11 @@ pub const RESEARCH: [Research; 47] = [
     node("darts", 3, (4, 1), "biolab:dart_sedative", "Дротики", &["injections"], Unlock::Item(&["biolab:dart_sedative", "biolab:dart_venom"]), "Соберите дротик: шприц, перо и палка."),
     // Генетика
     node("scalpel", 4, (0, 1), "biolab:scalpel", "Скальпель", &[], Unlock::Item(&["biolab:scalpel"]), "Соберите скальпель на лабораторном столе."),
-    node("tissue", 4, (1, 1), "biolab:mutant_tissue", "Ткань мутанта", &["scalpel"], Unlock::Item(&["biolab:mutant_tissue"]), "Убейте мутанта: моба необычного цвета."),
+    // Операционная (GDD 4.17): носилки и стол над скальпелем, ткань — там,
+    // где сходятся обе ветки.
+    node("stretcher", 4, (0, 0), "biolab:stretcher", "Носилки", &[], Unlock::Item(&["biolab:stretcher"]), "Сделайте носилки на верстаке: палки и кожа."),
+    node("operating_table", 4, (1, 0), "biolab:operating_table", "Операционный стол", &["stretcher"], Unlock::Item(&["biolab:operating_table"]), "Сделайте стол на верстаке: железо и шерсть."),
+    node("tissue", 4, (1, 1), "biolab:mutant_tissue", "Ткань мутанта", &["scalpel", "operating_table"], Unlock::Item(&["biolab:mutant_tissue"]), "Срежьте скальпелем с мутанта на столе."),
     node("extractor", 4, (2, 1), "biolab:extractor", "Экстрактор ДНК", &["tissue"], Unlock::Item(&["biolab:extractor"]), "Сделайте экстрактор ДНК: нужен микроскоп."),
     node("fragment", 4, (3, 1), "biolab:dna_fragment", "Фрагмент ДНК", &["extractor"], Unlock::Item(&["biolab:dna_fragment"]), "Положите мутантную ткань в экстрактор."),
     node("mutagen", 4, (2, 3), "biolab:mutagen", "Мутаген", &["extractor"], Unlock::Item(&["biolab:mutagen", "biolab:mutagen_bucket", "biolab:syringe_mutagen"]), "Соберите мутаген на лабораторном столе."),

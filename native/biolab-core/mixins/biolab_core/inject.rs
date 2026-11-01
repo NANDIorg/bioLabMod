@@ -1,4 +1,6 @@
 // Шприц по мобу: яд травит, седативное усыпляет, пенициллин лечит.
+// Операционная (GDD 4.17): носилки грузят усыплённого моба, скальпель
+// срезает плоть с мутанта на операционном столе.
 fn biolab_core_interact_entity(
     game: &mut crate::game::Game<'_>,
     entity: i32,
@@ -56,12 +58,215 @@ fn biolab_core_interact_entity(
         });
     }
 
+    /// Пациент, записанный в носилки; None — носилки пусты.
+    fn patient_in(stack: &horizon_client::items::ItemStack) -> Option<String> {
+        use crate::game::biolab_core as m;
+        let extra = stack.extra.as_ref()?;
+        let (_, data) = extra
+            .other
+            .iter()
+            .find(|(key, _)| key == "minecraft:custom_data")?;
+        match data.get(m::PATIENT_KEY) {
+            Some(horizon_world::nbt::Tag::String(s)) => Some(s.to_string_lossy()),
+            _ => None,
+        }
+    }
+
+    /// Слот руки, в которой лежит `item`: основная, если в ней он, иначе
+    /// левая (-106). Хук спрашивает каждую руку по очереди, и менять надо
+    /// ту, что кликнула.
+    fn hand_with(game: &mut crate::game::Game<'_>, item: &str) -> i32 {
+        let main = game.selected as i32;
+        if game
+            .native_carried_stack(main)
+            .is_some_and(|held| &*held.item == item)
+        {
+            main
+        } else {
+            -106
+        }
+    }
+
+    /// Есть ли в рюкзаке место для куска ткани.
+    fn room_for_tissue(game: &mut crate::game::Game<'_>) -> bool {
+        use crate::game::biolab_core as m;
+        (0..36).any(|slot| match game.native_carried_slot(slot) {
+            Some(None) => true,
+            Some(Some(stack)) => &*stack.item == m::TISSUE_ID && stack.count < 64,
+            None => false,
+        })
+    }
+
+    /// Положить кусок мутантной ткани в рюкзак. `native_give` не годится: он
+    /// работает только в творческом режиме (проверено в игре, см. прежний
+    /// `killed.rs`), поэтому кладём в слот сами.
+    fn give_tissue(game: &mut crate::game::Game<'_>) -> bool {
+        use crate::game::biolab_core as m;
+        for slot in 0..36 {
+            let Some(place) = game.native_carried_slot(slot) else {
+                continue;
+            };
+            match place {
+                Some(stack) if &*stack.item == m::TISSUE_ID && stack.count < 64 => {
+                    stack.count += 1;
+                    return true;
+                }
+                None => {
+                    *place = Some(horizon_client::items::ItemStack {
+                        item: m::TISSUE_ID.into(),
+                        count: 1,
+                        damage: 0,
+                        extra: None,
+                    });
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     if !game.native_on(m::ID) {
         return;
     }
     let Some(stack) = stack else {
         return;
     };
+
+    // Носилки. Пустые грузят усыплённого моба — и снимают его со стола: там
+    // он тоже спит. Занятые укладывают пациента на стол (`place_fluid.rs`).
+    if &*stack.item == m::STRETCHER_ID {
+        use horizon_client::mobs::finalize::{Attr, has_modifier};
+        // Клик забираем всегда: носилки в лицо жителю не открывают торговлю.
+        *claimed = true;
+        if patient_in(stack).is_some() {
+            game.native_chat("Носилки заняты: ПКМ по операционному столу — уложить");
+            return;
+        }
+        let Some(mob) = game
+            .mobs
+            .iter()
+            .find(|mob| mob.id as i32 == entity && mob.alive() && !mob.removed)
+        else {
+            return;
+        };
+        let kind = m::full_kind(&mob.kind.id);
+        if !m::can_carry(&kind) {
+            game.native_chat("Такого на носилках не унести");
+            return;
+        }
+        let asleep = mob
+            .extra
+            .effects
+            .iter()
+            .any(|(id, ticks, _)| *id == m::SEDATION_EFFECT && *ticks != 0);
+        if !asleep {
+            game.native_chat("Сначала усыпите: шприц или дротик со снотворным");
+            return;
+        }
+        let patient = m::Patient {
+            kind,
+            genes: m::GENE_MARKERS
+                .iter()
+                .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
+                .filter_map(|marker| m::gene_of_marker(marker))
+                .collect(),
+            health: mob.health,
+            flayed: m::flayed_mask(|marker| has_modifier(mob, Attr::FollowRange, marker)),
+            name: mob.custom_name.clone(),
+        };
+        let id = mob.id;
+        let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
+        // Моб уходит из мира без смерти и добычи: теперь он в носилках.
+        // Вольер, державший его, сам освободит место, не найдя моба.
+        let dimension = game.dim.id().to_string();
+        if !game.native_remove_mob(&dimension, id) {
+            return;
+        }
+        let text = m::patient_to_text(&patient);
+        let slot = hand_with(game, m::STRETCHER_ID);
+        if let Some(held) = game.native_carried_stack(slot)
+            && &*held.item == m::STRETCHER_ID
+        {
+            use horizon_world::nbt::Tag;
+            let data = held.extra.get_or_insert_with(Default::default);
+            data.other.retain(|(key, _)| key != "minecraft:custom_data");
+            data.other.push((
+                "minecraft:custom_data".to_string(),
+                Tag::compound([(m::PATIENT_KEY, Tag::String(text.as_str().into()))]),
+            ));
+            data.other.sort_by(|a, b| a.0.cmp(&b.0));
+            // Подпись сразу, не дожидаясь тика инвентаря.
+            data.custom_name = m::stretcher_label(&text).map(|label| Tag::String(label.as_str().into()));
+        }
+        play_at(game, m::Cue::Stretcher, at);
+        game.native_chat(&format!("На носилках: {}", m::patient_title(&patient)));
+        return;
+    }
+
+    // Скальпель: с мутанта на операционном столе — по конечности за клик.
+    if &*stack.item == m::SCALPEL_ID {
+        use horizon_client::mobs::finalize::{Attr, Op, add_modifier, has_modifier};
+        let Some(mob) = game
+            .mobs
+            .iter()
+            .find(|mob| mob.id as i32 == entity && mob.alive())
+        else {
+            return;
+        };
+        let genes: Vec<(&'static str, i32)> = m::GENE_MARKERS
+            .iter()
+            .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
+            .filter_map(|marker| m::gene_of_marker(marker))
+            .collect();
+        if !has_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE) {
+            // Обычный моб не на столе — клик ванилле: житель торгует и со
+            // скальпелем в руке. Мутанту подсказываем, как быть.
+            if !genes.is_empty() {
+                *claimed = true;
+                game.native_chat("Срезать можно только на операционном столе: усыпите и погрузите на носилки");
+            }
+            return;
+        }
+        *claimed = true;
+        // Ткань — мутантная: из обычной плоти экстрактору нечего достать.
+        if genes.is_empty() {
+            game.native_chat("Мутаций нет: из обычной плоти ген не достать");
+            return;
+        }
+        let kind = m::full_kind(&mob.kind.id);
+        let mask = m::flayed_mask(|marker| has_modifier(mob, Attr::FollowRange, marker));
+        let Some(cut) = m::next_cut(mask, m::cuts_of(&kind)) else {
+            game.native_chat("Плоти не осталось");
+            return;
+        };
+        let id = mob.id;
+        let health = mob.health;
+        let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
+        // Сначала место под ткань: срез без ткани — зря покалеченный мутант.
+        if !room_for_tissue(game) {
+            game.native_chat("Рюкзак полон: освободите место для ткани");
+            return;
+        }
+        if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
+            add_modifier(
+                mob,
+                Attr::FollowRange,
+                m::SURGERY_FLAYED[usize::from(cut)],
+                0.0,
+                Op::AddValue,
+            );
+            mob.add_effect(m::BLEEDING, m::BLEEDING_TICKS, 0);
+        }
+        // Урон — через помощник API 37: он сам отправит здоровье клиентам.
+        let dimension = game.dim.id().to_string();
+        game.native_set_mob_health(&dimension, id, m::after_cut(health));
+        let given = u32::from(give_tissue(game));
+        game.native_chat(&m::cut_message(&kind, cut, given, &genes));
+        play_at(game, m::Cue::Tissue, at);
+        return;
+    }
+
     // Микроскоп: читаем геном моба по меткам и показываем игроку.
     if &*stack.item == m::MICROSCOPE_ID {
         let genes = read_genome(game, entity);

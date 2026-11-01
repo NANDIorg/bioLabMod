@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "s s",
+  "lll",
+  "s s"
+ ],
+ "key": {
+  "s": "minecraft:stick",
+  "l": "minecraft:leather"
+ },
+ "result": {
+  "id": "biolab:stretcher",
+  "count": 1
+ }
+}

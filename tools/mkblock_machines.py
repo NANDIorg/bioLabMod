@@ -1159,8 +1159,9 @@ def main():
 
 
 def write_operating_table():
-    """Операционный стол: без `facing` и `lit` (как лабораторный стол), лампа
-    светится всегда — её `light_emission` в единственной модели."""
+    """Операционный стол: шаблон — глазурованная терракота, у неё есть
+    `facing` (ставится по взгляду игрока), поэтому лампа над изголовьем
+    поворачивается вместе со столом. Светится всегда — `light_emission`."""
     operating_table_textures()
     elements = operating_table()
     own = {k: f"biolab:block/operating_table_{k}" for k in ("side", "pad", "strap", "accent", "lamp")}
@@ -1170,7 +1171,13 @@ def write_operating_table():
         "parent": "minecraft:block/block", "textures": tex,
         "elements": [element_json(e, True) for e in elements]})
     with open(os.path.join(STATES, "operating_table.json"), "w") as f:
-        f.write('{ "variants": { "": { "model": "biolab:block/operating_table" } } }\n')
+        rows = []
+        for facing, y in (("north", 0), ("east", 90), ("south", 180), ("west", 270)):
+            v = {"model": "biolab:block/operating_table"}
+            if y:
+                v["y"] = y
+            rows.append(f'  "facing={facing}": {json.dumps(v)}')
+        f.write('{ "variants": {\n' + ",\n".join(rows) + "\n} }\n")
     with open(os.path.join(ASSETS, "items", "operating_table.json"), "w") as f:
         f.write('{ "model": { "type": "minecraft:model", "model": "biolab:block/operating_table" } }\n')
     print(f"{'operating_table':13s} элементов {len(elements):2d}")

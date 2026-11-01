@@ -126,7 +126,19 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
 
     // Вольеры ищем вокруг самих мобов, а не вокруг игрока: на серверной
     // стороне игрока может не быть вовсе, и тогда клетки «исчезали».
+    // Пациента операционного стола вольер не берёт: иначе стол и вольер по
+    // соседству перетягивали бы его телепортами (GDD 4.17).
+    fn on_table(game: &crate::game::Game<'_>, id: u32) -> bool {
+        use crate::game::biolab_core as m;
+        use horizon_client::mobs::finalize::{Attr, has_modifier};
+        game.mobs
+            .iter()
+            .any(|mob| mob.id == id && has_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE))
+    }
     for (id, at, _, _, _) in &mobs {
+        if on_table(game, *id) {
+            continue;
+        }
         let base = [at[0].floor() as i32, at[1].floor() as i32, at[2].floor() as i32];
         let reach = m::PEN_RANGE as i32;
         let mut found = None;
@@ -152,7 +164,7 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     // что скорость ванильный тик моба перезаписывает своей.
     let dimension = game.dim.id().to_string();
     for (pen, id) in m::all_subjects() {
-        if game.native_block(pen) != m::PEN {
+        if game.native_block(pen) != m::PEN || on_table(game, id) {
             m::release_subject(pen);
             continue;
         }
