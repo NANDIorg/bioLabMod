@@ -3120,8 +3120,8 @@ pub fn injection_message(item: &str, mob: &str) -> String {
         } else {
             "Препарат"
         });
-    let target = mob.strip_prefix("minecraft:").unwrap_or(mob);
-    format!("{what} введён: {target}")
+    // «Препарат» — общее слово, поэтому без рода: «Укол: Яд → Корова».
+    format!("Укол: {what} → {}", mob_title(mob))
 }
 
 /// Инъекция мобу и приём внутрь ловят один и тот же клик: хук сущности
@@ -5056,8 +5056,8 @@ mod tests {
     #[test]
     fn an_injection_names_the_drug_and_the_target() {
         let text = injection_message("biolab:syringe_venom", "minecraft:cow");
-        assert_eq!(text, "Яд введён: cow");
-        assert!(injection_message("biolab:syringe", "pig").starts_with("Препарат"));
+        assert_eq!(text, "Укол: Яд → Корова");
+        assert!(injection_message("biolab:syringe", "pig").starts_with("Укол: Препарат"));
     }
 
     #[test]
