@@ -651,7 +651,7 @@ def upright(s):
     block.json: 75/45 от третьего лица, 45 от первого)."""
     return {
         "thirdperson_righthand": tr([75, 45, 0], [0, 2.5, 0], 0.45 * s),
-        "firstperson_righthand": tr([0, 45, 0], [0, 1.5, 0], 0.5 * s),
+        "firstperson_righthand": tr([0, 45, 0], [0, 3.5, 0], 0.32 * s),
         "gui": tr([20, -35, 0], [0, 0, 0], 0.95 * s),
         "ground": tr([0, 0, 0], [0, 3, 0], 0.35 * s),
         "fixed": tr([0, 0, 0], [0, 0, 0], 0.75 * s),
@@ -664,7 +664,7 @@ def pen(s):
     диагонального спрайта на вертикальную модель: минус 45° по Z."""
     return {
         "thirdperson_righthand": tr([0, -90, 10], [0, 4, 0.5], 0.75 * s),
-        "firstperson_righthand": tr([0, -90, -20], [1.13, 3.2, 1.13], 0.6 * s),
+        "firstperson_righthand": tr([0, -90, -20], [1.13, 4.2, 1.13], 0.4 * s),
         "gui": tr([25, 0, -45], [0, 0, 0], 1.3 * s),
         "ground": tr([0, 0, 0], [0, 2, 0], 0.4 * s),
         "fixed": tr([0, 0, -45], [0, 0, 0], 0.9 * s),
