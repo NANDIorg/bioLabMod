@@ -10,7 +10,7 @@ fn biolab_core_hurt_enemy(
     if !game.native_on(m::ID) {
         return;
     }
-    // Зазубренный скальпель оставляет рану, которая кровоточит.
+    // Скальпель оставляет рану, которая кровоточит.
     if &*stack.item == m::SCALPEL_ID
         && let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == entity)
     {

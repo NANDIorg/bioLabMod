@@ -303,6 +303,13 @@ fn biolab_core_use_item(
         m::set_infection(&world, uuid, next);
         game.native_chat(&m::remedy_message(state.infection, next));
         play(game, m::Cue::Remedy);
+        // Сыворотка одноразовая: без этого её можно было пить бесконечно.
+        let slot = game.selected as i32;
+        if let Some(carried) = game.native_carried_stack(slot)
+            && &*carried.item == m::REMEDY_ID
+        {
+            carried.count = carried.count.saturating_sub(1);
+        }
         *claimed = true;
         return;
     }

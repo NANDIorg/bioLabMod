@@ -1008,7 +1008,7 @@ fn biolab_core_machine_tick(
                     )]),
                 ));
                 data.custom_name = Some(horizon_world::nbt::Tag::String(
-                    format!("Культура {text}").as_str().into(),
+                    m::culture_label(&strain).as_str().into(),
                 ));
                 result.count = 1;
             }
