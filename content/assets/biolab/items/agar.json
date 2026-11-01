@@ -1,1 +1,30 @@
-{ "model": { "type": "minecraft:model", "model": "biolab:item/agar" } }
+{
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/agar"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/petri",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 14866070
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
+}

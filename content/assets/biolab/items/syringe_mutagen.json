@@ -1,6 +1,29 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/syringe_mutagen"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/syringe_mutagen"
+        },
+        "when": [
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/syringe",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 14055654
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
 }

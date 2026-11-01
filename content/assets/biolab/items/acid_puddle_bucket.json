@@ -1,6 +1,30 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/acid_puddle_bucket"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/acid_puddle_bucket"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/bucket",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 8177724
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
 }

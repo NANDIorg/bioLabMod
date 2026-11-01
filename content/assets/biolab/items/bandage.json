@@ -1,6 +1,24 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/bandage"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/bandage"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/bandage"
+    },
+    "property": "minecraft:display_context"
+  }
 }

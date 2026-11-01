@@ -1,0 +1,381 @@
+{
+  "textures": {
+    "paint": "biolab:item/3d/paint",
+    "pill_shell": "biolab:item/3d/pill_shell",
+    "particle": "biolab:item/3d/pill_shell"
+  },
+  "elements": [
+    {
+      "from": [
+        4.0,
+        6.5,
+        6.5
+      ],
+      "to": [
+        8.0,
+        9.5,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            8,
+            6.5,
+            4,
+            9.5
+          ],
+          "texture": "#pill_shell"
+        },
+        "south": {
+          "uv": [
+            4,
+            6.5,
+            8,
+            9.5
+          ],
+          "texture": "#pill_shell"
+        },
+        "west": {
+          "uv": [
+            6.5,
+            6.5,
+            9.5,
+            9.5
+          ],
+          "texture": "#pill_shell"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            6.5,
+            6.5,
+            9.5
+          ],
+          "texture": "#pill_shell"
+        },
+        "up": {
+          "uv": [
+            4,
+            6.5,
+            8,
+            9.5
+          ],
+          "texture": "#pill_shell"
+        },
+        "down": {
+          "uv": [
+            4,
+            9.5,
+            8,
+            6.5
+          ],
+          "texture": "#pill_shell"
+        }
+      }
+    },
+    {
+      "from": [
+        3.0,
+        7.0,
+        7.0
+      ],
+      "to": [
+        4.0,
+        9.0,
+        9.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            4,
+            7,
+            3,
+            9
+          ],
+          "texture": "#pill_shell"
+        },
+        "south": {
+          "uv": [
+            3,
+            7,
+            4,
+            9
+          ],
+          "texture": "#pill_shell"
+        },
+        "west": {
+          "uv": [
+            7,
+            7,
+            9,
+            9
+          ],
+          "texture": "#pill_shell"
+        },
+        "east": {
+          "uv": [
+            9,
+            7,
+            7,
+            9
+          ],
+          "texture": "#pill_shell"
+        },
+        "up": {
+          "uv": [
+            3,
+            7,
+            4,
+            9
+          ],
+          "texture": "#pill_shell"
+        },
+        "down": {
+          "uv": [
+            3,
+            9,
+            4,
+            7
+          ],
+          "texture": "#pill_shell"
+        }
+      }
+    },
+    {
+      "from": [
+        8.0,
+        6.5,
+        6.5
+      ],
+      "to": [
+        12.0,
+        9.5,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            6.5,
+            8,
+            9.5
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "south": {
+          "uv": [
+            8,
+            6.5,
+            12,
+            9.5
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "west": {
+          "uv": [
+            6.5,
+            6.5,
+            9.5,
+            9.5
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "east": {
+          "uv": [
+            9.5,
+            6.5,
+            6.5,
+            9.5
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "up": {
+          "uv": [
+            8,
+            6.5,
+            12,
+            9.5
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "down": {
+          "uv": [
+            8,
+            9.5,
+            12,
+            6.5
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        }
+      }
+    },
+    {
+      "from": [
+        12.0,
+        7.0,
+        7.0
+      ],
+      "to": [
+        13.0,
+        9.0,
+        9.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            13,
+            7,
+            12,
+            9
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "south": {
+          "uv": [
+            12,
+            7,
+            13,
+            9
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "west": {
+          "uv": [
+            7,
+            7,
+            9,
+            9
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "east": {
+          "uv": [
+            9,
+            7,
+            7,
+            9
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "up": {
+          "uv": [
+            12,
+            7,
+            13,
+            9
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        },
+        "down": {
+          "uv": [
+            12,
+            9,
+            13,
+            7
+          ],
+          "texture": "#paint",
+          "tintindex": 0
+        }
+      }
+    }
+  ],
+  "gui_light": "side",
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [
+        75,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        2.5,
+        0
+      ],
+      "scale": [
+        0.63,
+        0.63,
+        0.63
+      ]
+    },
+    "firstperson_righthand": {
+      "rotation": [
+        0,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        1.5,
+        0
+      ],
+      "scale": [
+        0.7,
+        0.7,
+        0.7
+      ]
+    },
+    "gui": {
+      "rotation": [
+        20,
+        -35,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1.33,
+        1.33,
+        1.33
+      ]
+    },
+    "ground": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        0.49,
+        0.49,
+        0.49
+      ]
+    },
+    "fixed": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1.05,
+        1.05,
+        1.05
+      ]
+    }
+  }
+}

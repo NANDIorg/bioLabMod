@@ -1,6 +1,30 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/extract_salicylate"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/extract_salicylate"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/jar",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 14084336
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
 }

@@ -1,6 +1,29 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/syringe_stimulant"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/syringe_stimulant"
+        },
+        "when": [
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/syringe",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 12880970
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
 }

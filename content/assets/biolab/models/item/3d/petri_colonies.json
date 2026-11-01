@@ -1,0 +1,6 @@
+{
+  "parent": "biolab:item/3d/petri",
+  "textures": {
+    "medium": "biolab:item/3d/colonies"
+  }
+}

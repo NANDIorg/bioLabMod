@@ -1,6 +1,29 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/ointment_analgesic"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/ointment_analgesic"
+        },
+        "when": [
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/tube",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 14084336
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
 }

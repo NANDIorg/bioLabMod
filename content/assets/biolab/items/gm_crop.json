@@ -1,6 +1,24 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/gm_crop"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/gm_crop"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/pod"
+    },
+    "property": "minecraft:display_context"
+  }
 }

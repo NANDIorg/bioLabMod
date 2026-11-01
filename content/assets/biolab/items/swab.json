@@ -1,6 +1,24 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/swab"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/swab"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/swab"
+    },
+    "property": "minecraft:display_context"
+  }
 }

@@ -1,6 +1,24 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/dna_fragment"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/dna_fragment"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/dna"
+    },
+    "property": "minecraft:display_context"
+  }
 }
