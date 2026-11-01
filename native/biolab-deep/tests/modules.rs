@@ -51,8 +51,9 @@ fn icon_alias_matches_the_engine_key() {
 fn binary_and_lib_genes_agree() {
     assert_eq!(biolab_deep::GENE_NAMES.len(), mutants::GENE_NAMES.len());
     assert_eq!(biolab_deep::GENE_MARKERS.len(), mutants::GENE_MARKERS.len());
-    assert_eq!(biolab_deep::MAX_GENES, mutants::MAX_GENES);
-    assert_eq!(biolab_deep::STABILITY, mutants::STABILITY);
+    // Предел числа генов и стабильности — только у природного броска в
+    // бинарнике; геном lib держит все гены таблицы (GDD 4.19).
+    assert!(biolab_deep::MAX_GENES < mutants::GENE_COUNT);
     for (i, name) in biolab_deep::GENE_NAMES.iter().enumerate() {
         assert_eq!(*name, mutants::GENE_NAMES[i], "ген {i}");
         assert_eq!(biolab_deep::GENE_COSTS[i], mutants::gene_cost(i), "{name}");
@@ -83,5 +84,27 @@ fn every_rolled_genome_fits_the_lib() {
         assert_eq!(genome.list().count(), rolled.len());
         assert_eq!(mutants::cost(&genome), biolab_deep::cost(&rolled));
         assert_eq!(mutants::from_text(&mutants::to_text(&genome)), Some(genome));
+    }
+}
+
+/// Лабораторный геном больше природного: метки, которые поставил укол или
+/// чан, lib читает все до одной, сколько бы их ни было (GDD 4.19).
+#[test]
+fn a_lab_genome_beyond_the_natural_limit_is_read_whole() {
+    let mut genome = mutants::Genome::default();
+    let mut markers = Vec::new();
+    for gene in 0..biolab_deep::GENE_NAMES.len() {
+        let strength = 1 + (gene % 3) as i32;
+        markers.push(biolab_deep::marker(gene, strength).expect("метка есть"));
+    }
+    // Так геном собирает `spawn.rs`: по меткам на мобе.
+    for marker in &markers {
+        let gene = mutants::decode_marker(marker).expect(marker);
+        assert!(genome.add(gene), "{marker}");
+    }
+    assert_eq!(genome.count(), biolab_deep::GENE_NAMES.len());
+    assert!(biolab_deep::cost(&genome.list().map(|g| (g.index, g.strength)).collect::<Vec<_>>()) > biolab_deep::STABILITY);
+    for (gene, name) in biolab_deep::GENE_NAMES.iter().enumerate() {
+        assert_eq!(i32::from(genome.strength_of(name)), 1 + (gene % 3) as i32, "{name}");
     }
 }

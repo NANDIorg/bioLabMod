@@ -128,6 +128,81 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
+    // Уродства игрока (GDD 4.19): гены без ванильного эффекта. Рогатость —
+    // в ударе по мобу (`thorns.rs`), остальные — здесь. Мобы и предметы
+    // меняем только там, где мир настоящий (свой сервер или выделенный), как
+    // и помощники Horizon (`native_item_entities`): у клиента чужого сервера
+    // это копии, и правка дала бы только дёрганье.
+    let serving = game.serving.is_some() || game.options.dedicated.is_some();
+    // Хвост: новый удар видно по скачку `hurt_time` (урон сбрасывает его на
+    // 10, дальше тает). Кто именно ударил, хук не знает, поэтому хвост
+    // хлещет всех враждебных или охотящихся на игрока, кто вплотную за спиной.
+    let hurt_time = game.player.as_ref().map_or(0, |p| p.health.hurt.hurt_time);
+    let fresh_hit = m::note_hurt_time(uuid, hurt_time);
+    let tail = m::player_gene(&state, "tail");
+    if serving
+        && tail > 0
+        && fresh_hit
+        && let Some(player) = game.native_player()
+    {
+        use horizon_client_core::who::Who;
+        let from = [player.x, player.y, player.z];
+        for mob in game.mobs.iter_mut() {
+            let (dx, dz) = (mob.position.x - player.x, mob.position.z - player.z);
+            if !mob.alive()
+                || (dx * dx + dz * dz).sqrt() > m::PLAYER_TAIL_REACH
+                || (mob.position.y - player.y).abs() > 2.0
+                || !(mob.hostile() || mob.ai.target == Some(Who::Player))
+                || !m::behind(player.yaw, [player.x, player.z], [mob.position.x, mob.position.z])
+            {
+                continue;
+            }
+            mob.damage(
+                m::player_tail_damage(tail),
+                horizon_client::mobs::Damage::player(from),
+            );
+        }
+    }
+    // Щупальца: предметы с земли сами ползут к игроку. Только те, что уже
+    // можно подобрать: брошенный игроком предмет (задержка подбора) не
+    // возвращается ему в руки.
+    let tentacles = m::player_gene(&state, "tentacles");
+    if serving
+        && tentacles > 0
+        && let Some(player) = game.native_player()
+    {
+        let at = [player.x, player.y, player.z];
+        for item in game.dropped.iter_mut() {
+            if item.pickup_delay > 0 || item.stack.count == 0 {
+                continue;
+            }
+            let spot = [item.position.x, item.position.y, item.position.z];
+            if let Some(v) = m::magnet_velocity(spot, at, tentacles) {
+                item.velocity.x = v[0];
+                item.velocity.y = v[1];
+                item.velocity.z = v[2];
+            }
+        }
+    }
+    // Дицефалия: вторая голова замечает мобов вокруг — они подсвечиваются.
+    let heads = m::player_gene(&state, "dicephaly");
+    if serving
+        && heads > 0
+        && state.ticks % 20 == 0
+        && let Some(player) = game.native_player()
+    {
+        let radius = m::glow_radius(heads);
+        for mob in game.mobs.iter_mut() {
+            if mob.alive()
+                && (mob.position.x - player.x).abs() < radius
+                && (mob.position.y - player.y).abs() < radius
+                && (mob.position.z - player.z).abs() < radius
+            {
+                mob.add_effect("glowing", 30, 0);
+            }
+        }
+    }
+
     // Близкий контакт с заражённым мобом поднимает уровень.
     if state.ticks % m::INFECTION_EVERY == 0
         && let Some(player) = game.native_player()

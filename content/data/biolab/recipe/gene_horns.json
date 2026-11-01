@@ -1,0 +1,11 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "minecraft:goat_horn",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "gene": "horns",
+ "strength": 1,
+ "time": 140
+}

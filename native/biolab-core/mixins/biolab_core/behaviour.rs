@@ -197,6 +197,118 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
+    // Уродства (GDD 4.19): что мутант делает с игроком рядом. Цели ближнего
+    // боя закрыты внутри селектора целей игры, поэтому всё — поверх
+    // ванильного ИИ: отдельный удар, толчок, ускорение, выдача цели.
+    // * дицефалия, многоглазие — враждебный моб замечает игрока в радиусе,
+    //   откуда бы тот ни подходил (сзади, крадучись, невидимым);
+    // * полимелия — третья рука бьёт сама, вплотную, раз в 2/1,5/1 с;
+    // * рогатость — издали разбег (ускорение), вплотную удар рогами с
+    //   отбрасыванием;
+    // * хвост — хлещет игрока, который стоит у него за спиной;
+    // * щупальца — дотягиваются и подтягивают игрока к себе.
+    // Удар идёт через ванильный путь урона игрока (`mob_hits_player`): щит,
+    // броня, кадры неуязвимости и толчок от источника — как у обычного удара.
+    // Откуда бьют (моб стоит там), урон, добавочный толчок прочь. Кто ударил,
+    // игра сама находит по точке: ближайший к ней моб.
+    let mut strikes: Vec<([f64; 3], f32, f64)> = Vec::new();
+    // Откуда тянут и с какой силой.
+    let mut pulls: Vec<([f64; 3], f64)> = Vec::new();
+    // Кто разгоняется (сила рогов) и кто заметил игрока.
+    let mut runs: Vec<(u32, i32)> = Vec::new();
+    let mut spotted: Vec<u32> = Vec::new();
+    if let Some(spot) = player
+        && !game.creative
+        && !game.spectator()
+    {
+        let day = m::daylight(game.world.day_time);
+        for (id, at, _, _, genes) in &mobs {
+            if genes.is_empty() {
+                continue;
+            }
+            let Some(mob) = game.mobs.iter().find(|mob| mob.id == *id) else {
+                continue;
+            };
+            let flat = ((at[0] - spot[0]).powi(2) + (at[2] - spot[2]).powi(2)).sqrt();
+            let full = (flat * flat + (at[1] - spot[1]).powi(2)).sqrt();
+            let level = (at[1] - spot[1]).abs() < 2.0;
+            let hunting = mob.ai.target == Some(Who::Player);
+            // Лояльный не трогает людей, светобоязливый днём не охотится:
+            // уродства этого не отменяют.
+            let calm = m::behaviour_strength(genes, "loyal") > 0
+                || (m::behaviour_strength(genes, "photophobia") > 0 && day);
+            if calm {
+                continue;
+            }
+            let watch = m::behaviour_strength(genes, "watchful");
+            let sight = m::behaviour_strength(genes, "far_sight");
+            if mob.hostile()
+                && !hunting
+                && ((watch > 0 && full < m::watch_radius(watch))
+                    || (sight > 0 && full < m::far_sight_radius(sight)))
+            {
+                spotted.push(*id);
+            }
+            let arm = m::behaviour_strength(genes, "extra_arm");
+            if arm > 0
+                && hunting
+                && level
+                && flat < m::MELEE_REACH
+                && game.ticks % m::extra_arm_period(arm) == 0
+            {
+                strikes.push((*at, m::extra_arm_damage(mob.attrs.attack_damage), 0.0));
+            }
+            let horns = m::behaviour_strength(genes, "ram");
+            if horns > 0 && hunting {
+                if flat > m::RAM_RUN.0 && flat < m::RAM_RUN.1 {
+                    runs.push((*id, horns));
+                } else if level && flat < m::MELEE_REACH && game.ticks % m::RAM_EVERY == 0 {
+                    strikes.push((*at, m::ram_damage(horns), m::ram_push(horns)));
+                }
+            }
+            // Хвост бьёт и не глядя: игрок за спиной враждебного моба или
+            // того, кто уже на него охотится.
+            let tail = m::behaviour_strength(genes, "tail");
+            if tail > 0
+                && (hunting || mob.hostile())
+                && level
+                && flat < m::MELEE_REACH
+                && m::behind(mob.body_yaw, [at[0], at[2]], [spot[0], spot[2]])
+                && game.ticks % m::TAIL_EVERY == 0
+            {
+                strikes.push((*at, m::tail_damage(tail), m::tail_push(tail)));
+            }
+            let grab = m::behaviour_strength(genes, "grab");
+            if grab > 0
+                && hunting
+                && flat > 1.5
+                && full < m::grab_reach(grab)
+                && game.ticks % m::GRAB_EVERY == 0
+            {
+                pulls.push((*at, m::grab_pull(grab)));
+            }
+        }
+    }
+    for (id, horns) in runs {
+        if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
+            mob.add_effect("speed", 20, horns - 1);
+        }
+    }
+    if let Some(spot) = player {
+        for (from, amount, push) in strikes {
+            let hurt = game.mob_hits_player(amount, from, "minecraft:mob_attack");
+            // Толчок прочь от моба: `knock_back_player` толкает против
+            // направления (`xd`, `zd`), а оно — от игрока к мобу.
+            if hurt && push > 0.0 {
+                game.knock_back_player(push, from[0] - spot[0], from[2] - spot[2]);
+            }
+        }
+        for (from, power) in pulls {
+            // Направление от моба к игроку: толчок против него — к мобу.
+            game.knock_back_player(power, spot[0] - from[0], spot[2] - from[2]);
+        }
+    }
+
     // Ауры на игрока: кислота жжёт, холод сковывает.
     if let Some(spot) = player {
         let mut acid = false;
@@ -264,6 +376,9 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
             && mob.ai.target.is_none()
         {
             mob.ai.target = Some(who);
+        } else if spotted.contains(&id) && mob.ai.target.is_none() {
+            // Дицефалия, многоглазие: заметил игрока сам.
+            mob.ai.target = Some(Who::Player);
         }
         for (effect, ticks, amplifier) in effects {
             mob.add_effect(effect, ticks, amplifier);

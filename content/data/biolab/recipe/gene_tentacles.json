@@ -1,0 +1,11 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "minecraft:ink_sac",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "gene": "tentacles",
+ "strength": 1,
+ "time": 140
+}

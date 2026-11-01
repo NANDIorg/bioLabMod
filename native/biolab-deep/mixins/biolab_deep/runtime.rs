@@ -102,7 +102,7 @@ pub fn sedated(effects: &[(&'static str, i32, i32)]) -> bool {
 // следит, чтобы копии не разошлись.
 
 /// Гены по номерам: тот же порядок, что `mutants::GENE_NAMES`.
-pub const GENE_NAMES: [&str; 32] = [
+pub const GENE_NAMES: [&str; 40] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -135,12 +135,22 @@ pub const GENE_NAMES: [&str; 32] = [
     "pack_instinct",
     "loyalty",
     "rending_claws",
+    "polymelia",
+    "dicephaly",
+    "horns",
+    "tail",
+    "tentacles",
+    "polyopia",
+    "tumor",
+    "membranes",
 ];
 
 /// Цена гена за единицу силы (та же, что в lib).
-pub const GENE_COSTS: [i32; 32] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3];
+pub const GENE_COSTS: [i32; 40] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2];
 
-/// Сколько генов влезает в геном и какую сумму цен он выдерживает.
+/// Сколько генов влезает в природный геном и какую сумму цен он выдерживает.
+/// Это правило только природного броска (`roll`): лаборатория — укол
+/// фрагмента, чан, мутаген, носилки — вживляет сколько угодно (GDD 4.19).
 pub const MAX_GENES: usize = 3;
 pub const STABILITY: i32 = 6;
 
@@ -157,7 +167,7 @@ pub const STAT_MODIFIERS: [&str; 5] = [
 
 /// Метки генома: модификатор дальности преследования с нулевой прибавкой,
 /// чьё имя и есть ген. Ванилла пишет его в сейв вместе с остальными.
-pub const GENE_MARKERS: [&str; 96] = [
+pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -254,6 +264,30 @@ pub const GENE_MARKERS: [&str; 96] = [
     "biolab:gene/rending_claws/1",
     "biolab:gene/rending_claws/2",
     "biolab:gene/rending_claws/3",
+    "biolab:gene/polymelia/1",
+    "biolab:gene/polymelia/2",
+    "biolab:gene/polymelia/3",
+    "biolab:gene/dicephaly/1",
+    "biolab:gene/dicephaly/2",
+    "biolab:gene/dicephaly/3",
+    "biolab:gene/horns/1",
+    "biolab:gene/horns/2",
+    "biolab:gene/horns/3",
+    "biolab:gene/tail/1",
+    "biolab:gene/tail/2",
+    "biolab:gene/tail/3",
+    "biolab:gene/tentacles/1",
+    "biolab:gene/tentacles/2",
+    "biolab:gene/tentacles/3",
+    "biolab:gene/polyopia/1",
+    "biolab:gene/polyopia/2",
+    "biolab:gene/polyopia/3",
+    "biolab:gene/tumor/1",
+    "biolab:gene/tumor/2",
+    "biolab:gene/tumor/3",
+    "biolab:gene/membranes/1",
+    "biolab:gene/membranes/2",
+    "biolab:gene/membranes/3",
 ];
 
 // ---- Кто бывает мутантом ----
@@ -364,17 +398,27 @@ pub fn mutation_percent(kind: &str) -> u32 {
 /// * хищник — цель-добычу мирный моб не атакует, его ИИ цель просто бросает;
 /// * лояльность — «не трогает людей», он и так не трогает;
 /// * рвущие когти — кровотечение от когтей того, кто не бьёт: игрок истекал
-///   бы кровью рядом с курицей от чужого удара.
+///   бы кровью рядом с курицей от чужого удара;
+/// * уродства GDD 4.19, которые работают только в бою: полимелия (третья
+///   рука бьёт), рогатость (таран), щупальца (подтягивают к себе цель) и
+///   хвост (бьёт стоящих сзади — курица хлестала бы игрока, который просто
+///   прошёл мимо). Дицефалия, многоглазие, опухоль и перепонки мирным
+///   годятся: у них остаются вид, здоровье и планирование, а «замечает
+///   игрока» у мирного моба ничего не значит — цель ему не ставится.
 ///
 /// Нейтральные виды атакуют в ответ, им годится весь набор. Уколом, фрагментом
 /// или мутагеном игрок может вписать такой ген и мирному — это его опыт, а не
 /// бросок, и поведение мутантов (`behaviour.rs` в core) от этого не ломается.
-pub const ATTACK_GENES: [&str; 5] = [
+pub const ATTACK_GENES: [&str; 9] = [
     "brute_force",
     "photophobia",
     "predator",
     "loyalty",
     "rending_claws",
+    "polymelia",
+    "horns",
+    "tentacles",
+    "tail",
 ];
 
 /// Годится ли ген виду с таким нравом при естественном броске.
@@ -632,7 +676,7 @@ mod tests {
             assert!(gene_fits(gene, Temperament::Neutral), "{name}");
             assert!(gene_fits(gene, Temperament::Hostile), "{name}");
         }
-        let mut seen = [false; 32];
+        let mut seen = [false; GENE_NAMES.len()];
         for draw in 0..200_000 {
             for (gene, _) in roll(draw, 100, Temperament::Passive) {
                 assert!(!ATTACK_GENES.contains(&GENE_NAMES[gene]), "корове выпал {}", GENE_NAMES[gene]);

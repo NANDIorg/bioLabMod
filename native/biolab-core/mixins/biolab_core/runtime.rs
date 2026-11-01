@@ -206,7 +206,7 @@ pub fn item_label(item: &str, text: impl Fn(&str) -> Option<String>) -> Option<S
 /// Состояние игрока в мире: болезни, кровь, прогресс лаборатории. Пока это
 /// прототип механизма — счётчик тиков и уровень заражения; поля добавятся
 /// вместе с подсистемами.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerState {
     /// Сколько тиков игрок провёл в этом мире с модом.
     pub ticks: u64,
@@ -228,6 +228,24 @@ pub struct PlayerState {
     pub manual: bool,
     /// Изученные узлы карты исследований: бит на узел `RESEARCH`.
     pub research: u64,
+}
+
+// `Default` для массивов длиннее 32 сам не выводится, а генов теперь 40.
+impl Default for PlayerState {
+    fn default() -> Self {
+        Self {
+            ticks: 0,
+            infection: 0,
+            drugs: Default::default(),
+            immunity: 0,
+            withdrawal: 0,
+            genes: [0; GENES.len()],
+            mutagenesis: 0,
+            strain: [0; 4],
+            manual: false,
+            research: 0,
+        }
+    }
 }
 
 /// Как часто писать состояние на диск, в тиках (раз в 5 секунд).
@@ -3171,7 +3189,7 @@ pub struct GeneKind {
     pub side: Option<&'static str>,
 }
 
-pub const GENES: [GeneKind; 32] = [
+pub const GENES: [GeneKind; 40] = [
     GeneKind { name: "gigantism", title: "Гигантизм", cost: 2, about: "крупнее, живучее и сильнее", player: Some("health_boost"), side: Some("slowness") },
     GeneKind { name: "dwarfism", title: "Карликовость", cost: 1, about: "мельче и шустрее, но слабее", player: Some("speed"), side: Some("weakness") },
     GeneKind { name: "hypermetabolism", title: "Гиперметаболизм", cost: 2, about: "быстрее и злее, но хрупче", player: Some("speed"), side: Some("hunger") },
@@ -3204,15 +3222,48 @@ pub const GENES: [GeneKind; 32] = [
     GeneKind { name: "pack_instinct", title: "Стайность", cost: 2, about: "сильнее, когда рядом свои", player: None, side: None },
     GeneKind { name: "loyalty", title: "Лояльность", cost: 2, about: "не нападает на людей", player: None, side: None },
     GeneKind { name: "rending_claws", title: "Рвущие когти", cost: 3, about: "раны от него кровоточат", player: None, side: None },
+    GeneKind { name: "polymelia", title: "Полимелия", cost: 3, about: "третья рука: бьёт чаще", player: Some("haste"), side: None },
+    GeneKind { name: "dicephaly", title: "Дицефалия", cost: 3, about: "вторая голова: со спины не подкрасться", player: None, side: None },
+    GeneKind { name: "horns", title: "Рогатость", cost: 2, about: "разбегается и таранит с отбрасыванием", player: None, side: None },
+    GeneKind { name: "tail", title: "Хвост", cost: 2, about: "бьёт хвостом тех, кто сзади", player: None, side: None },
+    GeneKind { name: "tentacles", title: "Щупальца", cost: 3, about: "хватает и подтягивает к себе", player: None, side: None },
+    GeneKind { name: "polyopia", title: "Многоглазие", cost: 2, about: "видит невидимых, замечает издалека", player: Some("night_vision"), side: None },
+    GeneKind { name: "tumor", title: "Опухоль", cost: 1, about: "здоровее, но медленнее", player: Some("health_boost"), side: Some("slowness") },
+    GeneKind { name: "membranes", title: "Перепонки", cost: 2, about: "медленно падает и планирует", player: Some("slow_falling"), side: None },
 ];
 
-/// Сколько генов уживается в одном организме и какую сумму цен он выдержит.
+/// Природный предел: сколько генов бывает у мутанта, родившегося в мире, и
+/// какую сумму цен такой геном выдерживает. С GDD 4.19 это правило только
+/// природы — броска при рождении моба (`roll` в `biolab-deep`) и скрещивания
+/// на грядке. Лаборатория — укол фрагмента, клонирующий чан, генотерапия,
+/// носилки, мутаген — вживляет сколько угодно генов, без стабильности.
 pub const MAX_GENES: usize = 3;
 pub const STABILITY: i32 = 6;
 
+/// Гены, которые приживаются в человеке без ванильного эффекта: их действие —
+/// механика хуков (`thorns.rs`, `infection.rs`), а не статус. Для подсказок
+/// и журнала: что ген даёт человеку.
+pub const PLAYER_MECHANICS: [(&str, &str); 4] = [
+    ("dicephaly", "подсвечивает мобов вокруг"),
+    ("horns", "удар отбрасывает сильнее"),
+    ("tail", "хвост бьёт тех, кто ударил сзади"),
+    ("tentacles", "подтягивают предметы с земли"),
+];
+
+/// Что ген-механика даёт человеку; None — у гена ванильный эффект или он
+/// в человеке не приживается.
+pub fn player_mechanic(name: &str) -> Option<&'static str> {
+    PLAYER_MECHANICS.iter().find(|(gene, _)| *gene == name).map(|(_, what)| *what)
+}
+
+/// Приживается ли ген в человеке: ванильным эффектом или механикой.
+pub fn takes_in_humans(kind: &GeneKind) -> bool {
+    kind.player.is_some() || player_mechanic(kind.name).is_some()
+}
+
 /// Метки генов на мобе: модификатор дальности преследования с нулевой
 /// прибавкой, чьё имя и есть ген. Тот же список, что в `biolab-deep`.
-pub const GENE_MARKERS: [&str; 96] = [
+pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -3309,6 +3360,30 @@ pub const GENE_MARKERS: [&str; 96] = [
     "biolab:gene/rending_claws/1",
     "biolab:gene/rending_claws/2",
     "biolab:gene/rending_claws/3",
+    "biolab:gene/polymelia/1",
+    "biolab:gene/polymelia/2",
+    "biolab:gene/polymelia/3",
+    "biolab:gene/dicephaly/1",
+    "biolab:gene/dicephaly/2",
+    "biolab:gene/dicephaly/3",
+    "biolab:gene/horns/1",
+    "biolab:gene/horns/2",
+    "biolab:gene/horns/3",
+    "biolab:gene/tail/1",
+    "biolab:gene/tail/2",
+    "biolab:gene/tail/3",
+    "biolab:gene/tentacles/1",
+    "biolab:gene/tentacles/2",
+    "biolab:gene/tentacles/3",
+    "biolab:gene/polyopia/1",
+    "biolab:gene/polyopia/2",
+    "biolab:gene/polyopia/3",
+    "biolab:gene/tumor/1",
+    "biolab:gene/tumor/2",
+    "biolab:gene/tumor/3",
+    "biolab:gene/membranes/1",
+    "biolab:gene/membranes/2",
+    "biolab:gene/membranes/3",
 ];
 
 /// Ген по имени.
@@ -3375,12 +3450,14 @@ pub fn fragment_tooltip(text: &str) -> Vec<String> {
     let mut lines = vec![
         format!("{}, сила {strength}", kind.title),
         format!("У мутанта: {}", kind.about),
-        format!("Стабильность: {}", kind.cost * strength),
+        // Цена — для природного броска: в лаборатории предела нет (GDD 4.19).
+        format!("Цена: {} (природный мутант — до {STABILITY})", kind.cost * strength),
     ];
-    lines.push(match (kind.player, kind.side) {
-        (None, _) => "В человеке не приживается".to_string(),
-        (Some(_), Some(side)) => format!("Человеку: с побочкой ({side})"),
-        (Some(_), None) => "Человеку: без побочек".to_string(),
+    lines.push(match (kind.player, kind.side, player_mechanic(kind.name)) {
+        (None, _, Some(what)) => format!("Человеку: {what}"),
+        (None, _, None) => "В человеке не приживается".to_string(),
+        (Some(_), Some(side), _) => format!("Человеку: с побочкой ({side})"),
+        (Some(_), None, _) => "Человеку: без побочек".to_string(),
     });
     lines
 }
@@ -3389,9 +3466,10 @@ pub fn fragment_tooltip(text: &str) -> Vec<String> {
 /// повторялся: зерно даёт машина (позиция и тик).
 pub fn roll_gene(seed: u64) -> (&'static str, i32) {
     let kind = &GENES[(seed % GENES.len() as u64) as usize];
-    // Дорогой ген не бывает сильным: иначе фрагмент некуда применить.
-    let strength = (1 + ((seed / 7) % 3) as i32).min(STABILITY / kind.cost);
-    (kind.name, strength.max(1))
+    // Сила 1–3 у любого гена: раньше дорогой ген не бывал сильным (его
+    // некуда было бы вживить), но с GDD 4.19 у лаборатории предела нет.
+    let strength = 1 + ((seed / 7) % 3) as i32;
+    (kind.name, strength)
 }
 
 /// Строки микроскопа: геном моба по его меткам.
@@ -3406,7 +3484,13 @@ pub fn genome_lines(genes: &[(&'static str, i32)]) -> Vec<String> {
         total += kind.cost * strength;
         lines.push(format!("  {} {} — {}", kind.title, "+".repeat(*strength as usize), kind.about));
     }
-    lines.push(format!("Стабильность: {total} из {STABILITY}"));
+    // Предел стабильности — у природных мутантов; геном сверх него — дело
+    // рук лаборатории, и микроскоп так и пишет.
+    lines.push(if total > STABILITY || genes.len() > MAX_GENES {
+        format!("Цена генов: {total} — сверх природы ({STABILITY}), лабораторный")
+    } else {
+        format!("Цена генов: {total} из природных {STABILITY}")
+    });
     lines
 }
 
@@ -3417,10 +3501,6 @@ pub enum Splice {
     Done,
     /// Ген в человеке не приживается (у мобов работает).
     NotForHumans,
-    /// Перебор по стабильности: организм такого не выдержит.
-    Unstable,
-    /// Мест под гены больше нет.
-    NoRoom,
     /// Этот ген уже есть, и не слабее.
     Already,
 }
@@ -3445,29 +3525,41 @@ pub fn player_stability(state: &PlayerState) -> i32 {
         .sum()
 }
 
-/// Генотерапия: вживить себе ген.
+/// Генотерапия: вживить себе ген. Лаборатория: ни числа генов, ни
+/// стабильности не проверяем (GDD 4.19) — только приживается ли ген в
+/// человеке и не слабее ли он уже вживлённого.
 pub fn splice_player(state: &mut PlayerState, name: &str, strength: i32) -> Splice {
     let Some(index) = GENES.iter().position(|g| g.name == name) else {
         return Splice::NotForHumans;
     };
     let kind = &GENES[index];
-    if kind.player.is_none() {
+    if !takes_in_humans(kind) {
         return Splice::NotForHumans;
     }
     let have = i32::from(state.genes[index]);
     if have >= strength {
         return Splice::Already;
     }
-    if have == 0 && player_genes(state).len() >= MAX_GENES {
-        return Splice::NoRoom;
-    }
-    let mut next = *state;
-    next.genes[index] = strength.clamp(1, 3) as u8;
-    if player_stability(&next) > STABILITY {
-        return Splice::Unstable;
-    }
-    *state = next;
+    state.genes[index] = strength.clamp(1, 3) as u8;
     Splice::Done
+}
+
+/// Сила гена у игрока; 0 — гена нет.
+pub fn player_gene(state: &PlayerState, name: &str) -> i32 {
+    GENES
+        .iter()
+        .position(|g| g.name == name)
+        .map_or(0, |i| i32::from(state.genes[i]))
+}
+
+/// Сила гена у игрока этого мира, без тика: для хуков, которым состояние
+/// нужно мимоходом (удар по мобу). 0 — гена нет или игрок ещё не загружен.
+pub fn world_player_gene(world: &std::path::Path, uuid: u128, name: &str) -> i32 {
+    states()
+        .lock()
+        .ok()
+        .and_then(|table| table.get(&(world.to_path_buf(), uuid)).map(|s| player_gene(s, name)))
+        .unwrap_or(0)
 }
 
 /// Сообщение о генотерапии.
@@ -3476,8 +3568,6 @@ pub fn splice_message(result: Splice, name: &str, strength: i32) -> String {
     match result {
         Splice::Done => format!("{title} вживлён, сила {strength}"),
         Splice::NotForHumans => format!("{title} в человеке не приживается"),
-        Splice::Unstable => "Организм не выдержит: перебор по стабильности".to_string(),
-        Splice::NoRoom => format!("Больше {MAX_GENES} генов человек не несёт"),
         Splice::Already => format!("{title} уже вживлён, и не слабее"),
     }
 }
@@ -3517,8 +3607,10 @@ pub fn vat_ready(input: Option<&str>, fuel: Option<(&str, u32)>) -> bool {
 /// Экстрактор ДНК: из мутантной ткани выходит фрагмент.
 pub const EXTRACTOR: &str = "biolab:extractor";
 
-/// Примет ли моб ещё один ген: те же правила, что у человека, только гены,
-/// не приживающиеся в человеке, мобу как раз и предназначены.
+/// Примет ли моб ещё один ген уколом фрагмента. Лаборатория: числа генов и
+/// стабильности не проверяем (GDD 4.19), мобу годится любой ген — и тот, что
+/// в человеке не приживается. Отказ — только незнакомый ген или такой же уже
+/// есть, и не слабее.
 pub fn splice_mob(have: &[(&'static str, i32)], name: &str, strength: i32) -> Splice {
     let Some(kind) = gene(name) else {
         return Splice::NotForHumans;
@@ -3531,18 +3623,33 @@ pub fn splice_mob(have: &[(&'static str, i32)], name: &str, strength: i32) -> Sp
     if current >= strength {
         return Splice::Already;
     }
+    Splice::Done
+}
+
+/// Уживётся ли ген в геноме по природным правилам: не больше `MAX_GENES`
+/// генов и сумма цен не выше `STABILITY`. Ими живёт скрещивание на грядке —
+/// это опыление, а не вживление, и линия набирает гены, как природа.
+pub fn fits_naturally(have: &[(&'static str, i32)], name: &str, strength: i32) -> bool {
+    let Some(kind) = gene(name) else {
+        return false;
+    };
+    let current = have
+        .iter()
+        .find(|(id, _)| *id == kind.name)
+        .map(|(_, s)| *s)
+        .unwrap_or(0);
+    if current >= strength {
+        return false;
+    }
     if current == 0 && have.len() >= MAX_GENES {
-        return Splice::NoRoom;
+        return false;
     }
     let total: i32 = have
         .iter()
         .filter(|(id, _)| *id != kind.name)
         .filter_map(|(id, s)| Some(gene(id)?.cost * s))
         .sum();
-    if total + kind.cost * strength > STABILITY {
-        return Splice::Unstable;
-    }
-    Splice::Done
+    total + kind.cost * strength <= STABILITY
 }
 
 /// Генотерапия игрока в этом мире: меняет состояние и сразу пишет его на диск.
@@ -3628,7 +3735,7 @@ pub fn mutagen_tick(state: &mut PlayerState, amount: u32, seed: u64) -> Option<&
     for step in 0..count {
         let index = ((seed + step) % count) as usize;
         let kind = &GENES[index];
-        if kind.player.is_none() {
+        if !takes_in_humans(kind) {
             continue;
         }
         let strength = 1 + ((seed / 7) % 2) as i32;
@@ -3724,7 +3831,7 @@ pub fn cross(mine: &[(&'static str, i32)], theirs: &[(&'static str, i32)]) -> Ve
     let mut result = mine.to_vec();
     let mut best: Option<(&'static str, i32)> = None;
     for (name, strength) in theirs {
-        if splice_mob(&result, name, *strength) != Splice::Done {
+        if !fits_naturally(&result, name, *strength) {
             continue;
         }
         let Some(kind) = gene(name) else { continue };
@@ -3997,6 +4104,150 @@ pub fn thorns_damage(strength: i32) -> f32 {
     1.0 + 0.5 * strength.clamp(0, 3) as f32
 }
 
+// ---- Уродства (GDD 4.19): механика генов ----
+//
+// Ванильных эффектов на эти гены нет, поэтому у моба их делает тик мира
+// (`behaviour.rs`), а у игрока — тик игрока (`infection.rs`) и удар по мобу
+// (`thorns.rs`). Здесь только числа и геометрия, чтобы их можно было
+// проверить тестами. Все периоды — кратные `BEHAVIOUR_EVERY`: тик мира
+// приходит раз в 10 тиков.
+
+/// Ближний бой: на таком расстоянии (по горизонтали) рука, рог или хвост
+/// достают игрока.
+pub const MELEE_REACH: f64 = 2.5;
+
+/// Полимелия у моба: как часто третья рука бьёт сама, в тиках. Цели
+/// ближнего боя (`MeleeAttack`) закрыты внутри селектора целей, и их
+/// интервал снаружи не поменять, поэтому «бьёт чаще» — это отдельный удар
+/// третьей руки поверх обычных: раз в 2, 1,5 и 1 секунду.
+pub fn extra_arm_period(strength: i32) -> u64 {
+    match strength.clamp(1, 3) {
+        1 => 40,
+        2 => 30,
+        _ => 20,
+    }
+}
+
+/// Удар третьей руки: половина урона самого моба, но не меньше единицы.
+pub fn extra_arm_damage(attack: f32) -> f32 {
+    (attack * 0.5).max(1.0)
+}
+
+/// Рогатость у моба: с какого расстояния он берёт разбег (ускорение) и как
+/// часто бьёт рогами вплотную.
+pub const RAM_RUN: (f64, f64) = (4.0, 12.0);
+pub const RAM_EVERY: u64 = 40;
+
+/// Удар рогами: урон и добавочное отбрасывание поверх обычного.
+pub fn ram_damage(strength: i32) -> f32 {
+    1.0 + strength.clamp(1, 3) as f32
+}
+pub fn ram_push(strength: i32) -> f64 {
+    0.4 + 0.3 * f64::from(strength.clamp(1, 3))
+}
+
+/// Хвост у моба: как часто он хлещет того, кто стоит сзади, урон и толчок.
+pub const TAIL_EVERY: u64 = 20;
+pub fn tail_damage(strength: i32) -> f32 {
+    1.0 + strength.clamp(1, 3) as f32
+}
+pub fn tail_push(strength: i32) -> f64 {
+    0.3 + 0.1 * f64::from(strength.clamp(1, 3))
+}
+
+/// Щупальца у моба: докуда достают и с какой силой подтягивают цель.
+pub const GRAB_EVERY: u64 = 20;
+pub fn grab_reach(strength: i32) -> f64 {
+    3.0 + 1.5 * f64::from(strength.clamp(1, 3))
+}
+pub fn grab_pull(strength: i32) -> f64 {
+    0.3 + 0.15 * f64::from(strength.clamp(1, 3))
+}
+
+/// Дицефалия у моба: в этом радиусе вторая голова замечает игрока, откуда бы
+/// он ни подкрадывался (сзади, крадучись, за углом).
+pub fn watch_radius(strength: i32) -> f64 {
+    4.0 + 2.0 * f64::from(strength.clamp(1, 3))
+}
+
+/// Многоглазие у моба: на таком расстоянии он замечает игрока, даже
+/// невидимого.
+pub fn far_sight_radius(strength: i32) -> f64 {
+    16.0 + 8.0 * f64::from(strength.clamp(1, 3))
+}
+
+/// Стоит ли `other` за спиной того, кто стоит в `at` и смотрит по `yaw`.
+/// Углы — как у игры: градусы, 0 — на юг (+Z), 90 — на запад (−X). Спина —
+/// всё, что дальше ~110° от взгляда: бок не считается.
+pub fn behind(yaw: f32, at: [f64; 2], other: [f64; 2]) -> bool {
+    let rad = f64::from(yaw).to_radians();
+    let (fx, fz) = (-rad.sin(), rad.cos());
+    let (dx, dz) = (other[0] - at[0], other[1] - at[1]);
+    let len = (dx * dx + dz * dz).sqrt();
+    if len < 1e-6 {
+        return false;
+    }
+    (fx * dx + fz * dz) / len < -0.35
+}
+
+/// Дицефалия у игрока: в этом радиусе мобы подсвечиваются.
+pub fn glow_radius(strength: i32) -> f64 {
+    6.0 + 4.0 * f64::from(strength.clamp(1, 3))
+}
+
+/// Рогатость у игрока: добавочное отбрасывание моба при ударе.
+pub fn player_ram_push(strength: i32) -> f64 {
+    0.3 + 0.2 * f64::from(strength.clamp(1, 3))
+}
+
+/// Хвост у игрока: докуда достаёт и сколько бьёт ударившего сзади.
+pub const PLAYER_TAIL_REACH: f64 = 3.0;
+pub fn player_tail_damage(strength: i32) -> f32 {
+    1.0 + strength.clamp(1, 3) as f32
+}
+
+/// Щупальца у игрока: радиус, в котором они тянут предметы с земли.
+pub fn magnet_radius(strength: i32) -> f64 {
+    3.0 + 2.0 * f64::from(strength.clamp(1, 3))
+}
+
+/// Скорость, с которой щупальца тянут предмет из `item` к игроку в `player`;
+/// None — предмет вне досягаемости или уже у ног (подбирает ванилла).
+pub fn magnet_velocity(item: [f64; 3], player: [f64; 3], strength: i32) -> Option<[f64; 3]> {
+    if strength <= 0 {
+        return None;
+    }
+    let d = [player[0] - item[0], player[1] + 0.5 - item[1], player[2] - item[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if len < 1.0 || len > magnet_radius(strength) {
+        return None;
+    }
+    let speed = 0.15 + 0.05 * f64::from(strength.clamp(1, 3));
+    Some([d[0] / len * speed, d[1] / len * speed, d[2] / len * speed])
+}
+
+/// Последнее `hurt_time` игроков: по скачку вверх видно новый удар.
+fn hurt_times() -> &'static std::sync::Mutex<std::collections::HashMap<u128, i32>> {
+    static TIMES: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u128, i32>>> =
+        std::sync::OnceLock::new();
+    TIMES.get_or_init(Default::default)
+}
+
+/// Новый ли это удар: `hurt_time` сбрасывается на 10 при уроне и тает по
+/// одному за тик, так что рост значит свежий удар.
+pub fn fresh_hit(previous: i32, now: i32) -> bool {
+    now > previous
+}
+
+/// Запомнить `hurt_time` игрока; true — его только что ударили.
+pub fn note_hurt_time(uuid: u128, now: i32) -> bool {
+    let Ok(mut table) = hurt_times().lock() else {
+        return false;
+    };
+    let previous = table.insert(uuid, now).unwrap_or(0);
+    fresh_hit(previous, now)
+}
+
 /// День ли сейчас: светобоязливые мутанты в это время не охотятся.
 /// Сутки в игре — 24000 тиков, день начинается на нуле и кончается на 12000.
 pub fn daylight(day_time: i64) -> bool {
@@ -4006,7 +4257,7 @@ pub fn daylight(day_time: i64) -> bool {
 /// Что ген делает, кроме чисел. Та же таблица, что в `biolab-deep`: обе
 /// собираются из одного описания, а тест ниже следит, чтобы в core не
 /// осталось гена без строки поведения.
-pub const GENE_BEHAVIOUR: [&[&str]; 32] = [
+pub const GENE_BEHAVIOUR: [&[&str]; 40] = [
     &[],
     &[],
     &[],
@@ -4039,6 +4290,14 @@ pub const GENE_BEHAVIOUR: [&[&str]; 32] = [
     &["pack"],
     &["loyal"],
     &["rend"],
+    &["extra_arm"],
+    &["watchful"],
+    &["ram"],
+    &["tail"],
+    &["grab"],
+    &["far_sight"],
+    &[],
+    &["glide"],
 ];
 
 /// Сила поведения в наборе генов; 0 — такого гена нет.
@@ -5082,6 +5341,10 @@ mod tests {
             if kind.player.is_none() {
                 assert!(kind.side.is_none(), "{}", kind.name);
             }
+            // Механика для человека — только у гена без ванильного эффекта.
+            if player_mechanic(kind.name).is_some() {
+                assert!(kind.player.is_none(), "{}: и эффект, и механика", kind.name);
+            }
         }
         assert!(gene("telepathy").is_none());
     }
@@ -5111,23 +5374,33 @@ mod tests {
 
         let lines = fragment_tooltip(&text);
         assert!(lines[0].starts_with("Хитиновый панцирь"), "{lines:?}");
-        assert!(lines.iter().any(|l| l.contains("Стабильность: 4")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("Цена: 4")), "{lines:?}");
         assert!(fragment_label(&text).contains("++"));
         assert_eq!(fragment_tooltip("мусор"), ["Ген не прочитан"]);
 
         // Ген, который человеку не вживить, честно об этом пишет.
         let lines = fragment_tooltip(&gene_text("volatile", 1));
         assert!(lines.iter().any(|l| l.contains("не приживается")), "{lines:?}");
+
+        // Ген-механика пишет, что он даёт человеку, а не «не приживается».
+        let lines = fragment_tooltip(&gene_text("tail", 2));
+        assert!(lines.iter().any(|l| l.contains("Человеку: хвост")), "{lines:?}");
+        let lines = fragment_tooltip(&gene_text("tumor", 1));
+        assert!(lines.iter().any(|l| l.contains("с побочкой (slowness)")), "{lines:?}");
     }
 
     #[test]
     fn extracted_genes_are_usable() {
+        let mut strong_expensive = false;
         for seed in 0..500 {
             let (name, strength) = roll_gene(seed);
             let kind = gene(name).expect(name);
             assert!((1..=3).contains(&strength));
-            assert!(kind.cost * strength <= STABILITY, "{name} силы {strength} некуда применить");
+            // Лаборатория без предела: любой ген любой силы есть куда вживить.
+            assert_eq!(splice_mob(&[], name, strength), Splice::Done, "{name}");
+            strong_expensive |= kind.cost * strength > STABILITY;
         }
+        assert!(strong_expensive, "дорогие гены теперь бывают и сильными");
         assert_eq!(roll_gene(42), roll_gene(42), "зерно задаёт ген");
     }
 
@@ -5136,26 +5409,47 @@ mod tests {
         assert_eq!(genome_lines(&[]), ["Обычный организм, мутаций нет"]);
         let lines = genome_lines(&[("gigantism", 2), ("bioluminescence", 1)]);
         assert!(lines.iter().any(|l| l.contains("Гигантизм")), "{lines:?}");
-        assert!(lines.last().unwrap().contains("5 из 6"), "{lines:?}");
+        assert!(lines.last().unwrap().contains("5 из природных 6"), "{lines:?}");
+        // Лабораторный геном сверх природы микроскоп так и называет.
+        let lab = [("gigantism", 2), ("chitin", 2), ("horns", 1), ("tail", 3)];
+        let lines = genome_lines(&lab);
+        assert_eq!(lines.len(), lab.len() + 2, "все гены видны: {lines:?}");
+        assert!(lines.last().unwrap().contains("лабораторный"), "{lines:?}");
     }
 
     #[test]
-    fn gene_therapy_keeps_the_player_in_one_piece() {
+    fn gene_therapy_has_no_limit() {
         let mut state = PlayerState::default();
         assert_eq!(splice_player(&mut state, "chitin", 2), Splice::Done);
         assert_eq!(player_genes(&state), [("chitin", 2)]);
         assert_eq!(player_stability(&state), 4);
         assert_eq!(splice_player(&mut state, "chitin", 1), Splice::Already);
-        assert_eq!(splice_player(&mut state, "regeneration", 1), Splice::Unstable);
+        // Раньше здесь был перебор по стабильности; лаборатория его не знает.
+        assert_eq!(splice_player(&mut state, "regeneration", 3), Splice::Done);
         assert_eq!(splice_player(&mut state, "volatile", 1), Splice::NotForHumans);
         assert_eq!(splice_player(&mut state, "bioluminescence", 1), Splice::Done);
 
-        // Третий ген ещё влезает по месту, но уже не по стабильности.
-        let mut roomy = PlayerState::default();
-        for name in ["bioluminescence", "hypermetabolism", "gigantism"] {
-            assert_eq!(splice_player(&mut roomy, name, 1), Splice::Done, "{name}");
+        // Сколько угодно генов: все, что приживаются в человеке.
+        let mut full = PlayerState::default();
+        let mut taken = 0;
+        for kind in &GENES {
+            let result = splice_player(&mut full, kind.name, 3);
+            if takes_in_humans(kind) {
+                assert_eq!(result, Splice::Done, "{}", kind.name);
+                taken += 1;
+            } else {
+                assert_eq!(result, Splice::NotForHumans, "{}", kind.name);
+            }
         }
-        assert_eq!(splice_player(&mut roomy, "thermal", 1), Splice::NoRoom);
+        assert_eq!(player_genes(&full).len(), taken);
+        assert!(taken > MAX_GENES);
+        assert!(player_stability(&full) > STABILITY);
+        // Механика уродств приживается, хоть ванильного эффекта у неё и нет.
+        assert_eq!(player_gene(&full, "tentacles"), 3);
+        assert_eq!(player_gene(&full, "acid_glands"), 0);
+        assert!(gene_effects(&full).iter().all(|(effect, _)| !effect.is_empty()));
+        // И переживает сейв целиком.
+        assert_eq!(state_from_text(&state_to_text(&full)), full);
     }
 
     #[test]
@@ -5190,14 +5484,23 @@ mod tests {
     }
 
     #[test]
-    fn a_mob_takes_genes_by_the_same_rules() {
+    fn a_mob_takes_any_number_of_genes_in_the_lab() {
         assert_eq!(splice_mob(&[], "volatile", 1), Splice::Done, "мобу можно всё");
         assert_eq!(splice_mob(&[("chitin", 2)], "chitin", 1), Splice::Already);
         assert_eq!(splice_mob(&[("chitin", 1)], "chitin", 2), Splice::Done, "усиление");
-        assert_eq!(splice_mob(&[("regeneration", 2)], "chitin", 1), Splice::Unstable);
+        // Ни стабильность, ни число генов уколу не мешают.
+        assert_eq!(splice_mob(&[("regeneration", 2)], "chitin", 1), Splice::Done);
         let full = [("bioluminescence", 1), ("hypermetabolism", 1), ("gigantism", 1)];
-        assert_eq!(splice_mob(&full, "thermal", 1), Splice::NoRoom);
+        assert_eq!(splice_mob(&full, "thermal", 1), Splice::Done);
         assert_eq!(splice_mob(&[], "telepathy", 1), Splice::NotForHumans);
+
+        // Природные правила остались — для скрещивания на грядке.
+        assert!(fits_naturally(&[], "chitin", 2));
+        assert!(!fits_naturally(&[("regeneration", 2)], "chitin", 1), "перебор по стабильности");
+        assert!(!fits_naturally(&full, "thermal", 1), "больше трёх генов");
+        assert!(fits_naturally(&full, "bioluminescence", 2), "усилить свой можно");
+        assert!(!fits_naturally(&[("chitin", 2)], "chitin", 1));
+        assert!(!fits_naturally(&[], "telepathy", 1));
     }
 
     #[test]
@@ -5226,9 +5529,16 @@ mod tests {
         assert!(kind.player.is_some(), "мутаген вписал ген не для человека");
         assert!(mutagen_message(name).contains(kind.title));
 
-        // Когда места не осталось, мутировать некуда и срыв проходит впустую.
+        // Предела нет: дорогой геном всё равно мутирует дальше.
+        let mut heavy = PlayerState::default();
+        splice_player(&mut heavy, "regeneration", 2);
+        assert!(mutagen_tick(&mut heavy, MUTAGEN_LOAD, 0).is_some());
+        assert_eq!(player_genes(&heavy).len(), 2);
+        // Срыв проходит впустую, только когда меняться уже нечему.
         let mut full = PlayerState::default();
-        splice_player(&mut full, "regeneration", 2);
+        for kind in &GENES {
+            splice_player(&mut full, kind.name, 3);
+        }
         assert_eq!(mutagen_tick(&mut full, MUTAGEN_LOAD, 0), None);
     }
 
@@ -5413,13 +5723,90 @@ mod tests {
         for flag in [
             "regen", "fireproof", "acid_aura", "volatile", "necrosis", "toxic_blood",
             "thorns", "heal_aura", "chill_aura", "photophobia", "predator", "pack",
-            "loyal", "toxin_proof", "rend",
+            "loyal", "toxin_proof", "rend", "extra_arm", "watchful", "ram", "tail",
+            "grab", "far_sight", "glide",
         ] {
             assert!(
                 GENE_BEHAVIOUR.iter().any(|flags| flags.contains(&flag)),
                 "{flag} без гена"
             );
         }
+    }
+
+    #[test]
+    fn deformity_genes_are_appended_and_complete() {
+        // Новые гены — в конце таблицы: номера старых (сейвы, слоты данных
+        // машин) не сдвинулись.
+        assert_eq!(GENES[31].name, "rending_claws");
+        let new = ["polymelia", "dicephaly", "horns", "tail", "tentacles", "polyopia", "tumor", "membranes"];
+        for (i, name) in new.iter().enumerate() {
+            assert_eq!(GENES[32 + i].name, *name);
+            let kind = gene(name).expect(name);
+            assert!(takes_in_humans(kind), "{name}: у игрока тоже работает (GDD 4.19)");
+            assert!(marker_for(name, 3).is_some());
+        }
+        // Цены — по таблице GDD 4.19.
+        let costs: Vec<i32> = new.iter().map(|n| gene(n).unwrap().cost).collect();
+        assert_eq!(costs, [3, 3, 2, 2, 3, 2, 1, 2]);
+        // Ванильных эффектов хватает там, где GDD их называет.
+        assert_eq!(gene("polyopia").unwrap().player, Some("night_vision"));
+        assert_eq!(gene("membranes").unwrap().player, Some("slow_falling"));
+        assert_eq!(gene("polymelia").unwrap().player, Some("haste"));
+        assert_eq!(gene("tumor").unwrap().player, Some("health_boost"));
+        assert_eq!(gene("tumor").unwrap().side, Some("slowness"));
+    }
+
+    #[test]
+    fn behind_means_the_back_half() {
+        // Смотрит на юг (+Z): сзади — север (−Z).
+        assert!(behind(0.0, [0.0, 0.0], [0.0, -2.0]));
+        assert!(!behind(0.0, [0.0, 0.0], [0.0, 2.0]), "спереди");
+        assert!(!behind(0.0, [0.0, 0.0], [2.0, 0.0]), "сбоку не спина");
+        // Смотрит на запад (−X): сзади — восток.
+        assert!(behind(90.0, [5.0, 5.0], [7.0, 5.0]));
+        assert!(!behind(90.0, [5.0, 5.0], [3.0, 5.0]));
+        assert!(!behind(0.0, [1.0, 1.0], [1.0, 1.0]), "в той же точке — не сзади");
+    }
+
+    #[test]
+    fn deformities_grow_with_strength() {
+        assert!(extra_arm_period(3) < extra_arm_period(1), "сильная рука бьёт чаще");
+        for s in 1..=3 {
+            assert_eq!(extra_arm_period(s) % BEHAVIOUR_EVERY, 0, "период ловится тиком мира");
+        }
+        assert_eq!(RAM_EVERY % BEHAVIOUR_EVERY, 0);
+        assert_eq!(TAIL_EVERY % BEHAVIOUR_EVERY, 0);
+        assert_eq!(GRAB_EVERY % BEHAVIOUR_EVERY, 0);
+        assert_eq!(extra_arm_damage(0.0), 1.0, "без урона — хоть единица");
+        assert_eq!(extra_arm_damage(6.0), 3.0);
+        assert!(ram_push(3) > ram_push(1) && ram_damage(3) > ram_damage(1));
+        assert!(grab_reach(3) > grab_reach(1) && grab_reach(1) > MELEE_REACH);
+        assert!(far_sight_radius(1) > watch_radius(3), "многоглазие видит дальше");
+        assert!(RAM_RUN.0 > MELEE_REACH, "разбег — не вплотную");
+        assert!(glow_radius(3) > glow_radius(1));
+        assert!(player_ram_push(2) > 0.0 && player_tail_damage(1) >= 2.0);
+    }
+
+    #[test]
+    fn tentacles_pull_items_within_reach() {
+        let player = [0.0, 64.0, 0.0];
+        let v = magnet_velocity([4.0, 64.0, 0.0], player, 1).expect("в досягаемости");
+        assert!(v[0] < 0.0, "тянут к игроку: {v:?}");
+        assert_eq!(magnet_velocity([0.3, 64.0, 0.2], player, 3), None, "у ног подберёт ванилла");
+        assert_eq!(magnet_velocity([20.0, 64.0, 0.0], player, 3), None, "далеко");
+        assert_eq!(magnet_velocity([4.0, 64.0, 0.0], player, 0), None, "без гена");
+        assert!(magnet_velocity([8.0, 64.0, 0.0], player, 3).is_some());
+        assert!(magnet_velocity([8.0, 64.0, 0.0], player, 1).is_none());
+    }
+
+    #[test]
+    fn a_new_hit_is_seen_once() {
+        let uuid = 0xBADu128;
+        assert!(note_hurt_time(uuid, 10), "только что ударили");
+        assert!(!note_hurt_time(uuid, 9), "тот же удар тает");
+        assert!(!note_hurt_time(uuid, 0));
+        assert!(note_hurt_time(uuid, 10), "следующий удар");
+        assert!(!fresh_hit(5, 5));
     }
 
     #[test]
@@ -5894,7 +6281,7 @@ mod tests {
                 animals += 1;
             }
         }
-        assert_eq!(animals, 6, "шесть животных из GDD 4.15");
+        assert_eq!(animals, 11, "шесть животных из GDD 4.15 и пять уродств из 4.19");
     }
 
     #[test]
@@ -6340,7 +6727,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 49] = [
+pub const RESEARCH: [Research; 50] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -6397,6 +6784,9 @@ pub const RESEARCH: [Research; 49] = [
     node("therapy", 4, (4, 2), "biolab:syringe", "Генотерапия", &["fragment"], Unlock::Gene, "Фрагмент ДНК в руку и ПКМ в воздух."),
     node("crops", 4, (5, 2), "biolab:gm_plot", "ГМ-грядка", &["therapy"], Unlock::Item(&["biolab:gm_plot", "biolab:gm_crop"]), "Сделайте ГМ-грядку: земля, агар, мука."),
     node("animal_genes", 4, (3, 2), "minecraft:rabbit_foot", "Гены животных", &["extractor"], Unlock::Item(&["minecraft:rabbit_foot", "minecraft:glow_ink_sac", "minecraft:turtle_scute", "minecraft:magma_cream"]), "Добудьте кроличью лапку или сгусток магмы."),
+    // Уродства (GDD 4.19): восемь генов, которые видно на теле. Узел — под
+    // генами животных: четыре из них тоже достаются из частей животных.
+    node("deformities", 4, (3, 3), "minecraft:goat_horn", "Уродства", &["animal_genes"], Unlock::Item(&["minecraft:goat_horn", "minecraft:ink_sac", "minecraft:phantom_membrane", "minecraft:poisonous_potato"]), "Добудьте козий рог или мембрану фантома."),
 ];
 
 /// Номер узла по id.

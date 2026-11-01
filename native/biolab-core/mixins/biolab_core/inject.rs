@@ -300,6 +300,18 @@ fn biolab_core_interact_entity(
                 .iter_mut()
                 .find(|mob| mob.id as i32 == entity && mob.alive())
         {
+            // Усиление: слабая метка того же гена уходит, иначе микроскоп
+            // показывал бы ген дважды (лимита генов больше нет, и раньше это
+            // пряталось за ним).
+            for weaker in 1..strength {
+                if let Some(old) = m::marker_for(name, weaker) {
+                    horizon_client::mobs::finalize::remove_modifier(
+                        mob,
+                        horizon_client::mobs::finalize::Attr::FollowRange,
+                        old,
+                    );
+                }
+            }
             horizon_client::mobs::finalize::add_modifier(
                 mob,
                 horizon_client::mobs::finalize::Attr::FollowRange,

@@ -44,6 +44,17 @@ fn biolab_deep_mob_effects(m: &mut crate::mobs::Mob) {
         if let Some(gene) = mut_::mutation(&genome, seed)
             && let Some(marker) = mut_::marker_of(gene)
         {
+            // Усиление: слабая метка того же гена уходит, чтобы ген не
+            // числился дважды (у лабораторного генома лимита больше нет).
+            for weaker in 1..gene.strength {
+                if let Some(old) = mut_::marker_of(mut_::Gene { index: gene.index, strength: weaker }) {
+                    crate::mobs::finalize::remove_modifier(
+                        m,
+                        crate::mobs::finalize::Attr::FollowRange,
+                        old,
+                    );
+                }
+            }
             crate::mobs::finalize::add_modifier(
                 m,
                 crate::mobs::finalize::Attr::FollowRange,
@@ -71,6 +82,15 @@ fn biolab_deep_mob_effects(m: &mut crate::mobs::Mob) {
                 "minecraft:poison" | "poison" | "minecraft:wither" | "wither" | "biolab:toxicosis"
             )
         });
+    }
+    // Перепонки (GDD 4.19): мутант планирует. Ванильное медленное падение
+    // Horizon мобам не применяет (его читает только физика игрока), поэтому
+    // гасим скорость падения сами и сбрасываем высоту падения — с перепонками
+    // моб не разбивается.
+    let glide = mut_::flag_strength(&genome, "glide");
+    if glide > 0 && !m.on_ground {
+        m.velocity.y = mut_::glide_fall(m.velocity.y, glide);
+        m.fall_distance = 0.0;
     }
     // Регенерация: раз в секунду отрастает доля здоровья.
     let heal = mut_::regeneration(&genome);

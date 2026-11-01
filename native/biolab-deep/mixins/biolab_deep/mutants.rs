@@ -6,8 +6,9 @@
 // геном (шансы по видам — `roll_for` в бинарнике). Всё ниже не зависит от
 // вида: оттенок и размер ложатся поверх ванильных, а здоровье считается от
 // базового здоровья вида (`scaled_stats`).
-// Геном — до трёх генов, у каждого сила 1–3; суммарная «цена» генов не
-// превышает предела стабильности, иначе организм нежизнеспособен.
+// Геном — сила 0–3 у каждого гена таблицы. Природный мутант рождается с
+// одним-двумя генами в пределах стабильности (бросок в бинарнике), а
+// лаборатория вживляет сколько угодно (GDD 4.19).
 //
 // Обязанности поделены между двумя частями бандла, потому что модуль lib
 // бинарнику не виден:
@@ -24,7 +25,7 @@ use std::sync::{Mutex, OnceLock};
 
 /// Имена генов в том же порядке, что и в бинарнике. Имя уходит в сейв, так
 /// что менять его можно только вместе с чтением старых миров.
-pub const GENE_NAMES: [&str; 32] = [
+pub const GENE_NAMES: [&str; 40] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -57,12 +58,18 @@ pub const GENE_NAMES: [&str; 32] = [
     "pack_instinct",
     "loyalty",
     "rending_claws",
+    "polymelia",
+    "dicephaly",
+    "horns",
+    "tail",
+    "tentacles",
+    "polyopia",
+    "tumor",
+    "membranes",
 ];
 
-/// Сколько генов влезает в один геном.
-pub const MAX_GENES: usize = 3;
-/// Предел стабильности: сумма цен генов выше него организм не выдержит.
-pub const STABILITY: i32 = 6;
+/// Сколько генов в таблице: геном хранит силу каждого.
+pub const GENE_COUNT: usize = GENE_NAMES.len();
 
 /// Один ген: номер в таблице и сила 1–3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,55 +78,74 @@ pub struct Gene {
     pub strength: i32,
 }
 
-/// Геном мутанта: до трёх генов.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Геном мутанта: сила 0–3 у каждого гена таблицы (0 — гена нет).
+///
+/// Раньше геном был тремя слотами: природный мутант больше трёх генов не
+/// несёт. Но лаборатория (укол фрагмента, чан, мутаген, носилки) с GDD 4.19
+/// вживляет сколько угодно генов, и четвёртый ген из меток при чтении
+/// терялся бы. Поэтому место есть под все гены таблицы сразу, а предел
+/// числа генов и стабильности остался только у природного броска
+/// (`roll` в бинарнике). Номер гена — его место в `GENE_NAMES`: по нему же
+/// читают метки и сейвы, поэтому новые гены дописываются только в конец.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Genome {
-    pub genes: [Option<Gene>; MAX_GENES],
+    pub strengths: [u8; GENE_COUNT],
+}
+
+// `Default` для массивов длиннее 32 сам не выводится.
+impl Default for Genome {
+    fn default() -> Self {
+        Self { strengths: [0; GENE_COUNT] }
+    }
 }
 
 impl Genome {
-    /// Гены по порядку, без пустот.
+    /// Гены по порядку таблицы, без пустот.
     pub fn list(&self) -> impl Iterator<Item = Gene> + '_ {
-        self.genes.iter().filter_map(|g| *g)
+        self.strengths
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| **s > 0)
+            .map(|(index, s)| Gene { index, strength: i32::from(*s) })
     }
 
-    /// Есть ли в геноме этот ген, и какой он силы.
-    pub fn strength_of(&self, name: &str) -> i32 {
-        let Some(index) = gene_index(name) else {
-            return 0;
-        };
-        self.list()
-            .find(|g| g.index == index)
-            .map_or(0, |g| g.strength)
+    /// Сила гена по его номеру; 0 — гена нет.
+    pub fn strength(&self, index: usize) -> u8 {
+        self.strengths.get(index).copied().unwrap_or(0)
     }
 
-    /// Добавить ген: усиливает уже имеющийся, иначе занимает свободное место.
-    /// `false` — места нет или перебор по стабильности.
+    /// Сила гена по имени (`"horns"`); 0 — гена нет или имя незнакомое.
+    /// Этим читает геном отрисовка наростов: `genome(id)?.strength_of("tail")`.
+    pub fn strength_of(&self, name: &str) -> u8 {
+        gene_index(name).map_or(0, |index| self.strength(index))
+    }
+
+    /// Генов в геноме.
+    pub fn count(&self) -> usize {
+        self.strengths.iter().filter(|s| **s > 0).count()
+    }
+
+    /// Пустой ли геном: обычный моб.
+    pub fn is_empty(&self) -> bool {
+        self.count() == 0
+    }
+
+    /// Добавить ген: новый занимает своё место, имеющийся только усиливается.
+    /// Предела по числу генов и стабильности нет — это правило природного
+    /// броска, а не генома. `false` — ген незнакомый или сила вне 1–3.
     pub fn add(&mut self, gene: Gene) -> bool {
-        if gene.index >= GENE_NAMES.len() || !(1..=3).contains(&gene.strength) {
+        if gene.index >= GENE_COUNT || !(1..=3).contains(&gene.strength) {
             return false;
         }
-        let mut next = *self;
-        match next.genes.iter_mut().find(|slot| {
-            slot.is_some_and(|g| g.index == gene.index)
-        }) {
-            Some(slot) => *slot = Some(Gene { index: gene.index, strength: gene.strength.max(slot.unwrap().strength) }),
-            None => match next.genes.iter_mut().find(|slot| slot.is_none()) {
-                Some(slot) => *slot = Some(gene),
-                None => return false,
-            },
-        }
-        if cost(&next) > STABILITY {
-            return false;
-        }
-        *self = next;
+        let slot = &mut self.strengths[gene.index];
+        *slot = (*slot).max(gene.strength as u8);
         true
     }
 }
 
 /// Цена гена за единицу силы: чем сильнее признак, тем дороже стабильность.
 pub fn gene_cost(index: usize) -> i32 {
-    const COSTS: [i32; 32] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3];
+    const COSTS: [i32; 40] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2];
     COSTS.get(index).copied().unwrap_or(9)
 }
 
@@ -139,7 +165,7 @@ pub fn gene_index(name: &str) -> Option<usize> {
 /// Оттенок тела в RGB: красит первый ген генома, у которого есть свой цвет.
 /// В ABGR, который ждёт отрисовка, его переводит `mobs::render::abgr`.
 pub fn tint_rgb(genome: &Genome) -> Option<u32> {
-    const TINTS: [Option<u32>; 32] = [Some(0xC8A064), Some(0xD8C8A0), Some(0xFF7A5A), Some(0x6E7A52), Some(0xE0DCC8), Some(0xB04030), Some(0xC06848), Some(0x90C070), Some(0xF0D8D0), Some(0x7CFF4A), Some(0xF4F0EC), Some(0x202024), Some(0x5AA0E0), Some(0xA05A28), Some(0xD8D0C8), Some(0x8A4AC8), Some(0xE86AA0), Some(0xE0803A), Some(0x8AD8F0), Some(0xC8C0B0), Some(0x4AB8C8), Some(0x9CC84A), Some(0x9CE04A), Some(0xB44AE0), Some(0x6A7A4A), Some(0x7AC86A), Some(0xD8D0B0), Some(0xF0A0C8), Some(0x6A4A3A), Some(0x8A7A5A), Some(0x70C0F0), Some(0x9A3A3A)];
+    const TINTS: [Option<u32>; 40] = [Some(0xC8A064), Some(0xD8C8A0), Some(0xFF7A5A), Some(0x6E7A52), Some(0xE0DCC8), Some(0xB04030), Some(0xC06848), Some(0x90C070), Some(0xF0D8D0), Some(0x7CFF4A), Some(0xF4F0EC), Some(0x202024), Some(0x5AA0E0), Some(0xA05A28), Some(0xD8D0C8), Some(0x8A4AC8), Some(0xE86AA0), Some(0xE0803A), Some(0x8AD8F0), Some(0xC8C0B0), Some(0x4AB8C8), Some(0x9CC84A), Some(0x9CE04A), Some(0xB44AE0), Some(0x6A7A4A), Some(0x7AC86A), Some(0xD8D0B0), Some(0xF0A0C8), Some(0x6A4A3A), Some(0x8A7A5A), Some(0x70C0F0), Some(0x9A3A3A), Some(0xC89A8A), Some(0xB8A090), Some(0xC8B898), Some(0xA08060), Some(0x9A6A9A), Some(0xD0C060), Some(0xD88A7A), Some(0x7A6A80)];
     genome
         .list()
         .find_map(|g| TINTS.get(g.index).copied().flatten())
@@ -147,7 +173,7 @@ pub fn tint_rgb(genome: &Genome) -> Option<u32> {
 
 /// Во сколько раз мутант крупнее обычного моба: размеры генов перемножаются.
 pub fn scale(genome: &Genome) -> f32 {
-    const STEPS: [f32; 32] = [0.22, -0.18, -0.04, 0.05, 0.04, 0.06, 0.0, 0.0, -0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.06, 0.0, 0.08, 0.0, 0.0, 0.04];
+    const STEPS: [f32; 40] = [0.22, -0.18, -0.04, 0.05, 0.04, 0.06, 0.0, 0.0, -0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.06, 0.0, 0.08, 0.0, 0.0, 0.04, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.04, 0.0];
     genome.list().fold(1.0, |acc, g| {
         acc * (1.0 + STEPS.get(g.index).copied().unwrap_or(0.0) * g.strength as f32)
     })
@@ -157,7 +183,7 @@ pub fn scale(genome: &Genome) -> f32 {
 /// здоровье, скорость в долях базы, урон, броня, сопротивление отбрасыванию.
 /// Статы ставит эта библиотека, а не бинарник: так ген, вживлённый уколом уже
 /// живому мобу, получает свои прибавки там же, где читаются метки.
-pub const GENE_STATS: [[f64; 5]; 32] = [
+pub const GENE_STATS: [[f64; 5]; 40] = [
     [6.00, -0.08, 1.50, 0.00, 0.10],
     [-3.00, 0.14, -0.50, 0.00, -0.10],
     [-2.00, 0.22, 1.00, 0.00, 0.00],
@@ -190,6 +216,14 @@ pub const GENE_STATS: [[f64; 5]; 32] = [
     [0.00, 0.00, 0.00, 0.00, 0.00],
     [2.00, 0.00, 0.00, 0.00, 0.00],
     [0.00, 0.00, 2.00, 0.00, 0.00],
+    [0.00, 0.00, 0.50, 0.00, 0.00],
+    [2.00, 0.00, 0.00, 0.00, 0.00],
+    [0.00, 0.00, 1.00, 0.00, 0.10],
+    [1.00, 0.02, 0.00, 0.00, 0.00],
+    [1.00, 0.00, 0.00, 0.00, 0.00],
+    [0.00, 0.00, 0.00, 0.00, 0.00],
+    [4.00, -0.06, 0.00, 0.00, 0.05],
+    [0.00, 0.00, 0.00, 0.00, 0.00],
 ];
 
 /// Модификаторы, которыми геном меняет атрибуты: по одному на атрибут.
@@ -246,7 +280,7 @@ pub fn tint_over(vanilla: u32, tint: u32) -> u32 {
 
 /// Что ген делает, кроме чисел: по этим меткам работают тик моба и тик мира.
 /// Пусто — ген только меняет характеристики или внешность.
-pub const GENE_FLAGS: [&[&str]; 32] = [
+pub const GENE_FLAGS: [&[&str]; 40] = [
     &[],
     &[],
     &[],
@@ -279,6 +313,14 @@ pub const GENE_FLAGS: [&[&str]; 32] = [
     &["pack"],
     &["loyal"],
     &["rend"],
+    &["extra_arm"],
+    &["watchful"],
+    &["ram"],
+    &["tail"],
+    &["grab"],
+    &["far_sight"],
+    &[],
+    &["glide"],
 ];
 
 /// Сила гена с таким поведением в этом геноме; 0 — такого гена нет.
@@ -328,6 +370,26 @@ pub fn toxin_proof(genome: &Genome) -> bool {
     flag_strength(genome, "toxin_proof") > 0
 }
 
+/// Перепонки (GDD 4.19): мутант планирует. Ванильное медленное падение
+/// мобам Horizon не учитывает (его читает только физика игрока), поэтому
+/// падение гасится прямо в скорости моба (`glide_fall`).
+pub fn glides(genome: &Genome) -> bool {
+    flag_strength(genome, "glide") > 0
+}
+
+/// Скорость падения с перепонками, блоков за тик: как у медленного падения
+/// игрока, чуть быстрее на слабом гене. Положительная скорость (прыжок,
+/// подброс) не меняется.
+pub fn glide_fall(vertical: f64, strength: i32) -> f64 {
+    let limit = match strength {
+        s if s <= 0 => return vertical,
+        1 => -0.16,
+        2 => -0.12,
+        _ => -0.08,
+    };
+    vertical.max(limit)
+}
+
 // ---- Мутаген ----
 //
 // Мутаген не мутирует моба мгновенно: эффект `biolab:mutagenesis` копит
@@ -365,8 +427,10 @@ pub fn load_of(id: u32) -> i32 {
     loads().lock().map(|t| t.get(&id).copied().unwrap_or(0)).unwrap_or(0)
 }
 
-/// Какой ген добавит мутация: первый по кругу от зерна, который геном ещё
-/// выдержит. None — организм уже полон, мутировать некуда.
+/// Какой ген добавит мутация: первый по кругу от зерна, который что-то
+/// меняет — новый ген или усиление имеющегося. Мутаген — лаборатория, а не
+/// природа: предела стабильности у него нет (GDD 4.19). None — все гены уже
+/// на пределе силы, мутировать нечему.
 pub fn mutation(genome: &Genome, seed: u64) -> Option<Gene> {
     let count = GENE_NAMES.len() as u64;
     for step in 0..count {
@@ -421,7 +485,7 @@ pub fn forget(id: u32) {
 
 /// Метки генома: имя модификатора, по которому ген узнаётся на мобе.
 /// Тот же список, что в `runtime.rs` бинарника.
-pub const GENE_MARKERS: [&str; 96] = [
+pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -518,6 +582,30 @@ pub const GENE_MARKERS: [&str; 96] = [
     "biolab:gene/rending_claws/1",
     "biolab:gene/rending_claws/2",
     "biolab:gene/rending_claws/3",
+    "biolab:gene/polymelia/1",
+    "biolab:gene/polymelia/2",
+    "biolab:gene/polymelia/3",
+    "biolab:gene/dicephaly/1",
+    "biolab:gene/dicephaly/2",
+    "biolab:gene/dicephaly/3",
+    "biolab:gene/horns/1",
+    "biolab:gene/horns/2",
+    "biolab:gene/horns/3",
+    "biolab:gene/tail/1",
+    "biolab:gene/tail/2",
+    "biolab:gene/tail/3",
+    "biolab:gene/tentacles/1",
+    "biolab:gene/tentacles/2",
+    "biolab:gene/tentacles/3",
+    "biolab:gene/polyopia/1",
+    "biolab:gene/polyopia/2",
+    "biolab:gene/polyopia/3",
+    "biolab:gene/tumor/1",
+    "biolab:gene/tumor/2",
+    "biolab:gene/tumor/3",
+    "biolab:gene/membranes/1",
+    "biolab:gene/membranes/2",
+    "biolab:gene/membranes/3",
 ];
 
 /// Ген по метке: `biolab:gene/gigantism/2`.
@@ -581,25 +669,26 @@ mod tests {
     }
 
     #[test]
-    fn mutation_fits_what_is_left() {
+    fn mutation_always_changes_something() {
         // Пустой геном принимает что угодно.
         let empty = Genome::default();
         assert!(mutation(&empty, 0).is_some());
-        // Заполненный до предела мутировать некуда.
-        let mut full = Genome::default();
-        full.add(gene("regeneration", 2));
-        assert_eq!(cost(&full), STABILITY);
-        assert_eq!(mutation(&full, 3), None);
-        // Остаток стабильности определяет, что приживётся.
-        let mut almost = Genome::default();
-        almost.add(gene("bioluminescence", 1));
+        // Предела стабильности у мутагена нет: дорогой геном мутирует дальше.
+        let mut heavy = Genome::default();
+        heavy.add(gene("regeneration", 2));
+        heavy.add(gene("acid_glands", 3));
         for seed in 0..50 {
-            if let Some(g) = mutation(&almost, seed) {
-                let mut next = almost;
-                assert!(next.add(g));
-                assert!(cost(&next) <= STABILITY, "{g:?}");
-            }
+            let g = mutation(&heavy, seed).expect("мутировать есть чему");
+            let mut next = heavy;
+            assert!(next.add(g));
+            assert_ne!(next, heavy, "мутация ничего не изменила: {g:?}");
         }
+        // Все гены на тройке — мутировать нечему.
+        let mut full = Genome::default();
+        for index in 0..GENE_COUNT {
+            full.add(Gene { index, strength: 3 });
+        }
+        assert_eq!(mutation(&full, 3), None);
     }
 
     #[test]
@@ -616,23 +705,54 @@ mod tests {
     }
 
     #[test]
-    fn a_genome_holds_up_to_three_genes() {
+    fn a_genome_holds_every_gene_of_the_table() {
+        // Лабораторный геном: все гены сразу, каждый на тройке.
         let mut g = Genome::default();
+        for index in 0..GENE_COUNT {
+            assert!(g.add(Gene { index, strength: 3 }), "{}", GENE_NAMES[index]);
+        }
+        assert_eq!(g.count(), GENE_COUNT);
+        assert_eq!(g.list().count(), GENE_COUNT);
+        assert!(cost(&g) > 6, "стабильность геном не ограничивает");
+        assert_eq!(g.strength_of("tentacles"), 3);
+        // Строкой он тоже переживает сейв целиком.
+        assert_eq!(from_text(&to_text(&g)), Some(g));
+
+        let mut g = Genome::default();
+        assert!(g.is_empty());
         assert!(g.add(gene("bioluminescence", 1)));
         assert!(g.add(gene("chitin", 1)));
         assert!(g.add(gene("gigantism", 1)));
-        assert_eq!(g.list().count(), 3);
-        assert!(!g.add(gene("thermal", 1)), "мест больше нет");
+        assert!(g.add(gene("thermal", 1)), "четвёртый ген — уже лаборатория");
+        assert_eq!(g.count(), 4);
         assert_eq!(g.strength_of("chitin"), 1);
-        assert_eq!(g.strength_of("thermal"), 0);
+        assert_eq!(g.strength_of("polymelia"), 0);
+        assert_eq!(g.strength_of("telepathy"), 0, "незнакомое имя — ноль");
+        assert_eq!(g.strength(GENE_COUNT + 5), 0);
     }
 
     #[test]
-    fn stability_caps_the_genome() {
+    fn deformity_genes_are_read_by_name() {
+        // Новые гены GDD 4.19 дописаны в конец: старые номера на месте.
+        assert_eq!(gene_index("rending_claws"), Some(31));
+        for name in ["polymelia", "dicephaly", "horns", "tail", "tentacles", "polyopia", "tumor", "membranes"] {
+            let index = gene_index(name).expect(name);
+            assert!(index >= 32, "{name} сдвинул старые гены");
+            let mut g = Genome::default();
+            g.add(Gene { index, strength: 2 });
+            assert_eq!(g.strength_of(name), 2, "{name}");
+            let marker = marker_of(Gene { index, strength: 2 }).expect(name);
+            assert_eq!(marker, format!("biolab:gene/{name}/2"));
+        }
         let mut g = Genome::default();
-        assert!(g.add(gene("regeneration", 2)), "цена 6 — ровно предел");
-        assert!(!g.add(gene("acid_glands", 1)), "перебор по стабильности");
-        assert_eq!(cost(&g), STABILITY);
+        g.add(gene("membranes", 1));
+        assert!(glides(&g));
+        assert!(!glides(&Genome::default()));
+        // Перепонки гасят только падение, и сильнее — на сильном гене.
+        assert_eq!(glide_fall(-0.8, 0), -0.8, "без гена падает как падал");
+        assert!(glide_fall(-0.8, 3) > glide_fall(-0.8, 1));
+        assert_eq!(glide_fall(0.4, 3), 0.4, "прыжок не гасится");
+        assert_eq!(glide_fall(-0.05, 1), -0.05, "медленное падение не трогаем");
     }
 
     #[test]
