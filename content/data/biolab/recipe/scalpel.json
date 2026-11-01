@@ -1,17 +1,13 @@
 {
- "type": "minecraft:crafting_shaped",
- "category": "misc",
- "pattern": [
-  " i",
-  "i ",
-  "s "
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:iron_ingot",
+  "minecraft:iron_ingot",
+  "minecraft:stick"
  ],
- "key": {
-  "i": "minecraft:iron_ingot",
-  "s": "minecraft:stick"
- },
  "result": {
   "id": "biolab:scalpel",
   "count": 1
- }
+ },
+ "time": 40
 }

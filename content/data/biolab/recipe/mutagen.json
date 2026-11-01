@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "biolab:flask",
   "biolab:element_redstonium",
@@ -10,5 +9,6 @@
  "result": {
   "id": "biolab:mutagen",
   "count": 1
- }
+ },
+ "time": 60
 }

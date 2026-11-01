@@ -1,17 +1,15 @@
 {
- "type": "minecraft:crafting_shaped",
- "category": "misc",
- "pattern": [
-  " g ",
-  " i ",
-  "iii"
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:glass_pane",
+  "minecraft:iron_ingot",
+  "minecraft:iron_ingot",
+  "minecraft:iron_ingot",
+  "minecraft:iron_ingot"
  ],
- "key": {
-  "g": "minecraft:glass_pane",
-  "i": "minecraft:iron_ingot"
- },
  "result": {
   "id": "biolab:microscope",
   "count": 1
- }
+ },
+ "time": 60
 }

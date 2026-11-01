@@ -275,7 +275,7 @@ pub struct Machine {
     pub menu: &'static str,
 }
 
-pub const MACHINES: [Machine; 10] = [
+pub const MACHINES: [Machine; 11] = [
     Machine { id: "biolab:still", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:incubator", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:fermenter", slots: 3, menu: "minecraft:furnace" },
@@ -287,6 +287,9 @@ pub const MACHINES: [Machine; 10] = [
     Machine { id: "biolab:extractor", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:cloning_vat", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:spectrometer", slots: 3, menu: "minecraft:furnace" },
+    // Лабораторный стол — верстак точных вещей: сетка 3×3, как у
+    // синтезатора, 0–7 входы, 8 — выход.
+    Machine { id: "biolab:lab_bench", slots: 9, menu: "minecraft:generic_3x3" },
 ];
 
 /// Машина с таким id, если она наша.
@@ -336,6 +339,9 @@ pub const DATA_GENE: usize = 4;
 pub const DATA_GENE_STRENGTH: usize = 5;
 /// Инкубатор: штамм культуры во входе, четыре характеристики.
 pub const DATA_STRAIN: usize = 4;
+/// Лабораторный стол: что соберётся из выложенного — номер результата в
+/// `BENCH_RESULTS` или `BENCH_EMPTY`, `BENCH_NONE`, `BENCH_UNLISTED`.
+pub const DATA_BENCH_RESULT: usize = 4;
 
 /// Сколько слотов данных у машины: четыре общих и её собственные.
 pub fn machine_data_slots(id: &str) -> usize {
@@ -345,6 +351,7 @@ pub fn machine_data_slots(id: &str) -> usize {
         SPECTROMETER => DATA_SPECTRUM + ELEMENTS.len(),
         CLONING_VAT | "biolab:extractor" => DATA_GENE_STRENGTH + 1,
         "biolab:incubator" => DATA_STRAIN + 4,
+        LAB_BENCH => DATA_BENCH_RESULT + 1,
         _ => DATA_SLOTS,
     }
 }
@@ -551,6 +558,222 @@ pub fn synth_status(formula: &Formula, blueprint: Option<&Formula>) -> i32 {
         SYNTH_STABLE
     } else {
         SYNTH_UNSTABLE
+    }
+}
+
+// ---- Лабораторный стол ----
+//
+// Верстак лаборатории. Точные вещи — шприцы, дротики, аэрозоли, мази,
+// приборы, мутаген — обычный верстак больше не собирает: их рецепты своего
+// типа `biolab:lab_bench`. Рецепт — список `ingredients`, как у бесформенного
+// рецепта верстака, плюс `result {id, count}` и `time` в тиках. Стол собирает,
+// когда во входах ровно набор рецепта, и ждёт, если выход занят.
+
+pub const LAB_BENCH: &str = "biolab:lab_bench";
+
+/// Входы стола пусты.
+pub const BENCH_EMPTY: i32 = -2;
+/// Выложенное не совпало ни с одним рецептом.
+pub const BENCH_NONE: i32 = -1;
+/// Рецепт совпал, но его результата нет в `BENCH_RESULTS` (рецепт из
+/// чужого датапака): стол соберёт, а экран не знает имени.
+pub const BENCH_UNLISTED: i32 = -3;
+
+/// Результаты рецептов стола, id и имя. Клиенту результат можно передать
+/// только числом слота данных, поэтому номер — место в этой таблице, а имя
+/// отсюда же рисует табло. Тест сверяет таблицу с рецептами стола в
+/// `content/` и с именами в языковом файле.
+pub const BENCH_RESULTS: [(&str, &str); 19] = [
+    ("biolab:syringe", "Шприц"),
+    ("biolab:syringe_penicillin", "Пенициллин, инъекция"),
+    ("biolab:syringe_sedative", "Седативное, инъекция"),
+    ("biolab:syringe_stimulant", "Стимулятор, инъекция"),
+    ("biolab:syringe_venom", "Яд, инъекция"),
+    ("biolab:syringe_vaccine", "Вакцина, инъекция"),
+    ("biolab:syringe_mutagen", "Мутаген, инъекция"),
+    ("biolab:dart_sedative", "Дротик с седативным"),
+    ("biolab:dart_venom", "Дротик с ядом"),
+    ("biolab:spray_analgesic", "Обезболивающее, аэрозоль"),
+    ("biolab:spray_stimulant", "Стимулятор, аэрозоль"),
+    ("biolab:ointment_analgesic", "Обезболивающая мазь"),
+    ("biolab:analyzer", "Анализатор крови"),
+    ("biolab:microscope", "Микроскоп"),
+    ("biolab:scalpel", "Зазубренный скальпель"),
+    ("biolab:swab", "Ватная палочка"),
+    ("biolab:bandage", "Бинт"),
+    ("biolab:mutagen", "Мутаген"),
+    ("biolab:nutrient_broth", "Питательный раствор"),
+];
+
+/// Номер результата для слота данных стола.
+pub fn bench_result_index(item: &str) -> i32 {
+    BENCH_RESULTS.iter().position(|r| r.0 == item).map_or(BENCH_UNLISTED, |i| i as i32)
+}
+
+/// Сопоставление входов стола с рецептом. `filled` — занят ли каждый вход,
+/// `fits(запись, слот)` — подходит ли предмет слота под запись рецепта.
+/// Каждая запись берёт один предмет из своего слота, слоты у записей разные,
+/// и занятых слотов ровно столько, сколько записей: лишнего во входах нет.
+/// Порядок неважен. Стопка в слоте не делится между записями — как на
+/// верстаке, зато её хватает на несколько сборок подряд. Вернёт для каждой
+/// записи номер её слота или None, если набор не совпал.
+///
+/// Записи могут пересекаться (тег или список предметов), поэтому жадно
+/// не выйдет: ищем паросочетание дополняющими путями. Входов восемь —
+/// перебор мгновенный.
+pub fn bench_match(filled: &[bool], ingredients: usize, fits: impl Fn(usize, usize) -> bool) -> Option<Vec<usize>> {
+    fn claim(
+        entry: usize,
+        filled: &[bool],
+        fits: &dyn Fn(usize, usize) -> bool,
+        owner: &mut [Option<usize>],
+        seen: &mut [bool],
+    ) -> bool {
+        for slot in 0..filled.len() {
+            if !filled[slot] || seen[slot] || !fits(entry, slot) {
+                continue;
+            }
+            seen[slot] = true;
+            let free = match owner[slot] {
+                None => true,
+                Some(other) => claim(other, filled, fits, owner, seen),
+            };
+            if free {
+                owner[slot] = Some(entry);
+                return true;
+            }
+        }
+        false
+    }
+
+    let used = filled.iter().filter(|f| **f).count();
+    if ingredients == 0 || used != ingredients {
+        return None;
+    }
+    let mut owner: Vec<Option<usize>> = vec![None; filled.len()];
+    for entry in 0..ingredients {
+        let mut seen = vec![false; filled.len()];
+        if !claim(entry, filled, &fits, &mut owner, &mut seen) {
+            return None;
+        }
+    }
+    let mut plan = vec![0; ingredients];
+    for (slot, entry) in owner.iter().enumerate() {
+        if let Some(entry) = entry {
+            plan[*entry] = slot;
+        }
+    }
+    Some(plan)
+}
+
+#[cfg(test)]
+mod bench_tests {
+    use super::*;
+
+    /// Сопоставление по именам: запись — список подходящих предметов.
+    fn matched(slots: &[Option<&str>], recipe: &[&[&str]]) -> Option<Vec<usize>> {
+        let filled: Vec<bool> = slots.iter().map(Option::is_some).collect();
+        bench_match(&filled, recipe.len(), |entry, slot| {
+            slots[slot].is_some_and(|item| recipe[entry].contains(&item))
+        })
+    }
+
+    #[test]
+    fn the_bench_takes_exactly_the_recipe_set_in_any_order() {
+        let syringe: &[&[&str]] = &[&["nugget"], &["pane"], &["nugget"]];
+        let slots = [Some("pane"), None, Some("nugget"), None, None, None, None, Some("nugget")];
+        let plan = matched(&slots, syringe).expect("набор совпал");
+        let mut taken = plan.clone();
+        taken.sort();
+        assert_eq!(taken, vec![0, 2, 7], "каждая запись — свой слот");
+        assert_eq!(slots[plan[1]], Some("pane"));
+        // Не хватает самородка, лишняя палка, пусто.
+        assert_eq!(matched(&[Some("pane"), Some("nugget")], syringe), None);
+        assert_eq!(matched(&[Some("pane"), Some("nugget"), Some("nugget"), Some("stick")], syringe), None);
+        assert_eq!(matched(&[None; 8], syringe), None);
+        // Чужой предмет вместо самородка.
+        assert_eq!(matched(&[Some("pane"), Some("nugget"), Some("stick")], syringe), None);
+        // Рецепт без записей ничего не собирает.
+        assert_eq!(matched(&[None; 8], &[]), None);
+    }
+
+    #[test]
+    fn overlapping_entries_still_find_their_slots() {
+        // Первая запись берёт и то и другое, вторая — только «a»: жадный
+        // выбор отдал бы «a» первой и провалил вторую.
+        let recipe: &[&[&str]] = &[&["a", "b"], &["a"]];
+        let plan = matched(&[Some("a"), Some("b")], recipe).expect("паросочетание есть");
+        assert_eq!(plan, vec![1, 0]);
+        assert_eq!(matched(&[Some("b"), Some("b")], recipe), None);
+    }
+
+    #[test]
+    fn bench_results_are_numbered_by_the_table() {
+        assert_eq!(bench_result_index("biolab:syringe"), 0);
+        assert_eq!(bench_result_index("biolab:nutrient_broth"), BENCH_RESULTS.len() as i32 - 1);
+        assert_eq!(bench_result_index("minecraft:stick"), BENCH_UNLISTED);
+        assert_eq!(machine_data_slots(LAB_BENCH), DATA_BENCH_RESULT + 1);
+        let bench = machine(LAB_BENCH).expect("стол — машина");
+        assert_eq!(machine_inputs(bench), (0..8).collect::<Vec<_>>());
+        assert_eq!(machine_outputs(bench), vec![8]);
+    }
+
+    /// Рецепты стола в `content/`: результат и записи.
+    fn bench_recipes() -> Vec<(String, String, usize)> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            if json.get("type").and_then(Json::str) != Some(LAB_BENCH) {
+                continue;
+            }
+            let name = path.file_stem().unwrap().to_string_lossy().to_string();
+            let result = json.get("result").and_then(|r| r.get("id")).and_then(Json::str).expect(&name);
+            let entries = json.get("ingredients").and_then(Json::arr).map_or(0, <[Json]>::len);
+            out.push((name, result.to_string(), entries));
+        }
+        out
+    }
+
+    #[test]
+    fn the_result_table_matches_the_bench_recipes() {
+        let recipes = bench_recipes();
+        assert!(!recipes.is_empty());
+        let mut from_content: Vec<&str> = recipes.iter().map(|(_, result, _)| result.as_str()).collect();
+        from_content.sort();
+        from_content.dedup();
+        let mut table: Vec<&str> = BENCH_RESULTS.iter().map(|r| r.0).collect();
+        table.sort();
+        let before = table.len();
+        table.dedup();
+        assert_eq!(table.len(), before, "результат в таблице дважды");
+        assert_eq!(table, from_content, "таблица стола разошлась с рецептами");
+        for (name, _, entries) in &recipes {
+            assert!((1..=8).contains(entries), "{name}: записей {entries}, а входов у стола восемь");
+        }
+        // Имя на табло — то же, что у предмета в игре.
+        let lang = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/assets/biolab/lang/ru_ru.json");
+        let lang = Json::parse(&std::fs::read_to_string(lang).unwrap()).unwrap();
+        for (id, name) in &BENCH_RESULTS {
+            let key = format!("item.biolab.{}", id.trim_start_matches("biolab:"));
+            assert_eq!(lang.get(&key).and_then(Json::str), Some(*name), "{id}");
+        }
+    }
+
+    #[test]
+    fn precise_things_left_the_crafting_table() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let kind = json.get("type").and_then(Json::str).unwrap_or("");
+            if !kind.starts_with("minecraft:crafting") {
+                continue;
+            }
+            let result = json.get("result").and_then(|r| r.get("id")).and_then(Json::str).unwrap_or("");
+            assert_eq!(bench_result_index(result), BENCH_UNLISTED, "{}: {result} собирается на верстаке", path.display());
+        }
     }
 }
 
@@ -5289,6 +5512,14 @@ pub enum RecipeView {
         count: u32,
         shapeless: bool,
     },
+    /// Лабораторный стол: ингредиенты сеткой, как без формы на верстаке,
+    /// результат и время. Страница подписывает, что это стол, а не верстак.
+    Bench {
+        cells: [Option<String>; 9],
+        result: String,
+        count: u32,
+        seconds: u32,
+    },
     /// Машина мода: вход, машина, время, результат и побочный выход
     /// центрифуги, если он есть.
     Machine {
@@ -5352,6 +5583,20 @@ pub fn recipe_view(text: &str) -> Option<RecipeView> {
                 *cell = ingredient_id(ingredient);
             }
             Some(RecipeView::Grid { cells, result, count, shapeless: true })
+        }
+        // Стол — тоже `biolab:`, но рецепт у него списком, как у верстака,
+        // а не одним входом машины. Входов восемь: девятая клетка пустует.
+        LAB_BENCH => {
+            let ingredients = j.get("ingredients")?.arr()?;
+            if ingredients.is_empty() || ingredients.len() > 8 {
+                return None;
+            }
+            let mut cells: [Option<String>; 9] = Default::default();
+            for (cell, ingredient) in cells.iter_mut().zip(ingredients) {
+                *cell = Some(ingredient_id(ingredient)?);
+            }
+            let ticks = j.get("time").and_then(Json::num).unwrap_or(DEFAULT_TIME as f64).max(1.0) as u32;
+            Some(RecipeView::Bench { cells, result, count, seconds: ticks.div_ceil(20) })
         }
         machine if machine.starts_with("biolab:") => {
             let ticks = j.get("time").and_then(Json::num).unwrap_or(200.0).max(1.0) as u32;
@@ -5629,6 +5874,17 @@ mod research_tests {
             panic!("не машина");
         };
         assert_eq!(byproduct, Some(("minecraft:sand".to_string(), 2)));
+        let bench = r#"{"type":"biolab:lab_bench","ingredients":["minecraft:iron_nugget","minecraft:glass_pane","minecraft:iron_nugget"],"result":{"id":"biolab:syringe","count":2},"time":40}"#;
+        let Some(RecipeView::Bench { cells, result, count, seconds }) = recipe_view(bench) else {
+            panic!("не стол");
+        };
+        assert_eq!(cells[1].as_deref(), Some("minecraft:glass_pane"));
+        assert_eq!(cells[3], None);
+        assert_eq!((result.as_str(), count, seconds), ("biolab:syringe", 2, 2));
+        let crowded = r#"{"type":"biolab:lab_bench","ingredients":["a","a","a","a","a","a","a","a","a"],"result":"b"}"#;
+        assert_eq!(recipe_view(crowded), None, "девять записей на восемь входов");
+        let tagged = r##"{"type":"biolab:lab_bench","ingredients":["#minecraft:planks"],"result":"b"}"##;
+        assert_eq!(recipe_view(tagged), None, "у тега нет одной иконки");
         let broken = r#"{"type":"biolab:centrifuge","ingredient":"minecraft:gravel","result":"minecraft:flint","byproduct":{"count":2}}"#;
         assert_eq!(recipe_view(broken), None, "битый побочный выход");
         assert_eq!(Json::parse(r#"{"a":"Ж\n","b":[1,-2.5e1,true,null]}"#).unwrap().get("a").and_then(Json::str), Some("Ж\n"));
@@ -5675,7 +5931,7 @@ pub const SCREEN_HEADER: f32 = 16.0;
 
 /// Название машины на экране, если сервер не прислал своё, и что она делает —
 /// для подсказки над шкалой.
-pub const SCREEN_NAMES: [(&str, &str, &str); 10] = [
+pub const SCREEN_NAMES: [(&str, &str, &str); 11] = [
     ("biolab:still", "Перегонный куб", "Перегонка"),
     ("biolab:incubator", "Инкубатор", "Рост культуры"),
     ("biolab:fermenter", "Ферментер", "Брожение"),
@@ -5686,6 +5942,7 @@ pub const SCREEN_NAMES: [(&str, &str, &str); 10] = [
     ("biolab:extractor", "Экстрактор ДНК", "Выделение ДНК"),
     ("biolab:cloning_vat", "Клонирующий чан", "Рост клона"),
     ("biolab:spectrometer", "Спектрометр", "Анализ"),
+    ("biolab:lab_bench", "Лабораторный стол", "Сборка"),
 ];
 
 /// Название машины для заголовка.
@@ -5794,6 +6051,18 @@ pub fn machine_screen(id: &str) -> Option<MachineScreen> {
                 .collect(),
             inventory: [8.0, SCREEN_INVENTORY_Y],
             gauge: [7.0, 17.0, 52.0, 54.0],
+            progress: [118.0, 17.0, 50.0, 54.0],
+        },
+        // Стол на той же сетке 3×3: слева табло с тем, что соберётся,
+        // справа лампа и шкала сборки.
+        "biolab:lab_bench" => MachineScreen {
+            width: SCREEN_WIDTH,
+            height: SCREEN_HEIGHT,
+            slots: (0..machine.slots)
+                .map(|i| Some([62.0 + (i % 3) as f32 * 18.0, 17.0 + (i / 3) as f32 * 18.0]))
+                .collect(),
+            inventory: [8.0, SCREEN_INVENTORY_Y],
+            gauge: [6.0, 17.0, 54.0, 54.0],
             progress: [118.0, 17.0, 50.0, 54.0],
         },
         // Воронка: вход 0 и четыре выхода в ряд.
@@ -6097,18 +6366,91 @@ pub fn atoms_word(n: u32) -> String {
     format!("{n} {word}")
 }
 
+/// Сколько секунд осталось до конца рецепта; None — машина не работает.
+pub fn seconds_left(data: &[i32]) -> Option<i32> {
+    let total = screen_datum(data, DATA_TOTAL, 0);
+    if total <= 0 {
+        return None;
+    }
+    let progress = screen_datum(data, DATA_PROGRESS, 0).clamp(0, total);
+    // Двадцать тиков в секунду; неполная секунда считается целой.
+    Some((total - progress + 19) / 20)
+}
+
 /// Подсказка над шкалой прогресса: что идёт и сколько осталось.
 pub fn progress_tooltip(id: &str, data: &[i32]) -> Vec<String> {
     let verb = machine_verb(id);
-    let total = screen_datum(data, DATA_TOTAL, 0);
-    if total <= 0 {
+    let Some(seconds) = seconds_left(data) else {
         return vec![format!("{verb} не идёт")];
-    }
-    let progress = screen_datum(data, DATA_PROGRESS, 0).clamp(0, total);
-    let percent = progress * 100 / total;
-    // Двадцать тиков в секунду; неполная секунда считается целой.
-    let seconds = (total - progress + 19) / 20;
+    };
+    let total = screen_datum(data, DATA_TOTAL, 0);
+    let percent = screen_datum(data, DATA_PROGRESS, 0).clamp(0, total) * 100 / total;
     vec![format!("{verb}: {percent}%, осталось {seconds} с")]
+}
+
+/// Что видно на табло стола.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BenchShown {
+    /// Входы пусты.
+    Empty,
+    /// Набор не совпал ни с одним рецептом.
+    NoRecipe,
+    /// Соберётся эта вещь: id и имя.
+    Item(&'static str, &'static str),
+    /// Рецепт совпал, но его результата нет в таблице.
+    Unlisted,
+}
+
+/// Табло стола из слота данных. До первого пакета — пусто.
+pub fn bench_shown(data: &[i32]) -> BenchShown {
+    match screen_datum(data, DATA_BENCH_RESULT, BENCH_EMPTY) {
+        BENCH_NONE => BenchShown::NoRecipe,
+        BENCH_UNLISTED => BenchShown::Unlisted,
+        i => match usize::try_from(i).ok().and_then(|i| BENCH_RESULTS.get(i)) {
+            Some(&(id, name)) => BenchShown::Item(id, name),
+            None => BenchShown::Empty,
+        },
+    }
+}
+
+/// Строка состояния стола: над табло и над шкалой.
+pub fn bench_status_text(shown: BenchShown) -> &'static str {
+    match shown {
+        BenchShown::Empty => "Пусто: выложите ингредиенты",
+        BenchShown::NoRecipe => "Нет такого рецепта",
+        BenchShown::Item(..) | BenchShown::Unlisted => "Рецепт найден",
+    }
+}
+
+/// Цвет табло стола (RGB): лампа и подпись горят им.
+pub fn bench_status_colour(shown: BenchShown) -> u32 {
+    match shown {
+        BenchShown::Empty => 0x8A_9AA0,
+        BenchShown::NoRecipe => 0xE8_5A4A,
+        BenchShown::Item(..) | BenchShown::Unlisted => 0x5A_E8B4,
+    }
+}
+
+/// Бегущая строка: длинное имя, которое не влезает в узкое табло, едет
+/// по кругу на шаг `step` символов. Хвост по ширине обрезает тот, кто
+/// рисует, — ширину знает только шрифт.
+pub fn ticker(text: &str, step: usize) -> String {
+    let looped: Vec<char> = text.chars().chain("   ".chars()).collect();
+    let shift = step % looped.len();
+    looped[shift..].iter().chain(&looped[..shift]).collect()
+}
+
+/// Подсказка над табло стола.
+pub fn bench_tooltip(data: &[i32]) -> Vec<String> {
+    let shown = bench_shown(data);
+    match shown {
+        BenchShown::Item(_, name) => vec![format!("Соберётся: {name}")],
+        BenchShown::NoRecipe => vec![
+            bench_status_text(shown).to_string(),
+            "§7Нужен ровно набор рецепта: по предмету на запись, без лишнего".to_string(),
+        ],
+        _ => vec![bench_status_text(shown).to_string()],
+    }
 }
 
 /// Подсказка над градусником: «Температура 58 °C, рецепту нужно 55–65 °C».
@@ -6195,6 +6537,9 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
             let status = screen_datum(data, DATA_SYNTH_STATUS, SYNTH_EMPTY);
             lines.push(synth_status_text(status).to_string());
         }
+        if id == LAB_BENCH {
+            lines.push(bench_status_text(bench_shown(data)).to_string());
+        }
         lines.extend(progress_tooltip(id, data));
         return lines;
     }
@@ -6206,6 +6551,7 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
     match id {
         REACTOR => reactor_tooltip(data),
         SYNTHESIZER => synth_tooltip(data),
+        LAB_BENCH => bench_tooltip(data),
         SPECTROMETER => spectrum_tooltip(screen.gauge, data, at),
         CLONING_VAT => {
             let mut lines = gene_tooltip("Ген клона", data);
@@ -6310,6 +6656,7 @@ mod screen_tests {
         let outputs: Vec<usize> = (0..6).filter(|i| is_output_slot("biolab:centrifuge", *i)).collect();
         assert_eq!(outputs, vec![1, 2, 3, 4]);
         assert!(is_output_slot(SYNTHESIZER, 8) && !is_output_slot(SYNTHESIZER, 7));
+        assert!(is_output_slot(LAB_BENCH, 8) && !is_output_slot(LAB_BENCH, 0));
         assert!(!is_output_slot("biolab:pen", 0));
     }
 
@@ -6321,6 +6668,9 @@ mod screen_tests {
         assert_eq!(synth.slots[8], Some([98.0, 53.0]));
         assert_eq!(synth.slots[0], Some([62.0, 17.0]));
         assert_eq!((synth.height, synth.inventory), (166.0, [8.0, 84.0]));
+        let bench = machine_screen(LAB_BENCH).unwrap();
+        assert_eq!(bench.slots, synth.slots, "стол на той же сетке 3×3");
+        assert_eq!((bench.height, bench.inventory), (166.0, [8.0, 84.0]));
         let centrifuge = machine_screen("biolab:centrifuge").unwrap();
         assert_eq!(centrifuge.slots[0], Some([44.0, 20.0]));
         assert_eq!(centrifuge.slots[4], Some([116.0, 20.0]));
@@ -6467,6 +6817,22 @@ mod screen_tests {
         );
         assert_eq!(screen_tooltip(SYNTHESIZER, &data, centre(synth.progress))[0], "Неустойчиво: связи не сходятся");
 
+        let bench = machine_screen(LAB_BENCH).unwrap();
+        assert_eq!(screen_tooltip(LAB_BENCH, &[], centre(bench.gauge)), vec!["Пусто: выложите ингредиенты"]);
+        let mut data = vec![0; machine_data_slots(LAB_BENCH)];
+        data[DATA_BENCH_RESULT] = BENCH_NONE;
+        assert_eq!(screen_tooltip(LAB_BENCH, &data, centre(bench.gauge))[0], "Нет такого рецепта");
+        data[DATA_BENCH_RESULT] = bench_result_index("biolab:microscope");
+        assert_eq!(screen_tooltip(LAB_BENCH, &data, centre(bench.gauge)), vec!["Соберётся: Микроскоп"]);
+        data[DATA_TOTAL] = 40;
+        data[DATA_PROGRESS] = 10;
+        assert_eq!(
+            screen_tooltip(LAB_BENCH, &data, centre(bench.progress)),
+            vec!["Рецепт найден", "Сборка: 25%, осталось 2 с"]
+        );
+        data[DATA_BENCH_RESULT] = BENCH_UNLISTED;
+        assert_eq!(screen_tooltip(LAB_BENCH, &data, centre(bench.gauge)), vec!["Рецепт найден"]);
+
         let spectro = machine_screen(SPECTROMETER).unwrap();
         let mut data = vec![0; machine_data_slots(SPECTROMETER)];
         assert_eq!(screen_tooltip(SPECTROMETER, &data, centre(spectro.gauge)), vec!["Спектр пуст: положите колбу во вход"]);
@@ -6495,6 +6861,24 @@ mod screen_tests {
         let centrifuge = machine_screen("biolab:centrifuge").unwrap();
         assert_eq!(screen_tooltip("biolab:centrifuge", &[1, 1, 5, 100], centre(centrifuge.gauge)), vec!["Барабан крутится: идёт разделение"]);
         assert_eq!(screen_tooltip("biolab:pen", &[], [50.0, 50.0]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_bench_board_reads_its_data_slot() {
+        assert_eq!(bench_shown(&[]), BenchShown::Empty);
+        let mut data = vec![0; machine_data_slots(LAB_BENCH)];
+        assert_eq!(bench_shown(&data), BenchShown::Item("biolab:syringe", "Шприц"), "номер 0 — первый результат");
+        data[DATA_BENCH_RESULT] = BENCH_EMPTY;
+        assert_eq!(bench_shown(&data), BenchShown::Empty);
+        data[DATA_BENCH_RESULT] = BENCH_RESULTS.len() as i32;
+        assert_eq!(bench_shown(&data), BenchShown::Empty, "номер за таблицей — как пусто");
+        assert_eq!(seconds_left(&[]), None);
+        assert_eq!(seconds_left(&[1, 1, 0, 40]), Some(2));
+        assert_eq!(seconds_left(&[1, 1, 39, 40]), Some(1));
+        // Бегущая строка проходит круг и возвращается к началу.
+        assert_eq!(ticker("Яд", 0), "Яд   ");
+        assert_eq!(ticker("Яд", 1), "д   Я");
+        assert_eq!(ticker("Яд", 5), "Яд   ");
     }
 
     #[test]

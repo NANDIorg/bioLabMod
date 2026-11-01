@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "minecraft:stick",
   "minecraft:string"
@@ -8,5 +7,6 @@
  "result": {
   "id": "biolab:swab",
   "count": 2
- }
+ },
+ "time": 40
 }

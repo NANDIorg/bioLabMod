@@ -300,6 +300,123 @@ fn biolab_core_machine_tick(
         }
         return;
     }
+    // Лабораторный стол собирает точную вещь, когда во входах ровно набор
+    // её рецепта: по предмету на запись, порядок любой, лишнего нет. Какой
+    // слот какой записи — решает `bench_match` в модуле мода, здесь только
+    // предметы. Экрану — что соберётся (номер в `BENCH_RESULTS`).
+    if entity.id == m::LAB_BENCH {
+        entity.data.resize(m::machine_data_slots(&entity.id), 0);
+        let filled: Vec<bool> = (0..output_slot)
+            .map(|slot| entity.items.get(slot).is_some_and(|s| s.is_some()))
+            .collect();
+        let output = entity.items.get(output_slot).and_then(|s| s.clone());
+        // Рецепты читаем из таблицы игры, как остальные машины (см. ниже).
+        let recipes: Vec<std::sync::Arc<serde_json::Value>> = game
+            .recipes()
+            .custom
+            .get(&*entity.id)
+            .map(|list| list.iter().map(|r| r.json.clone()).collect())
+            .unwrap_or_default();
+        let mut shown = if filled.contains(&true) { m::BENCH_NONE } else { m::BENCH_EMPTY };
+        // Совпавший рецепт, если выход его примет: время, результат и из
+        // какого слота берёт каждая запись.
+        let mut found: Option<(i32, horizon_client::items::ItemStack, Vec<usize>)> = None;
+        for json in recipes {
+            let Some(list) = json["ingredients"].as_array() else {
+                continue;
+            };
+            // Битая запись — не рецепт: иначе стол собирал бы без неё.
+            let ingredients: Option<Vec<horizon_client::crafting::Ingredient>> = list
+                .iter()
+                .map(|v| horizon_client::crafting::Ingredient::parse(v, game.items()))
+                .collect();
+            let Some(ingredients) = ingredients else {
+                continue;
+            };
+            let items = &entity.items;
+            let plan = m::bench_match(&filled, ingredients.len(), |entry, slot| {
+                items
+                    .get(slot)
+                    .and_then(|s| s.as_ref())
+                    .is_some_and(|stack| ingredients[entry].test(stack))
+            });
+            let Some(plan) = plan else {
+                continue;
+            };
+            let Some(result) = horizon_client::crafting::recipe_result(&json["result"]) else {
+                continue;
+            };
+            // Набор совпал — табло показывает вещь, даже если выход занят:
+            // игрок видит, что рецепт верный, и освобождает выход.
+            shown = m::bench_result_index(&result.item);
+            let max_stack = game.items().get(&result.item).map_or(64, |i| i.max_stack);
+            // Стак со своими данными с другим не сливается.
+            let plain = output
+                .as_ref()
+                .is_none_or(|held| held.extra.is_none() && result.extra.is_none());
+            let fits = plain
+                && m::output_fits(
+                    output.as_ref().map(|s| (&*s.item, s.count)),
+                    (&result.item, result.count),
+                    max_stack,
+                );
+            if fits {
+                let time = json["time"].as_i64().unwrap_or(m::DEFAULT_TIME as i64) as i32;
+                found = Some((time, result, plan));
+            }
+            break;
+        }
+        // Набор сменился — сборка начинается заново, а не доделывает по
+        // чужому прогрессу другую вещь.
+        if entity.data[m::DATA_BENCH_RESULT] != shown {
+            entity.data[m::DATA_PROGRESS] = 0;
+        }
+        entity.data[m::DATA_BENCH_RESULT] = shown;
+        let progress = entity.data[m::DATA_PROGRESS];
+        let time = found.as_ref().map(|(time, _, _)| *time);
+        match m::step(time, progress) {
+            m::Step::Idle => {
+                entity.data[m::DATA_PROGRESS] = 0;
+                entity.data[m::DATA_TOTAL] = 0;
+                entity.data[m::DATA_LIT] = 0;
+                entity.data[m::DATA_LIT_TOTAL] = 0;
+            }
+            m::Step::Working(next) => {
+                entity.data[m::DATA_PROGRESS] = next;
+                entity.data[m::DATA_TOTAL] = time.unwrap_or(m::DEFAULT_TIME);
+                entity.data[m::DATA_LIT] = 1;
+                entity.data[m::DATA_LIT_TOTAL] = 1;
+            }
+            m::Step::Finish => {
+                let Some((_, result, plan)) = found else {
+                    return;
+                };
+                // По предмету из слота каждой записи; остаток стопки — на
+                // следующую сборку.
+                for slot in plan {
+                    if let Some(place) = entity.items.get_mut(slot)
+                        && let Some(stack) = place.as_mut()
+                    {
+                        stack.count = stack.count.saturating_sub(1);
+                        if stack.count == 0 {
+                            *place = None;
+                        }
+                    }
+                }
+                if let Some(place) = entity.items.get_mut(output_slot) {
+                    match place.as_mut() {
+                        Some(held) => held.count += result.count,
+                        None => *place = Some(result),
+                    }
+                }
+                entity.data[m::DATA_PROGRESS] = 0;
+                entity.data[m::DATA_TOTAL] = 0;
+                entity.data[m::DATA_LIT] = 0;
+                entity.data[m::DATA_LIT_TOTAL] = 0;
+            }
+        }
+        return;
+    }
     // Спектрометр: разбирает колбу на состав, закрывает запись в журнале и
     // печатает чертёж. Колбу не тратит — анализ не разрушающий.
     if entity.id == m::SPECTROMETER {

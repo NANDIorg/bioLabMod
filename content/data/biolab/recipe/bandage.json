@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "minecraft:white_wool",
   "biolab:agar"
@@ -8,5 +7,6 @@
  "result": {
   "id": "biolab:bandage",
   "count": 2
- }
+ },
+ "time": 40
 }

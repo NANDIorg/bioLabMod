@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "biolab:syringe",
   "biolab:extract_venom"
@@ -8,5 +7,6 @@
  "result": {
   "id": "biolab:syringe_venom",
   "count": 1
- }
+ },
+ "time": 40
 }

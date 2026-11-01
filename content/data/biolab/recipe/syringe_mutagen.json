@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "biolab:syringe",
   "biolab:mutagen"
@@ -8,5 +7,6 @@
  "result": {
   "id": "biolab:syringe_mutagen",
   "count": 1
- }
+ },
+ "time": 40
 }

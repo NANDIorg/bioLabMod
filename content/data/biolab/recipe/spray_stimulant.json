@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "biolab:extract_caffeine",
   "minecraft:copper_ingot",
@@ -9,5 +8,6 @@
  "result": {
   "id": "biolab:spray_stimulant",
   "count": 1
- }
+ },
+ "time": 40
 }

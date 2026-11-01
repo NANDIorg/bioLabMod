@@ -1,18 +1,18 @@
 {
- "type": "minecraft:crafting_shaped",
- "category": "misc",
- "pattern": [
-  "ggg",
-  "gcg",
-  "gig"
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:glass",
+  "minecraft:glass",
+  "minecraft:glass",
+  "minecraft:compass",
+  "minecraft:iron_ingot",
+  "minecraft:glass",
+  "minecraft:glass",
+  "minecraft:glass"
  ],
- "key": {
-  "g": "minecraft:glass",
-  "c": "minecraft:compass",
-  "i": "minecraft:iron_ingot"
- },
  "result": {
   "id": "biolab:analyzer",
   "count": 1
- }
+ },
+ "time": 60
 }

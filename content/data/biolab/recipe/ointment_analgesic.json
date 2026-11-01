@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "biolab:extract_salicylate",
   "minecraft:slime_ball",
@@ -9,5 +8,6 @@
  "result": {
   "id": "biolab:ointment_analgesic",
   "count": 1
- }
+ },
+ "time": 40
 }

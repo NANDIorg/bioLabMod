@@ -307,6 +307,23 @@ fn biolab_deep_research_draw(
                                 }
                                 row += 58.0;
                             }
+                            // Стол: та же сетка, что у верстака, над результатом —
+                            // иконка стола, под сеткой — подпись и время.
+                            m::RecipeView::Bench { cells, result, count, seconds } => {
+                                if row + 66.0 > bottom + 4.0 {
+                                    break;
+                                }
+                                for (k, cell) in cells.iter().enumerate() {
+                                    let at = [left + (k % 3) as f32 * 18.0, row + (k / 3) as f32 * 18.0];
+                                    slot(game, batch, at, cell.as_deref(), 1);
+                                }
+                                game.native_item(batch, m::LAB_BENCH, [left + 73.0, row], 16.0);
+                                game.native_text(batch, "→", [left + 59.0, row + 23.0], INK, false);
+                                slot(game, batch, [left + 72.0, row + 18.0], Some(&result), count);
+                                let note = format!("на лабораторном столе, {seconds} с");
+                                game.native_text(batch, &note, [left, row + 57.0], NOTE, false);
+                                row += 70.0;
+                            }
                             m::RecipeView::Machine { input, machine, result, count, seconds, byproduct } => {
                                 if row + 18.0 > bottom + 4.0 {
                                     break;

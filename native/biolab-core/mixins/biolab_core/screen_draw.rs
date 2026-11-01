@@ -517,6 +517,66 @@ fn biolab_core_screen_draw(
                 pen.fill([p[0] + 2.0 + 2.0 * k, p[1] + p[3] - 3.0 + k, p[2] - 4.0 - 4.0 * k, 1.0], head);
             }
         }
+        // Лабораторный стол: табло с тем, что соберётся из выложенного, —
+        // иконка и имя или «Нет такого рецепта»; справа лампа, проценты,
+        // остаток времени и шкала сборки.
+        "biolab:lab_bench" => {
+            pen.glass(g);
+            let shown = m::bench_shown(data);
+            let colour = m::bench_status_colour(shown);
+            let inner = g[2] - 6.0;
+            // Табло узкое: строка, которая не влезает целиком, бежит по
+            // кругу, а не обрезается многоточием — иначе от «Пенициллин,
+            // инъекция» осталось бы «Пени…».
+            fn board(pen: &Pen<'_, '_>, line: &str, inner: f32, millis: u128) -> String {
+                if pen.width(line) <= inner {
+                    return line.to_string();
+                }
+                let mut out = m::ticker(line, (millis / 250) as usize);
+                while !out.is_empty() && pen.width(&out) > inner {
+                    out.pop();
+                }
+                out
+            }
+            let icon = [g[0] + ((g[2] - 16.0) / 2.0).floor(), g[1] + 4.0];
+            let (lines, ink): (Vec<String>, u32) = match shown {
+                m::BenchShown::Item(item, name) => {
+                    pen.item(item, icon, 16.0);
+                    (pen.wrap(name, inner), m::SCREEN_TEXT)
+                }
+                m::BenchShown::Unlisted => {
+                    pen.item(m::LAB_BENCH, icon, 16.0);
+                    (pen.wrap(m::bench_status_text(shown), inner), colour)
+                }
+                m::BenchShown::NoRecipe => {
+                    let qw = pen.width("?");
+                    pen.text("?", [g[0] + (g[2] - qw) / 2.0, icon[1] + 4.0], colour, true);
+                    (pen.wrap(m::bench_status_text(shown), inner), colour)
+                }
+                m::BenchShown::Empty => {
+                    let dw = pen.width("—");
+                    pen.text("—", [g[0] + (g[2] - dw) / 2.0, icon[1] + 4.0], m::SCREEN_TEXT_DIM, false);
+                    (vec!["пусто".to_string()], m::SCREEN_TEXT_DIM)
+                }
+            };
+            let mut row = g[1] + 24.0;
+            for line in lines.iter().take(3) {
+                let line = board(&pen, line, inner, millis);
+                let lw = pen.width(&line);
+                pen.text(&line, [g[0] + ((g[2] - lw) / 2.0).floor(), row], ink, false);
+                row += 9.0;
+            }
+
+            pen.glass(p);
+            pen.fill([p[0] + 4.0, p[1] + 5.0, 10.0, 10.0], m::SCREEN_EDGE);
+            pen.fill([p[0] + 5.0, p[1] + 6.0, 8.0, 8.0], 0xFF00_0000 | colour);
+            let percent = format!("{}%", (progress * 100.0) as i32);
+            pen.text(&percent, [p[0] + 18.0, p[1] + 6.0], m::SCREEN_TEXT, false);
+            if let Some(seconds) = m::seconds_left(data) {
+                pen.text(&format!("{seconds} с"), [p[0] + 4.0, p[1] + 22.0], m::SCREEN_TEXT_DIM, false);
+            }
+            pen.bar([p[0] + 3.0, p[1] + p[3] - 10.0, p[2] - 6.0, 7.0], progress, 0xFF00_0000 | colour);
+        }
         _ => {}
     }
 }

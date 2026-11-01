@@ -17,8 +17,22 @@
 /biolab book — новый журнал, если потеряли
 = bench
 # Лабораторный стол
-С него начинается лаборатория: колба, палочка и всё остальное.
+Верстак для точной работы: шприцы, дротики, мази и приборы собирает только он.
 @craft lab_bench
+---
+# Как на нём собирать
+Выложите в восемь входов ровно набор рецепта: каждая клетка — свой слот, без лишнего. Порядок не важен, стопки хватит на несколько раз.
+Табло слева скажет, что получится. Через пару секунд вещь ляжет в выход.
+---
+# Что на нём собирается
+@item biolab:syringe biolab:syringe_penicillin biolab:syringe_vaccine biolab:dart_sedative biolab:dart_venom
+@item biolab:spray_analgesic biolab:ointment_analgesic biolab:bandage biolab:swab biolab:scalpel
+@item biolab:analyzer biolab:microscope biolab:mutagen biolab:nutrient_broth
+Машины, колбу, грядку и вёдра по-прежнему делает обычный верстак.
+---
+# Шприц
+С него начинаются инъекции и дротики: два самородка и стекло.
+@craft syringe
 = flask
 # Колба
 Колба всегда полна: в ней вода, 250 мл. В колбу попадают вещества из синтезатора, подпись показывает формулу и объём.

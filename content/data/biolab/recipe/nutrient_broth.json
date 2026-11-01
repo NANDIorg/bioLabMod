@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "biolab:agar",
   "biolab:flask",
@@ -9,5 +8,6 @@
  "result": {
   "id": "biolab:nutrient_broth",
   "count": 2
- }
+ },
+ "time": 40
 }

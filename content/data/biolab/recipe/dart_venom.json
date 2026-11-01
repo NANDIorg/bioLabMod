@@ -1,6 +1,5 @@
 {
- "type": "minecraft:crafting_shapeless",
- "category": "misc",
+ "type": "biolab:lab_bench",
  "ingredients": [
   "biolab:syringe_venom",
   "minecraft:feather",
@@ -9,5 +8,6 @@
  "result": {
   "id": "biolab:dart_venom",
   "count": 1
- }
+ },
+ "time": 40
 }
