@@ -279,7 +279,8 @@ pub const MACHINES: [Machine; 10] = [
     Machine { id: "biolab:still", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:incubator", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:fermenter", slots: 3, menu: "minecraft:furnace" },
-    Machine { id: "biolab:centrifuge", slots: 3, menu: "minecraft:furnace" },
+    // Центрифуга разделяет: вход и четыре выхода, меню воронки.
+    Machine { id: "biolab:centrifuge", slots: 5, menu: "minecraft:hopper" },
     Machine { id: "biolab:synthesizer", slots: 9, menu: "minecraft:generic_3x3" },
     Machine { id: "biolab:reactor", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:press", slots: 3, menu: "minecraft:furnace" },
@@ -312,6 +313,41 @@ pub const DATA_LIT_TOTAL: usize = 1;
 pub const DATA_PROGRESS: usize = 2;
 pub const DATA_TOTAL: usize = 3;
 pub const DATA_SLOTS: usize = 4;
+
+// Свои числа машин для их экранов (GDD 4.16, контракт слотов данных). Идут
+// после четырёх общих; сколько всего у машины — `machine_data_slots`.
+/// Реактор: температура, цель нагрева (−1 — нет источника), диапазон рецепта.
+pub const DATA_TEMPERATURE: usize = 4;
+pub const DATA_HEAT_TARGET: usize = 5;
+pub const DATA_RANGE_MIN: usize = 6;
+pub const DATA_RANGE_MAX: usize = 7;
+/// Синтезатор: статус сборки и число атомов каждого элемента по порядку `ELEMENTS`.
+pub const DATA_SYNTH_STATUS: usize = 4;
+pub const DATA_SYNTH_ELEMENTS: usize = 5;
+/// Статусы синтезатора.
+pub const SYNTH_EMPTY: i32 = 0;
+pub const SYNTH_UNSTABLE: i32 = 1;
+pub const SYNTH_STABLE: i32 = 2;
+pub const SYNTH_NOT_BLUEPRINT: i32 = 3;
+/// Спектрометр: состав колбы во входе по порядку `ELEMENTS`.
+pub const DATA_SPECTRUM: usize = 4;
+/// Клонирующий чан и экстрактор: номер гена в `GENES` (−1 — нет) и сила.
+pub const DATA_GENE: usize = 4;
+pub const DATA_GENE_STRENGTH: usize = 5;
+/// Инкубатор: штамм культуры во входе, четыре характеристики.
+pub const DATA_STRAIN: usize = 4;
+
+/// Сколько слотов данных у машины: четыре общих и её собственные.
+pub fn machine_data_slots(id: &str) -> usize {
+    match id {
+        REACTOR => DATA_RANGE_MAX + 1,
+        SYNTHESIZER => DATA_SYNTH_ELEMENTS + ELEMENTS.len(),
+        SPECTROMETER => DATA_SPECTRUM + ELEMENTS.len(),
+        CLONING_VAT | "biolab:extractor" => DATA_GENE_STRENGTH + 1,
+        "biolab:incubator" => DATA_STRAIN + 4,
+        _ => DATA_SLOTS,
+    }
+}
 
 /// Сколько тиков машина работает, если рецепт не сказал иного.
 pub const DEFAULT_TIME: i32 = 100;
