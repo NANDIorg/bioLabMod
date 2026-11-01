@@ -88,5 +88,7 @@
  "gene.biolab.rending_claws": "Рвущие когти",
  "item.biolab.blueprint": "Чертёж",
  "block.biolab.spectrometer": "Спектрометр",
- "item.biolab.lab_manual": "Журнал лаборанта"
+ "item.biolab.lab_manual": "Журнал лаборанта",
+ "item.biolab.stretcher": "Носилки",
+ "block.biolab.operating_table": "Операционный стол"
 }

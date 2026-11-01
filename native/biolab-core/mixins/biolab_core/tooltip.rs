@@ -16,6 +16,27 @@ fn biolab_core_tooltip(
     ) {
         use crate::game::biolab_core as m;
         use horizon_world::nbt::Tag;
+        // Носилки: кто на них, здоровье, геном и срезы. Пустые — «Пусто».
+        if &*stack.item == m::STRETCHER_ID {
+            let text = stack
+                .extra
+                .as_ref()
+                .and_then(|extra| {
+                    extra
+                        .other
+                        .iter()
+                        .find(|(key, _)| key == "minecraft:custom_data")
+                        .and_then(|(_, data)| match data.get(m::PATIENT_KEY) {
+                            Some(Tag::String(s)) => Some(s.to_string_lossy()),
+                            _ => None,
+                        })
+                })
+                .unwrap_or_default();
+            for line in m::stretcher_tooltip(&text) {
+                lines.push((horizon_client::text::Text::literal(&line), 0xAA_AAAA));
+            }
+            return;
+        }
         // Фрагмент ДНК: что за ген внутри и чего он стоит.
         if &*stack.item == m::FRAGMENT_ID {
             let text = stack

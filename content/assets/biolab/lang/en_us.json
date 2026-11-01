@@ -88,5 +88,7 @@
  "gene.biolab.rending_claws": "Rending Claws",
  "item.biolab.blueprint": "Blueprint",
  "block.biolab.spectrometer": "Spectrometer",
- "item.biolab.lab_manual": "Lab Manual"
+ "item.biolab.lab_manual": "Lab Manual",
+ "item.biolab.stretcher": "Stretcher",
+ "block.biolab.operating_table": "Operating Table"
 }

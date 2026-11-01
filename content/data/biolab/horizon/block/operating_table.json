@@ -1,0 +1,8 @@
+{
+ "template": "minecraft:white_glazed_terracotta",
+ "properties": {
+  "hardness": 2.5,
+  "sounds": "minecraft:iron_block"
+ },
+ "item": true
+}

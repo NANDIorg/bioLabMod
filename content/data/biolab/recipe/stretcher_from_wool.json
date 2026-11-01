@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "s s",
+  "www",
+  "s s"
+ ],
+ "key": {
+  "s": "minecraft:stick",
+  "w": "#minecraft:wool"
+ },
+ "result": {
+  "id": "biolab:stretcher",
+  "count": 1
+ }
+}

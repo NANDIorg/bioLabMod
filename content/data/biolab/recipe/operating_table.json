@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "www",
+  "ibi",
+  "i i"
+ ],
+ "key": {
+  "w": "minecraft:white_wool",
+  "i": "minecraft:iron_ingot",
+  "b": "biolab:lab_bench"
+ },
+ "result": {
+  "id": "biolab:operating_table",
+  "count": 1
+ }
+}

@@ -14,7 +14,7 @@ pub const PREFIX: &str = "biolab:";
 /// Предметы и блоки мода для вкладки. Список собирается скриптом из файлов
 /// контента (`scratchpad/m7_tab.py`): в творческие вкладки игры предметы мода
 /// не попадают, брать их оттуда нечего.
-pub const ITEMS: [&str; 75] = [
+pub const ITEMS: [&str; 77] = [
     "biolab:centrifuge",
     "biolab:cloning_vat",
     "biolab:console",
@@ -23,6 +23,7 @@ pub const ITEMS: [&str; 75] = [
     "biolab:gm_plot",
     "biolab:incubator",
     "biolab:lab_bench",
+    "biolab:operating_table",
     "biolab:pen",
     "biolab:press",
     "biolab:reactor",
@@ -82,6 +83,7 @@ pub const ITEMS: [&str; 75] = [
     "biolab:sludge_bucket",
     "biolab:spray_analgesic",
     "biolab:spray_stimulant",
+    "biolab:stretcher",
     "biolab:swab",
     "biolab:syringe",
     "biolab:syringe_mutagen",
@@ -105,9 +107,10 @@ pub fn order(item: &str) -> (usize, String) {
     let group = match name {
         "lab_bench" => 0,
         "still" | "incubator" | "fermenter" | "centrifuge" | "synthesizer" | "reactor"
-        | "press" | "extractor" | "cloning_vat" | "spectrometer" | "pen" | "console" => 1,
+        | "press" | "extractor" | "cloning_vat" | "spectrometer" | "pen" | "console"
+        | "operating_table" => 1,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel"
-        | "bandage" | "blueprint" => 2,
+        | "bandage" | "blueprint" | "stretcher" => 2,
         _ if name.starts_with("element_") => 3,
         "culture" | "culture_weakened" | "mold" | "nutrient_broth" | "mutagen" => 4,
         _ if name.starts_with("extract_") => 4,
