@@ -11,6 +11,17 @@ fn biolab_core_use_item(
     let uuid = game.native_acting_id();
     let world = game.world_root.clone();
 
+    // Книга-гид: открывается своим разворотом поверх игры.
+    if &*stack.item == m::MANUAL_ID {
+        if m::book_open() {
+            m::close_book();
+        } else {
+            m::open_book();
+        }
+        *claimed = true;
+        return;
+    }
+
     // Бинт: перевязка останавливает кровотечение и немного лечит.
     if &*stack.item == m::BANDAGE_ID {
         game.potions

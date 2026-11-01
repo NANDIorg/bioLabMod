@@ -87,5 +87,6 @@
  "item.biolab.scalpel": "Serrated Scalpel",
  "gene.biolab.rending_claws": "Rending Claws",
  "item.biolab.blueprint": "Blueprint",
- "block.biolab.spectrometer": "Spectrometer"
+ "block.biolab.spectrometer": "Spectrometer",
+ "item.biolab.lab_manual": "Lab Manual"
 }

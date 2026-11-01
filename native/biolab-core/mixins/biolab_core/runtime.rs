@@ -990,10 +990,9 @@ pub fn journal_lines(world: &std::path::Path) -> Vec<String> {
 // мода (`data/biolab/manual/ru.txt`), страницы разделены строкой `---`, так
 // что правка текста не требует пересборки нативной части.
 
-/// Книга — ванильная `written_book`: свой предмет с тем же шаблоном клиент
-/// как книгу не открывает (проверено в игре — экран не появлялся), а имя
-/// ей всё равно даёт заголовок внутри.
-pub const MANUAL_ID: &str = "minecraft:written_book";
+/// Книга мода: свой предмет. Ванильный экран книги её не откроет — мод
+/// рисует разворот сам (`book.rs`), с иконками предметов и разделами.
+pub const MANUAL_ID: &str = "biolab:lab_manual";
 /// Где лежит текст книги внутри данных мода.
 pub const MANUAL_PATH: &str = "data/biolab/manual/ru.txt";
 pub const MANUAL_TITLE: &str = "Журнал лаборанта";
@@ -1049,6 +1048,170 @@ pub fn take_manual(world: &std::path::Path, uuid: u128) -> bool {
     }
     let _ = std::fs::write(&path, state_to_text(&saved));
     true
+}
+
+// ---- Книга-гид: свой экран ----
+//
+// Ванильная книга умеет только текст, а мод большой: нужны картинки
+// предметов и рецепты. Поэтому книга рисуется сама — поверх игры, как
+// планшет: тёмная подложка, разворот, заголовок, строки и иконки. Листается
+// клавишами, потому что курсор в игре захвачен прицелом.
+//
+// Разметка страницы — те же текстовые данные мода, но со строками-командами:
+//   `# Заголовок`      — заголовок страницы
+//   `@item <id>`       — ряд иконок предметов (через пробел)
+//   `@craft <id>`      — сетка крафта этого предмета и результат
+//   прочие строки      — обычный текст
+
+/// Что рисуется на строке страницы.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Line {
+    /// Заголовок страницы.
+    Title(String),
+    /// Обычная строка.
+    Text(String),
+    /// Ряд иконок: предметы по их id.
+    Items(Vec<String>),
+    /// Рецепт крафта предмета: сетка берётся из рецептов игры.
+    Craft(String),
+    /// Пустая строка-отбивка.
+    Gap,
+}
+
+/// Разобрать страницу в строки для отрисовки.
+pub fn page_lines(page: &str) -> Vec<Line> {
+    page.lines()
+        .map(|line| {
+            let line = line.trim_end();
+            if let Some(title) = line.strip_prefix("# ") {
+                Line::Title(title.trim().to_string())
+            } else if let Some(items) = line.strip_prefix("@item ") {
+                Line::Items(items.split_whitespace().map(|i| i.to_string()).collect())
+            } else if let Some(item) = line.strip_prefix("@craft ") {
+                Line::Craft(item.trim().to_string())
+            } else if line.is_empty() {
+                Line::Gap
+            } else {
+                Line::Text(line.to_string())
+            }
+        })
+        .collect()
+}
+
+/// Заголовок страницы для оглавления: первый `#` или первая строка.
+pub fn page_title(page: &str) -> String {
+    page_lines(page)
+        .into_iter()
+        .find_map(|line| match line {
+            Line::Title(title) => Some(title),
+            Line::Text(text) => Some(text),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Страница".to_string())
+}
+
+/// Размеры книги в пикселях интерфейса.
+pub const BOOK_WIDTH: f32 = 256.0;
+pub const BOOK_HEIGHT: f32 = 182.0;
+/// Отступ от края книги до текста.
+pub const BOOK_PAD: f32 = 12.0;
+/// Высота строки и размер иконки.
+pub const BOOK_LINE: f32 = 11.0;
+pub const BOOK_ICON: f32 = 16.0;
+/// Цвета: подложка, разворот, рамка, заголовок, текст и подпись.
+pub const BOOK_SHADE: u32 = 0xC0_0A0A10;
+pub const BOOK_PAPER: u32 = 0xFF_F2E7CF;
+pub const BOOK_EDGE: u32 = 0xFF_6E4B33;
+pub const BOOK_TITLE_INK: u32 = 0xFF_5A2D1B;
+pub const BOOK_INK: u32 = 0xFF_3A3028;
+pub const BOOK_NOTE: u32 = 0xFF_8A7A66;
+
+/// Открыта ли книга сейчас и на какой странице.
+fn book_state() -> &'static std::sync::Mutex<(bool, usize)> {
+    static STATE: std::sync::OnceLock<std::sync::Mutex<(bool, usize)>> =
+        std::sync::OnceLock::new();
+    STATE.get_or_init(|| std::sync::Mutex::new((false, 0)))
+}
+
+/// Открыть книгу на первой странице.
+pub fn open_book() {
+    if let Ok(mut state) = book_state().lock() {
+        *state = (true, 0);
+    }
+}
+
+/// Закрыть книгу.
+pub fn close_book() {
+    if let Ok(mut state) = book_state().lock() {
+        state.0 = false;
+    }
+}
+
+/// Открыта ли книга.
+pub fn book_open() -> bool {
+    book_state().lock().map(|s| s.0).unwrap_or(false)
+}
+
+/// Текущая страница.
+pub fn book_page() -> usize {
+    book_state().lock().map(|s| s.1).unwrap_or(0)
+}
+
+/// Перелистнуть на `step` страниц, не выходя за края.
+pub fn turn_page(step: i32, total: usize) {
+    if total == 0 {
+        return;
+    }
+    if let Ok(mut state) = book_state().lock() {
+        let next = state.1 as i32 + step;
+        state.1 = next.clamp(0, total as i32 - 1) as usize;
+    }
+}
+
+/// Перейти к странице по номеру (0 — первая).
+pub fn go_to_page(page: usize, total: usize) {
+    if total == 0 {
+        return;
+    }
+    if let Ok(mut state) = book_state().lock() {
+        state.1 = page.min(total - 1);
+    }
+}
+
+/// Что делает клавиша в книге: листать, прыгнуть к разделу или закрыть.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BookKey {
+    Next,
+    Previous,
+    Jump(usize),
+    Close,
+    Ignore,
+}
+
+/// Разобрать клавишу: стрелки и колёсико листают, цифры прыгают по разделам,
+/// Esc и повторное нажатие кнопки книги закрывают.
+pub fn book_key(key: &str) -> BookKey {
+    match key {
+        "key.keyboard.right" | "key.keyboard.d" | "key.keyboard.space" => BookKey::Next,
+        "key.keyboard.left" | "key.keyboard.a" => BookKey::Previous,
+        "key.keyboard.escape" | "key.keyboard.e" | "key.keyboard.q" => BookKey::Close,
+        _ => match key.strip_prefix("key.keyboard.") {
+            Some(digit) if digit.len() == 1 => match digit.parse::<usize>() {
+                Ok(n) if (1..=9).contains(&n) => BookKey::Jump(n - 1),
+                _ => BookKey::Ignore,
+            },
+            _ => BookKey::Ignore,
+        },
+    }
+}
+
+/// Подпись внизу разворота.
+pub fn book_footer(page: usize, total: usize) -> String {
+    format!(
+        "{} из {}   ←/→ листать   1–9 разделы   Esc закрыть",
+        page + 1,
+        total.max(1)
+    )
 }
 
 /// Спектрометр: опознаёт вещество в колбе и печатает чертёж.
@@ -3934,6 +4097,58 @@ mod tests {
         let state = state_from_text(&std::fs::read_to_string(state_path(&dir, uuid)).unwrap());
         assert!(state.manual, "отметка пережила запись на диск");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_page_breaks_into_drawable_lines() {
+        let page = "# Машины\n\nВсе работают как печка.\n@item biolab:still biolab:reactor\n@craft biolab:flask";
+        let lines = page_lines(page);
+        assert_eq!(lines[0], Line::Title("Машины".to_string()));
+        assert_eq!(lines[1], Line::Gap);
+        assert_eq!(lines[2], Line::Text("Все работают как печка.".to_string()));
+        assert_eq!(
+            lines[3],
+            Line::Items(vec!["biolab:still".to_string(), "biolab:reactor".to_string()])
+        );
+        assert_eq!(lines[4], Line::Craft("biolab:flask".to_string()));
+        assert_eq!(page_title(page), "Машины");
+        assert_eq!(page_title("Просто строка\nвторая"), "Просто строка");
+        assert_eq!(page_title(""), "Страница");
+    }
+
+    #[test]
+    fn the_book_opens_turns_and_closes() {
+        close_book();
+        assert!(!book_open());
+        open_book();
+        assert!(book_open());
+        assert_eq!(book_page(), 0);
+
+        turn_page(1, 3);
+        assert_eq!(book_page(), 1);
+        turn_page(5, 3);
+        assert_eq!(book_page(), 2, "дальше последней не листаем");
+        turn_page(-9, 3);
+        assert_eq!(book_page(), 0, "и раньше первой тоже");
+        turn_page(1, 0);
+        assert_eq!(book_page(), 0, "пустая книга не листается");
+
+        go_to_page(7, 3);
+        assert_eq!(book_page(), 2);
+        close_book();
+        assert!(!book_open());
+    }
+
+    #[test]
+    fn keys_do_what_they_look_like() {
+        assert_eq!(book_key("key.keyboard.right"), BookKey::Next);
+        assert_eq!(book_key("key.keyboard.left"), BookKey::Previous);
+        assert_eq!(book_key("key.keyboard.escape"), BookKey::Close);
+        assert_eq!(book_key("key.keyboard.3"), BookKey::Jump(2));
+        assert_eq!(book_key("key.keyboard.0"), BookKey::Ignore);
+        assert_eq!(book_key("key.keyboard.f3"), BookKey::Ignore);
+        assert_eq!(book_key("key.mouse.left"), BookKey::Ignore);
+        assert_eq!(book_footer(0, 17), "1 из 17   ←/→ листать   1–9 разделы   Esc закрыть");
     }
 
     #[test]
