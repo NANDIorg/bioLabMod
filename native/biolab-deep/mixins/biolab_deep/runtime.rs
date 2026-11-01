@@ -454,10 +454,17 @@ pub fn gene_of_marker(marker: &str) -> Option<(usize, i32)> {
 
 /// Наш модификатор по имени из сейва: имена модификаторов в игре —
 /// `&'static str`, поэтому строку из NBT сопоставляем с известным списком.
+/// Отметка «бросок мутации уже был»: модификатор с нулевой прибавкой, как
+/// метки генов. Пишется в сейв вместе с мобом, поэтому загруженный моб не
+/// бросает заново, а новый — бросает, как бы он ни появился (призыв с NBT
+/// тоже оставляет сырые данные, и по ним «новый» от «загруженного» не отличить).
+pub const CHECKED_MARKER: &str = "biolab:mutation_checked";
+
 pub fn our_modifier(id: &str) -> Option<&'static str> {
     STAT_MODIFIERS
         .iter()
         .chain(GENE_MARKERS.iter())
+        .chain(std::iter::once(&CHECKED_MARKER))
         .find(|known| **known == id)
         .copied()
 }
@@ -465,6 +472,12 @@ pub fn our_modifier(id: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_checked_mark_survives_a_save() {
+        assert_eq!(our_modifier(CHECKED_MARKER), Some(CHECKED_MARKER));
+        assert!(!GENE_MARKERS.contains(&CHECKED_MARKER), "отметка — не ген");
+    }
 
     const ALL_TEMPERS: [Temperament; 3] =
         [Temperament::Hostile, Temperament::Neutral, Temperament::Passive];

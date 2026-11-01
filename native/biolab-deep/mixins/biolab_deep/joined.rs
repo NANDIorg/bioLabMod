@@ -74,21 +74,20 @@ fn biolab_deep_mobs_joined(game: &mut crate::game::Game<'_>, from: usize) {
             continue;
         }
 
-        // 2. Моб с диска без наших меток — обычный, и таким остаётся. Бросать
-        // ему заново нельзя: id сессионный, и каждый перезаход давал бы стаду
-        // у дома новый шанс, пока мутантами не стали бы все.
-        if game.persist.raw.contains_key(&id) {
-            continue;
-        }
-        // 3. Новый моб любого вида. Уже помеченного (клон из чана, укол
-        // вектором) не трогаем — геном ему задали нарочно.
+        // 2. Моб любого вида. Уже помеченного (клон из чана, укол вектором)
+        // не трогаем — геном ему задали нарочно. Бросок делается один раз за
+        // жизнь моба: отметка `CHECKED_MARKER` уходит в сейв, и перезаход не
+        // даёт стаду у дома новый шанс. Сырые данные моба (`persist.raw`) для
+        // этого не годятся: они есть и у призванного с NBT.
         let m = &mut game.mobs[index];
         if d::GENE_MARKERS
             .iter()
+            .chain(std::iter::once(&d::CHECKED_MARKER))
             .any(|marker| has_modifier(m, Attr::FollowRange, marker))
         {
             continue;
         }
+        add_modifier(m, Attr::FollowRange, d::CHECKED_MARKER, 0.0, Op::AddValue);
         // Вид так, как его называют хук-поинты (`minecraft:zombie`).
         let kind = ["minecraft:", m.kind.id.trim_start_matches("minecraft:")].concat();
         let genome = d::roll_for(&kind, m.id.wrapping_mul(2_654_435_761));
