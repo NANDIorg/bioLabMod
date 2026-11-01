@@ -1,0 +1,1064 @@
+#!/usr/bin/env python3
+"""3D-модели машин BioLab (GDD 4.15, «Силуэты»): текстуры, модели, blockstates.
+
+Запуск из корня репозитория:
+    python3 tools/mkblock_machines.py
+    python3 tools/check_models.py
+
+Пишет (перезаписывает) в content/assets/biolab/:
+- textures/block/machine_*.png — общие материалы (сталь, медь, стекло, растворы,
+  решётка, экран), <машина>_{side,top,front,accent,lamp,lamp_on}.png — свои;
+- models/block/<машина>.json и <машина>_on.json (горящая, `lit=true`);
+- blockstates/<машина>.json — `facing` поворачивает модель, `lit` выбирает _on.
+
+Правила геометрии (блоки по шаблону печки — для игры сплошной куб, соседи не
+рисуют прилегающие грани, поэтому дыры в модели показали бы пустоту):
+- у каждой машины полное основание 16×16 и стенки/плита сзади; детали внутри
+  0…16 по X и Z, выше 16 по Y — не больше чем на 4 пикселя;
+- перед модели — север (z = 0), как у ванильной печки; из текстуры фронта грань
+  берёт область u = 16 − x, v = 16 − y (так же считает ваниль без `uv`);
+- `cullface` только у граней на границе блока: всегда у низа и у граней,
+  закрывающих всю сторону 16×16. Частичные грани на границе рисуются всегда —
+  иначе сквозь соседнюю машину был бы виден провал;
+- светящиеся части (`glow`) в модели _on получают `light_emission` и яркую
+  текстуру `<машина>_lamp_on`; элементы `lit_only` есть только в _on.
+"""
+import json
+import math
+import os
+import random
+import struct
+import zlib
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSETS = os.path.join(ROOT, "content", "assets", "biolab")
+TEX = os.path.join(ASSETS, "textures", "block")
+MODELS = os.path.join(ASSETS, "models", "block")
+STATES = os.path.join(ASSETS, "blockstates")
+
+# ---------------------------------------------------------------- палитра
+
+EDGE = (22, 27, 31)
+STEEL = (128, 140, 148)
+STEEL_LIGHT = (176, 188, 196)
+STEEL_DARK = (78, 88, 96)
+FRAME = (62, 70, 78)
+TEAL = (63, 216, 196)
+TEAL_DIM = (30, 120, 110)
+COPPER = (192, 108, 64)
+COPPER_LIGHT = (232, 152, 100)
+COPPER_DARK = (122, 64, 40)
+HAZARD = (230, 190, 60)
+
+# Цвет-акцент машины (тот же, что был на крышке куба) и цвет её лампы.
+ACCENT = {
+    "still": ((196, 112, 66), (255, 150, 50)),
+    "incubator": ((210, 170, 90), (255, 200, 110)),
+    "fermenter": ((110, 190, 120), (150, 255, 140)),
+    "centrifuge": ((80, 140, 214), (120, 200, 255)),
+    "synthesizer": ((140, 192, 226), (150, 255, 240)),
+    "reactor": ((206, 96, 60), (255, 120, 40)),
+    "press": ((220, 200, 110), (255, 230, 120)),
+    "extractor": ((100, 186, 230), (140, 230, 255)),
+    "cloning_vat": ((180, 140, 224), (220, 170, 255)),
+    "spectrometer": ((200, 210, 228), (255, 255, 255)),
+    "pen": ((230, 190, 60), (255, 220, 120)),
+    "console": ((120, 210, 160), (120, 255, 170)),
+}
+FLUIDS = {
+    "green": (96, 190, 70),
+    "violet": (150, 90, 210),
+    "cyan": (70, 200, 220),
+    "amber": (220, 150, 40),
+    "red": (200, 50, 50),
+}
+
+
+# ---------------------------------------------------------------- PNG
+
+def stable(s):
+    """Устойчивое зерно шума: hash() строк в Python меняется от запуска к запуску."""
+    return zlib.crc32(s.encode())
+
+
+def clamp(v):
+    return max(0, min(255, int(round(v))))
+
+
+def shade(c, d):
+    return tuple(clamp(v + d) for v in c[:3])
+
+
+def mix(a, b, t):
+    return tuple(clamp(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
+def write_png(name, img):
+    h, w = len(img), len(img[0])
+    raw = b"".join(b"\x00" + b"".join(bytes(p) for p in row) for row in img)
+
+    def chunk(tag, data):
+        c = struct.pack(">I", len(data)) + tag + data
+        return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    data = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    with open(os.path.join(TEX, name + ".png"), "wb") as f:
+        f.write(data)
+
+
+# ---------------------------------------------------------------- кисти
+
+def canvas(c, a=255):
+    return [[(c[0], c[1], c[2], a) for _ in range(16)] for _ in range(16)]
+
+
+def put(img, x, y, c, a=255):
+    if 0 <= x < 16 and 0 <= y < 16:
+        img[y][x] = (c[0], c[1], c[2], a)
+
+
+def rect(img, x0, y0, x1, y1, c, a=255):
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            put(img, x, y, c, a)
+
+
+def grain(img, amp, seed, x0=0, y0=0, x1=16, y1=16):
+    """Шум ±amp поверх того, что уже нарисовано (сохраняет прозрачность)."""
+    rng = random.Random(seed)
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            r, g, b, a = img[y][x]
+            d = rng.randint(-amp, amp)
+            img[y][x] = (clamp(r + d), clamp(g + d), clamp(b + d), a)
+
+
+def bevel(img, x0, y0, x1, y1, light=24, dark=-34):
+    """Фаска: верх и левый край светлее, низ и правый темнее."""
+    for x in range(x0, x1):
+        img[y0][x] = shade(img[y0][x], light) + (img[y0][x][3],)
+        img[y1 - 1][x] = shade(img[y1 - 1][x], dark) + (img[y1 - 1][x][3],)
+    for y in range(y0, y1):
+        img[y][x0] = shade(img[y][x0], light // 2) + (img[y][x0][3],)
+        img[y][x1 - 1] = shade(img[y][x1 - 1], dark) + (img[y][x1 - 1][3],)
+
+
+def outline(img, x0, y0, x1, y1, c):
+    for x in range(x0, x1):
+        put(img, x, y0, c)
+        put(img, x, y1 - 1, c)
+    for y in range(y0, y1):
+        put(img, x0, y, c)
+        put(img, x1 - 1, y, c)
+
+
+def rivet(img, x, y):
+    put(img, x, y, STEEL_LIGHT)
+    put(img, x + 1, y + 1, STEEL_DARK)
+
+
+def plate(c, seed, amp=4, rivets=True):
+    img = canvas(c)
+    grain(img, amp, seed)
+    bevel(img, 0, 0, 16, 16)
+    if rivets:
+        for x, y in ((2, 2), (12, 2), (2, 12), (12, 12)):
+            rivet(img, x, y)
+    return img
+
+
+def dial(img, cx, cy, face=(226, 230, 220), needle=(200, 40, 40), angle=-40):
+    """Круглая шкала 4×4 с ободом и стрелкой; (cx, cy) — левый верхний угол."""
+    for dy in range(4):
+        for dx in range(4):
+            corner = dx in (0, 3) and dy in (0, 3)
+            put(img, cx + dx, cy + dy, EDGE if corner else face)
+    outline(img, cx - 1, cy - 1, cx + 5, cy + 5, STEEL_DARK)
+    for x, y in ((cx - 1, cy - 1), (cx + 4, cy - 1), (cx - 1, cy + 4), (cx + 4, cy + 4)):
+        put(img, x, y, FRAME)
+    a = math.radians(angle)
+    put(img, cx + 1, cy + 2, needle)
+    put(img, cx + 1 + round(math.cos(a)), cy + 2 + round(math.sin(a)), needle)
+
+
+def led(img, x, y, c):
+    put(img, x, y, c)
+    put(img, x + 1, y, shade(c, -50))
+
+
+def vents(img, x0, y0, x1, y1):
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            put(img, x, y, EDGE if (y - y0) % 2 == 0 else shade(STEEL_DARK, -8))
+
+
+def hazard(img, x0, y0, x1, y1):
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            put(img, x, y, HAZARD if (x + y) % 4 < 2 else EDGE)
+
+
+def label(img, x0, y0, x1, y1, acc):
+    """Табличка цвета машины с бирюзовой меткой BioLab слева."""
+    rect(img, x0, y0, x1, y1, acc)
+    grain(img, 3, x0 * 31 + y0, x0, y0, x1, y1)
+    bevel(img, x0, y0, x1, y1, 30, -40)
+    put(img, x0 + 1, y0 + (y1 - y0) // 2, TEAL)
+    for x in range(x0 + 3, x1 - 2):
+        if x % 2:
+            put(img, x, y0 + (y1 - y0) // 2, shade(acc, -70))
+
+
+# ---------------------------------------------------------------- общие материалы
+
+def shared_textures():
+    write_png("machine_steel", plate(STEEL, 1))
+    write_png("machine_frame", plate(FRAME, 2, amp=3, rivets=False))
+
+    img = canvas(COPPER)
+    grain(img, 5, 3)
+    for y in range(16):
+        if y % 4 == 0:
+            rect(img, 0, y, 16, y + 1, COPPER_LIGHT)
+        elif y % 4 == 3:
+            rect(img, 0, y, 16, y + 1, COPPER_DARK)
+    for y in range(16):  # блик вдоль трубы
+        put(img, 5, y, mix(img[y][5][:3], COPPER_LIGHT, 0.6))
+    write_png("machine_copper", img)
+
+    # Стекло: полупрозрачное, край плотнее, два косых блика.
+    img = canvas((200, 236, 240), 40)
+    for y in range(16):
+        for x in range(16):
+            if x in (0, 15) or y in (0, 15):
+                put(img, x, y, (214, 240, 244), 140)
+            elif x + y in (9, 21):
+                put(img, x, y, (255, 255, 255), 110)
+    write_png("machine_glass", img)
+
+    for name, c in FLUIDS.items():
+        if name == "violet":
+            continue  # раствор чана рисует paint_cloning_vat (с зародышем)
+        img = canvas(c)
+        for y in range(16):
+            rect(img, 0, y, 16, y + 1, shade(c, 14 - y * 2))
+        grain(img, 6, stable(name) & 0xFFFF)
+        rng = random.Random(len(name) * 7)
+        for _ in range(7):  # пузырьки
+            x, y = rng.randrange(1, 15), rng.randrange(1, 15)
+            put(img, x, y, mix(c, (255, 255, 255), 0.55))
+        write_png("machine_fluid_" + name, img)
+
+    img = canvas(STEEL_DARK)
+    vents(img, 0, 0, 16, 16)
+    bevel(img, 0, 0, 16, 16)
+    write_png("machine_vent", img)
+
+    # Решётка вольера: прутья через 4 пикселя, поперечины сверху, снизу, по центру.
+    img = canvas((0, 0, 0), 0)
+    for y in range(16):
+        for x in range(16):
+            if x % 4 in (1, 2) or y in (0, 15, 7, 8):
+                light = x % 4 == 1 or y in (0, 7)
+                put(img, x, y, STEEL_LIGHT if light else STEEL_DARK)
+    write_png("machine_bars", img)
+
+    # Экран: выключен — тёмный с развёрткой, включён — бирюзовая волна и строки.
+    off = canvas((16, 30, 30))
+    for y in range(0, 16, 2):
+        rect(off, 0, y, 16, y + 1, (20, 38, 38))
+    put(off, 2, 2, (60, 90, 90))
+    write_png("machine_screen", off)
+    on = canvas((12, 40, 38))
+    for y in range(0, 16, 2):
+        rect(on, 0, y, 16, y + 1, (16, 52, 48))
+    for x in range(16):
+        y = 6 + round(2.5 * math.sin(x * 0.8))
+        put(on, x, y, TEAL)
+        put(on, x, y + 1, TEAL_DIM)
+    for y, n in ((11, 9), (13, 6)):
+        for x in range(2, 2 + n):
+            put(on, x, y, (140, 255, 220) if x % 3 else TEAL_DIM)
+    put(on, 13, 2, (255, 220, 120))
+    write_png("machine_screen_on", on)
+
+    # Пробирки экстрактора (и стола): столбцы по 2 пикселя, снизу раствор, сверху стекло.
+    img = canvas((0, 0, 0), 0)
+    for i, c in enumerate([FLUIDS[k] for k in ("red", "green", "violet", "amber", "cyan")]):
+        for y in range(16):
+            for dx in range(2):
+                x = i * 2 + dx
+                if y >= 11:
+                    put(img, x, y, shade(c, 25 if dx == 0 else -10))
+                elif y == 10:
+                    put(img, x, y, mix(c, (255, 255, 255), 0.4))
+                else:
+                    put(img, x, y, (220, 244, 248), 110 if dx else 170)
+    write_png("machine_tubes", img)
+
+
+# ---------------------------------------------------------------- свои текстуры
+
+def side_tex(m, acc):
+    img = plate(STEEL, stable(m) & 0xFFF)
+    rect(img, 1, 5, 15, 7, acc)
+    rect(img, 1, 7, 15, 8, shade(acc, -70))
+    vents(img, 4, 10, 12, 14)
+    return img
+
+
+def top_tex(m, acc):
+    img = plate(STEEL_DARK, (stable(m) >> 3) & 0xFFF, amp=3)
+    for x, y in ((0, 0), (14, 0), (0, 14), (14, 14)):
+        rect(img, x, y, x + 2, y + 2, acc)
+    return img
+
+
+def accent_tex(m, acc):
+    img = canvas(acc)
+    grain(img, 5, (stable(m) >> 5) & 0xFFF)
+    for y in (0, 15):
+        rect(img, 0, y, 16, y + 1, shade(acc, -55))
+    for x in range(1, 16, 4):
+        put(img, x, 1, shade(acc, 45))
+        put(img, x, 14, shade(acc, -80))
+    for y in range(1, 15):  # блик цилиндра
+        put(img, 4, y, shade(img[y][4], 34))
+        put(img, 5, y, shade(img[y][5], 18))
+    return img
+
+
+def lamp_tex(c, on):
+    if on:
+        img = canvas(c)
+        rect(img, 4, 4, 12, 12, mix(c, (255, 255, 255), 0.45))
+        rect(img, 6, 6, 10, 10, (255, 255, 255))
+        grain(img, 4, 7)
+        outline(img, 0, 0, 16, 16, mix(c, (0, 0, 0), 0.2))
+    else:
+        dim = mix(c, (20, 24, 28), 0.72)
+        img = canvas(dim)
+        grain(img, 3, 8)
+        outline(img, 0, 0, 16, 16, shade(dim, -20))
+        for i in range(2, 6):
+            put(img, i, 2, mix(dim, (255, 255, 255), 0.35))
+    return img
+
+
+def machine_textures(m, paint, keep):
+    """Рисует свои текстуры машины и пишет только те, на которые ссылается модель."""
+    acc, lamp = ACCENT[m]
+    tex = {
+        "side": side_tex(m, acc),
+        "top": top_tex(m, acc),
+        "front": plate(STEEL, (stable(m) >> 7) & 0xFFF),
+        "accent": accent_tex(m, acc),
+        "lamp": lamp_tex(lamp, False),
+        "lamp_on": lamp_tex(lamp, True),
+    }
+    paint(tex, acc, lamp)
+    for k, img in tex.items():
+        if k in keep:
+            write_png(f"{m}_{k}", img)
+
+
+# Росписи: координаты в текстуре. Грань элемента [x1..x2, y1..y2] спереди
+# берёт u = 16 − x2…16 − x1, v = 16 − y2…16 − y1.
+
+def paint_still(t, acc, lamp):
+    f = t["front"]  # основание: v 11..16, топка u 5..11 закрыта люком
+    rect(f, 0, 11, 16, 16, FRAME)
+    grain(f, 3, 11, 0, 11, 16, 16)
+    rect(f, 0, 11, 16, 12, TEAL_DIM)
+    rivet(f, 1, 13)
+    rivet(f, 13, 13)
+    s = t["side"]  # задняя плита: медная окантовка, термометр
+    rect(s, 0, 0, 16, 2, COPPER)
+    rect(s, 0, 1, 16, 2, COPPER_DARK)
+    rect(s, 2, 3, 3, 10, (226, 230, 220))
+    rect(s, 2, 6, 3, 10, (200, 40, 40))
+    # Люк топки: решётка поверх углей.
+    for name, glow in (("lamp", False), ("lamp_on", True)):
+        img = canvas((255, 170, 60) if glow else (70, 30, 20))
+        grain(img, 6 if glow else 3, 9)
+        for x in range(16):
+            for y in range(16):
+                if x % 3 == 0 or y in (0, 15):
+                    put(img, x, y, (40, 36, 34))
+        t[name] = img
+    t["accent"] = accent_tex("still", COPPER)
+
+
+def paint_incubator(t, acc, lamp):
+    f = t["front"]
+    rect(f, 2, 13, 14, 16, STEEL_DARK)  # пульт под дверцей
+    rect(f, 3, 14, 7, 15, (40, 24, 12))  # табло температуры
+    for x in (3, 5):
+        put(f, x, 14, (255, 190, 90))
+    led(f, 8, 14, TEAL)
+    led(f, 11, 14, lamp)
+    label(f, 3, 0, 13, 3, acc)  # табличка над дверцей
+    for y in (4, 11):  # петли справа (x 0..2 — правая стенка, u 14..16)
+        rect(f, 14, y, 15, y + 2, STEEL_DARK)
+
+
+def paint_fermenter(t, acc, lamp):
+    f = t["front"]
+    rect(f, 0, 13, 16, 16, FRAME)
+    rect(f, 0, 13, 16, 14, TEAL_DIM)
+    label(f, 5, 14, 11, 16, acc)
+    s = t["side"]  # бак: обручи цвета машины
+    s2 = plate(STEEL, 41, rivets=False)
+    for y in (3, 4, 11, 12):
+        rect(s2, 0, y, 16, y + 1, acc if y in (3, 11) else shade(acc, -60))
+    for x in range(1, 16, 3):
+        put(s2, x, 8, STEEL_LIGHT)
+    t["side"] = s2
+    tp = t["top"]  # круглый люк по центру, u/v 5..11
+    rect(tp, 5, 5, 11, 11, STEEL)
+    outline(tp, 5, 5, 11, 11, EDGE)
+    for x, y in ((5, 5), (10, 5), (5, 10), (10, 10)):
+        put(tp, x, y, STEEL_DARK)
+    for name, glow in (("lamp", False), ("lamp_on", True)):
+        c = FLUIDS["green"]
+        img = canvas(shade(c, 40) if glow else mix(c, (10, 20, 10), 0.55))
+        grain(img, 5, 4)
+        rng = random.Random(5)
+        for _ in range(10):
+            put(img, rng.randrange(16), rng.randrange(16), (230, 255, 220) if glow else shade(c, -10))
+        outline(img, 0, 0, 16, 16, STEEL_DARK)
+        t[name] = img
+
+
+def paint_centrifuge(t, acc, lamp):
+    f = t["front"]  # корпус: v 8..16
+    rect(f, 0, 8, 16, 9, acc)
+    dial(f, 3, 10, angle=-120)
+    vents(f, 9, 11, 14, 15)
+    led(f, 3, 15, TEAL)
+    tp = t["top"]  # крышка барабана с лучами (центр 8,8)
+    for y in range(3, 13):
+        for x in range(3, 13):
+            dx, dy = x - 7.5, y - 7.5
+            spoke = abs(dx) < 0.6 or abs(dy) < 0.6 or abs(abs(dx) - abs(dy)) < 0.6
+            put(tp, x, y, STEEL_LIGHT if spoke else STEEL)
+    outline(tp, 3, 3, 13, 13, EDGE)
+
+
+def paint_synthesizer(t, acc, lamp):
+    f = t["front"]
+    rect(f, 0, 13, 16, 16, STEEL_DARK)  # основание: v 13..16
+    rect(f, 0, 13, 16, 14, TEAL_DIM)
+    for x in (3, 6, 9):
+        led(f, x, 14, TEAL if x == 3 else acc)
+    rect(f, 12, 14, 14, 15, (230, 80, 60))
+    label(f, 4, 1, 12, 3, acc)  # крышка камеры: v 1..3
+    for u in (0, 14):  # стойки камеры: v 3..13
+        rect(f, u, 3, u + 2, 13, FRAME)
+        put(f, u + 1 if u == 0 else u, 4, TEAL)
+    s = t["side"]
+    rect(s, 3, 6, 13, 11, (40, 60, 66))  # иллюминатор сбоку
+    outline(s, 3, 6, 13, 11, EDGE)
+    put(s, 4, 7, (120, 170, 180))
+
+
+def paint_reactor(t, acc, lamp):
+    f = t["front"]
+    rect(f, 0, 13, 16, 16, FRAME)
+    rect(f, 0, 13, 16, 14, (150, 60, 30))
+    # Манометр: грань элемента [6..10, 7..11] → u 6..10, v 5..9.
+    rect(f, 6, 5, 10, 9, (230, 230, 220))
+    for x, y in ((6, 5), (9, 5), (6, 8), (9, 8)):
+        put(f, x, y, STEEL_DARK)
+    put(f, 7, 7, (200, 30, 30))
+    put(f, 8, 6, (200, 30, 30))
+    put(f, 7, 6, EDGE)
+    put(f, 8, 8, (60, 160, 60))
+    for name, glow in (("lamp", False), ("lamp_on", True)):
+        img = canvas((255, 110, 30) if glow else (60, 26, 18))
+        grain(img, 6 if glow else 3, 12)
+        for y in range(16):
+            for x in range(16):
+                if y % 3 == 0:
+                    put(img, x, y, (255, 220, 120) if glow else (34, 30, 28))
+        t[name] = img
+
+
+def paint_press(t, acc, lamp):
+    f = t["front"]
+    hazard(f, 0, 12, 16, 16)  # основание
+    label(f, 3, 0, 13, 3, acc)  # траверса: v 0..3
+    for u in (0, 14):  # щёки: v 0..12
+        rect(f, u, 0, u + 2, 12, FRAME)
+    a = t["accent"]  # плита: жёлто-чёрная кромка спереди (v 6..8)
+    hazard(a, 0, 6, 16, 8)
+
+
+def paint_extractor(t, acc, lamp):
+    f = t["front"]
+    rect(f, 0, 13, 16, 16, FRAME)
+    rect(f, 0, 13, 16, 14, TEAL_DIM)
+    led(f, 2, 14, TEAL)
+    label(f, 6, 14, 14, 16, acc)
+    a = t["accent"]  # колонна: тёмные кольца
+    for y in (3, 8, 13):
+        rect(a, 0, y, 16, y + 1, shade(acc, -80))
+
+
+def paint_cloning_vat(t, acc, lamp):
+    f = t["front"]
+    rect(f, 0, 13, 16, 16, STEEL_DARK)
+    for x in (2, 5):
+        led(f, x, 14, TEAL)
+    label(f, 8, 13, 14, 16, acc)
+    label(f, 1, 0, 15, 3, acc)  # крышка: v 0..3
+    # Раствор с зародышем: силуэт по центру грани (u/v 6..10).
+    for name, glow in (("lamp", False), ("lamp_on", True)):
+        c = mix(FLUIDS["violet"], acc, 0.4)
+        c = shade(c, 30) if glow else mix(c, (20, 10, 30), 0.45)
+        img = canvas(c)
+        for y in range(16):
+            rect(img, 0, y, 16, y + 1, shade(c, 10 - y))
+        grain(img, 5, 21)
+        body = shade(c, -70)
+        rect(img, 7, 6, 10, 9, body)   # голова
+        rect(img, 6, 9, 10, 13, body)  # тело
+        put(img, 5, 10, body)
+        put(img, 10, 10, body)
+        rng = random.Random(3)
+        for _ in range(8):
+            put(img, rng.randrange(16), rng.randrange(16), mix(c, (255, 255, 255), 0.5))
+        t[name] = img
+
+
+def paint_spectrometer(t, acc, lamp):
+    f = t["front"]
+    # Шкала у задней стенки: грань [0..16, 6..14] → v 2..10.
+    rect(f, 0, 2, 16, 10, (30, 32, 40))
+    rainbow = [(200, 40, 40), (230, 120, 40), (230, 210, 60), (80, 190, 80),
+               (60, 160, 220), (70, 80, 200), (150, 70, 200)]
+    for x in range(1, 15):
+        c = rainbow[min(6, (x - 1) * 7 // 14)]
+        rect(f, x, 5, x + 1, 8, c)
+        if x % 3 == 1:
+            put(f, x, 4, STEEL_LIGHT)
+    rect(f, 0, 2, 16, 3, STEEL_DARK)
+    rect(f, 0, 9, 16, 10, STEEL_DARK)
+    # Основание: v 10..16 — ручки и щель.
+    rect(f, 0, 10, 16, 16, STEEL)
+    grain(f, 3, 5, 0, 10, 16, 16)
+    rect(f, 0, 10, 16, 11, TEAL_DIM)
+    rect(f, 5, 12, 11, 14, EDGE)
+    rect(f, 6, 13, 10, 14, (80, 190, 80))
+    for x in (2, 13):
+        rect(f, x, 12, x + 2, 14, STEEL_DARK)
+        put(f, x, 12, STEEL_LIGHT)
+    # Призма: стекло с радугой по краю.
+    img = canvas((220, 236, 255), 110)
+    for y in range(16):
+        put(img, 0, y, (255, 255, 255), 200)
+        put(img, 15, y, rainbow[y * 7 // 16], 210)
+        put(img, 14, y, rainbow[y * 7 // 16], 120)
+    t["accent"] = img
+
+
+def paint_pen(t, acc, lamp):
+    f = t["front"]
+    hazard(f, 0, 0, 16, 2)  # крыша спереди
+    t["side"] = plate(STEEL_DARK, 77)  # задняя стенка с кормушкой
+    s = t["side"]
+    rect(s, 2, 10, 14, 12, FRAME)
+    label(s, 5, 3, 11, 5, acc)
+    tp = t["top"]  # пол вольера — солома
+    straw = canvas((190, 160, 80))
+    grain(straw, 12, 31)
+    rng = random.Random(9)
+    for _ in range(26):
+        x, y = rng.randrange(15), rng.randrange(16)
+        put(straw, x, y, (226, 200, 110))
+        put(straw, x + 1, y, (150, 120, 60))
+    t["floor"] = straw
+    hazard(tp, 0, 0, 16, 1)
+
+
+def paint_console(t, acc, lamp):
+    f = t["front"]
+    # Корпус монитора: грань [0..16, 8..16] → v 0..8; рамка вокруг экрана.
+    rect(f, 0, 0, 16, 8, FRAME)
+    grain(f, 3, 6, 0, 0, 16, 8)
+    rect(f, 1, 0, 15, 1, acc)
+    # Тумба: v 7..16 — ящики.
+    rect(f, 0, 8, 16, 16, STEEL)
+    grain(f, 3, 7, 0, 8, 16, 16)
+    for y0 in (9, 13):
+        outline(f, 2, y0, 14, y0 + 3, STEEL_DARK)
+        rect(f, 6, y0 + 1, 10, y0 + 2, STEEL_LIGHT)
+    tp = t["top"]  # наклонная панель: кнопки и клавиши
+    rect(tp, 1, 2, 15, 10, (52, 60, 66))
+    for x in range(2, 14, 2):
+        put(tp, x, 7, STEEL_LIGHT)
+        put(tp, x, 8, STEEL_LIGHT)
+    for x in (3, 7, 11):
+        put(tp, x, 4, acc)
+
+
+def lab_bench_textures():
+    acc = (124, 230, 110)
+    s = plate(STEEL, 90)  # тумба: ящик и дверца
+    rect(s, 1, 5, 15, 16, STEEL)
+    grain(s, 3, 91, 1, 5, 15, 16)
+    outline(s, 2, 6, 14, 9, STEEL_DARK)
+    rect(s, 6, 7, 10, 8, STEEL_LIGHT)
+    outline(s, 2, 10, 8, 16, STEEL_DARK)
+    outline(s, 8, 10, 14, 16, STEEL_DARK)
+    put(s, 6, 13, STEEL_LIGHT)
+    put(s, 9, 13, STEEL_LIGHT)
+    rect(s, 1, 5, 15, 6, TEAL_DIM)
+    write_png("lab_bench", s)
+    tp = canvas((44, 50, 56))  # столешница: тёмный пластик с бирюзовой кромкой
+    grain(tp, 3, 92)
+    outline(tp, 0, 0, 16, 16, TEAL_DIM)
+    for x, y in ((4, 9), (5, 9), (11, 4)):
+        put(tp, x, y, shade(acc, -90))
+    write_png("lab_bench_top", tp)
+
+
+PAINTERS = {
+    "still": paint_still,
+    "incubator": paint_incubator,
+    "fermenter": paint_fermenter,
+    "centrifuge": paint_centrifuge,
+    "synthesizer": paint_synthesizer,
+    "reactor": paint_reactor,
+    "press": paint_press,
+    "extractor": paint_extractor,
+    "cloning_vat": paint_cloning_vat,
+    "spectrometer": paint_spectrometer,
+    "pen": paint_pen,
+    "console": paint_console,
+}
+
+
+# ---------------------------------------------------------------- модели
+
+FACES = ("down", "up", "north", "south", "west", "east")
+
+
+def auto_uv(face, f, t):
+    """UV, как ваниль считает без явного `uv`, со сдвигом в 0..16 для частей выше 16."""
+    x1, y1, z1 = f
+    x2, y2, z2 = t
+    uv = {
+        "down": [x1, 16 - z2, x2, 16 - z1],
+        "up": [x1, z1, x2, z2],
+        "north": [16 - x2, 16 - y2, 16 - x1, 16 - y1],
+        "south": [x1, 16 - y2, x2, 16 - y1],
+        "west": [z1, 16 - y2, z2, 16 - y1],
+        "east": [16 - z2, 16 - y2, 16 - z1, 16 - y1],
+    }[face]
+    for a, b in ((0, 2), (1, 3)):
+        if uv[a] < 0:
+            uv[a], uv[b] = 0, uv[b] - uv[a]
+        if uv[b] > 16:
+            uv[a], uv[b] = uv[a] - (uv[b] - 16), 16
+    return [round(v, 4) for v in uv]
+
+
+def on_boundary(face, f, t):
+    return {"down": f[1] == 0, "up": t[1] == 16, "north": f[2] == 0,
+            "south": t[2] == 16, "west": f[0] == 0, "east": t[0] == 16}[face]
+
+
+def full_side(face, f, t):
+    span = {"down": (0, 2), "up": (0, 2), "north": (0, 1), "south": (0, 1),
+            "west": (2, 1), "east": (2, 1)}[face]
+    return all(f[i] == 0 and t[i] == 16 for i in span)
+
+
+def num(v):
+    return int(v) if float(v).is_integer() else v
+
+
+def E(f, t, tex, faces=FACES, glow=False, lit_only=False, rot=None, uv=None, **over):
+    """Элемент: `tex` — ключ текстуры для всех граней, `over` — по граням
+    (north="front", up="top"…), `rot` = (ось, угол, центр), `uv` — {грань: uv}."""
+    return dict(f=f, t=t, tex=tex, faces=faces, glow=glow, lit_only=lit_only, rot=rot,
+                uv=uv or {}, over=over)
+
+
+def element_json(e, lit):
+    faces = {}
+    for face in FACES:
+        if face not in e["faces"]:
+            continue
+        key = e["over"].get(face, e["tex"])
+        d = {"uv": e["uv"].get(face) or auto_uv(face, e["f"], e["t"]), "texture": "#" + key}
+        if on_boundary(face, e["f"], e["t"]) and (face == "down" or full_side(face, e["f"], e["t"])) \
+                and e["rot"] is None:
+            d["cullface"] = face
+        faces[face] = d
+    out = {"from": [num(v) for v in e["f"]], "to": [num(v) for v in e["t"]]}
+    if e["rot"]:
+        axis, angle, origin = e["rot"]
+        out["rotation"] = {"origin": [num(v) for v in origin], "axis": axis, "angle": angle}
+    if lit and e["glow"]:
+        out["light_emission"] = 15 if e["glow"] is True else e["glow"]
+    out["faces"] = faces
+    return out
+
+
+def dump_model(path, model):
+    """JSON с одним элементом на строку — короче и читается глазами."""
+    lines = ["{"]
+    keys = [k for k in model if k != "elements"]
+    for k in keys:
+        lines.append(f'  "{k}": {json.dumps(model[k], ensure_ascii=False)},')
+    if "elements" in model:
+        lines.append('  "elements": [')
+        els = [json.dumps(el, ensure_ascii=False) for el in model["elements"]]
+        lines.append(",\n".join("    " + s for s in els))
+        lines.append("  ]")
+    else:
+        lines[-1] = lines[-1].rstrip(",")
+    lines.append("}")
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def cyl(x0, x1, z0, z1, y0, y1, tex, **kw):
+    """«Цилиндр» без перекрытия граней: средняя плита и две боковые полосы."""
+    return [E([x0 + 1, y0, z0], [x1 - 1, y1, z1], tex, **kw),
+            E([x0, y0, z0 + 1], [x0 + 1, y1, z1 - 1], tex, **kw),
+            E([x1 - 1, y0, z0 + 1], [x1, y1, z1 - 1], tex, **kw)]
+
+
+NO_S = ("down", "up", "north", "west", "east")  # задняя грань упирается в корпус
+NO_D = ("up", "north", "south", "west", "east")  # стоит на поверхности
+PANE_Z = ("north", "south")
+PANE_X = ("west", "east")
+
+
+def still():
+    return [
+        E([0, 0, 0], [16, 1, 16], "frame"),
+        E([0, 1, 1], [16, 5, 16], "frame", north="front", up="top", faces=NO_D),
+        E([5, 1, 0], [11, 4, 1], "lamp", faces=("up", "north", "west", "east"), glow=13),
+        *cyl(2, 12, 2, 12, 5, 12, "accent"),
+        E([4, 12, 4], [10, 14, 10], "accent", faces=NO_D),
+        E([6, 14, 6], [8, 17, 8], "copper", faces=NO_D),
+        E([8, 15, 6], [15, 17, 8], "copper", faces=("down", "up", "north", "south", "east")),
+        E([13, 5, 6], [15, 15, 8], "copper", faces=NO_D),
+        E([12, 7, 4], [16, 8, 10], "copper"),
+        E([12, 9.5, 4], [16, 10.5, 10], "copper"),
+        E([12, 12, 4], [16, 13, 10], "copper"),
+        E([13, 10, 2], [14, 11, 6], "copper", faces=("down", "up", "north", "west", "east")),
+        E([12, 5, 1], [15, 8, 4], "glass", faces=NO_D),
+        E([12.5, 5, 1.5], [14.5, 7, 3.5], "fluid_cyan", faces=NO_D),
+        E([13, 8, 2], [14, 10, 3], "glass", faces=("north", "south", "west", "east")),
+        E([0, 5, 15], [16, 16, 16], "side", faces=NO_D, up="top"),
+    ]
+
+
+def incubator():
+    return [
+        E([14, 0, 0], [16, 16, 16], "side", north="front", up="top", west="frame"),
+        E([0, 0, 0], [2, 16, 16], "side", north="front", up="top", east="frame"),
+        E([2, 0, 0], [14, 3, 16], "side", north="front", up="frame", faces=("down", "up", "north", "south")),
+        E([2, 13, 0], [14, 16, 16], "side", north="front", up="top", down="frame",
+          faces=("down", "up", "north", "south")),
+        E([2, 3, 15], [14, 13, 16], "frame", faces=("north", "south"), south="side"),
+        E([2, 3, 1], [14, 3.5, 15], "lamp", faces=("up", "north"), glow=12),
+        E([2, 7.5, 1], [14, 8, 15], "vent", faces=("up", "down", "north")),
+        E([4, 8, 4], [8, 9, 8], "fluid_amber", faces=NO_D),
+        E([9, 8, 7], [12, 9, 10], "fluid_amber", faces=NO_D),
+        E([8, 3.5, 4], [12, 4.5, 8], "fluid_amber", faces=NO_D),
+        E([2, 3, 0.5], [14, 13, 1], "glass", faces=PANE_Z),
+        E([3, 5, 0], [4, 10, 0.5], "steel", faces=("up", "down", "north", "west", "east")),
+        E([10, 16, 10], [13, 18, 13], "steel", faces=NO_D, up="top"),
+    ]
+
+
+def fermenter():
+    return [
+        E([0, 0, 0], [16, 3, 16], "frame", north="front", up="top"),
+        *cyl(2, 14, 2, 14, 3, 14, "side", up="top"),
+        E([4, 14, 4], [12, 15, 12], "steel", faces=NO_D, up="top"),
+        E([5, 15, 5], [11, 16, 11], "steel", faces=NO_D, up="top"),
+        E([6, 16, 7.5], [10, 17, 8.5], "frame", faces=NO_D),
+        E([7.5, 16, 6], [8.5, 17, 10], "frame", faces=NO_D),
+        E([6, 5, 1], [10, 12, 2], "lamp", faces=NO_S, glow=10),
+        E([14, 5, 7], [16, 7, 9], "copper", faces=("up", "down", "north", "south")),
+        E([15, 4, 6], [16, 8, 10], "accent"),
+    ]
+
+
+def centrifuge():
+    return [
+        E([0, 0, 0], [16, 8, 16], "side", north="front", up="top"),
+        *cyl(2, 14, 2, 14, 8, 12, "accent", faces=NO_D, up="top"),
+        E([3.5, 12, 3.5], [12.5, 13, 12.5], "steel", faces=NO_D, up="top",
+          rot=("y", 22.5, [8, 12, 8])),
+        E([7, 13, 7], [9, 14, 9], "lamp", faces=NO_D, glow=12),
+        E([4, 8, 14], [12, 13, 16], "side", faces=NO_D, up="top"),
+        E([12, 8, 0.5], [13.5, 9, 2], "lamp", faces=NO_D, glow=10),
+        E([2.5, 8, 0.5], [4, 9, 2], "lamp", faces=NO_D, glow=10),
+        E([7, 11, 1], [9, 12, 2], "frame", faces=("up", "down", "north", "west", "east")),
+    ]
+
+
+def synthesizer():
+    return [
+        E([0, 0, 0], [16, 3, 16], "side", north="front", up="frame"),
+        E([14, 3, 0], [16, 13, 16], "side", north="front", west="frame", faces=("north", "south", "west", "east")),
+        E([0, 3, 0], [2, 13, 16], "side", north="front", east="frame", faces=("north", "south", "west", "east")),
+        E([2, 3, 14], [14, 13, 16], "frame", faces=("north", "south"), south="side"),
+        E([0, 13, 0], [16, 15, 16], "side", north="front", up="top", down="frame"),
+        E([2, 3, 0.5], [14, 13, 1.5], "glass", faces=PANE_Z),
+        E([6, 3, 4], [10, 5, 8], "steel", faces=NO_D),
+        E([7, 5, 5], [9, 7, 7], "lamp", faces=NO_D, glow=True),
+        E([10, 8, 5], [11.5, 13, 7], "steel", faces=("down", "north", "south", "west", "east"),
+          rot=("z", -22.5, [10.75, 13, 6])),
+        E([4.5, 8, 5], [6, 13, 7], "steel", faces=("down", "north", "south", "west", "east"),
+          rot=("z", 22.5, [5.25, 13, 6])),
+        E([8.2, 7.6, 5.25], [9.6, 8.4, 6.75], "copper"),
+        E([6.4, 7.6, 5.25], [7.8, 8.4, 6.75], "copper"),
+        E([5, 15, 5], [11, 16.5, 11], "accent", faces=NO_D),
+        E([11.5, 15, 11.5], [13.5, 18, 13.5], "copper", faces=NO_D),
+        E([3, 15, 1], [5, 16, 3], "lamp", faces=NO_D, glow=10),
+    ]
+
+
+def reactor():
+    return [
+        E([0, 0, 0], [16, 0.5, 16], "frame"),
+        E([0, 0.5, 1], [16, 3, 16], "frame", north="front", up="top", faces=NO_D),
+        E([4, 0.5, 0], [12, 2.5, 1], "lamp", faces=("up", "north", "west", "east"), glow=13),
+        *cyl(3, 13, 3, 15, 3, 14, "accent"),
+        E([5, 14, 5], [11, 15, 13], "accent", faces=NO_D, up="top"),
+        E([6, 7, 2], [10, 11, 3], "steel", faces=NO_S, north="front"),
+        E([0, 3, 7], [2, 15, 9], "copper", faces=NO_D),
+        E([0, 15, 7], [6, 17, 9], "copper", faces=("down", "up", "north", "south", "west")),
+        E([13, 3, 1], [15, 12, 3], "copper", faces=NO_D),
+        E([12, 10, 2], [13, 12, 4], "copper", faces=("up", "down", "north", "south")),
+        E([12.5, 6, 0.5], [15.5, 9, 1], "accent", faces=NO_S),
+    ]
+
+
+def press():
+    return [
+        E([0, 0, 0], [16, 4, 16], "frame", north="front", up="top"),
+        E([14, 4, 0], [16, 16, 14], "side", north="front", up="top", faces=NO_D),
+        E([0, 4, 0], [2, 16, 14], "side", north="front", up="top", faces=NO_D),
+        E([2, 13, 2], [14, 16, 14], "side", north="front", up="top", faces=("down", "up", "north", "south")),
+        E([6, 10, 6], [10, 13, 10], "steel", faces=("down", "north", "south", "west", "east")),
+        E([3, 8, 3], [13, 10, 13], "accent"),
+        E([4, 4, 4], [12, 5, 12], "steel", faces=NO_D),
+        E([6, 5, 6], [10, 6, 10], "copper", faces=NO_D),
+        E([0, 4, 14], [16, 13, 16], "side", faces=NO_D, up="top"),
+        E([7, 11, 10], [9, 12, 14], "copper", faces=("up", "down", "west", "east")),
+        E([11, 14, 1], [13, 15, 2], "lamp", faces=NO_S, glow=10),
+    ]
+
+
+def tube(x, z, h, col, y=5):
+    """Пробирка 2×2 высотой h: раствор из столбца `col` атласа machine_tubes."""
+    side = [col * 2, 16 - h, col * 2 + 2, 16]
+    return E([x, y, z], [x + 2, y + h, z + 2], "tubes", faces=NO_D,
+             uv={"up": [col * 2, 0, col * 2 + 2, 2], "north": side, "south": side,
+                 "west": side, "east": side})
+
+
+def extractor():
+    return [
+        E([0, 0, 0], [16, 3, 16], "frame", north="front", up="top"),
+        *cyl(5, 11, 8, 14, 3, 15, "accent"),
+        E([6.5, 6, 7], [9.5, 12, 8], "lamp", faces=NO_S, glow=11),
+        E([6, 15, 9], [10, 17, 13], "steel", faces=NO_D, up="top"),
+        E([1, 3, 1], [15, 5, 6], "steel", faces=NO_D),
+        tube(12, 2.5, 5, 0),
+        tube(9, 2.5, 4, 1),
+        tube(6, 2.5, 5, 2),
+        tube(3, 2.5, 3, 3),
+        E([7, 11, 4], [9, 12, 8], "steel", faces=("up", "down", "north", "west", "east")),
+        E([7.5, 10, 3.5], [8.5, 11, 4.5], "copper", faces=("down", "north", "south", "west", "east")),
+        E([0, 3, 14], [16, 11, 16], "side", faces=NO_D, up="top"),
+    ]
+
+
+def cloning_vat():
+    posts = [E([x, 3, z], [x + 1.5, 13, z + 1.5], "frame", faces=("north", "south", "west", "east"))
+             for x, z in ((0, 0), (14.5, 0), (0, 14.5), (14.5, 14.5))]
+    return [
+        E([0, 0, 0], [16, 3, 16], "side", north="front", up="steel"),
+        E([0, 13, 0], [16, 16, 16], "side", north="front", up="top", down="steel"),
+        *posts,
+        E([0.5, 3, 0.5], [15.5, 13, 15.5], "glass", faces=("north", "south", "west", "east")),
+        E([1.5, 3, 1.5], [14.5, 12, 14.5], "lamp", faces=("up", "north", "south", "west", "east"), glow=10),
+        E([5, 16, 5], [11, 17, 11], "steel", faces=NO_D, up="top"),
+        E([7, 17, 7], [9, 18.5, 9], "copper", faces=NO_D),
+    ]
+
+
+def spectrometer():
+    beams = [E([7.75, 8, 8], [8.25, 8.5, 12.5], "fluid_" + c, faces=("up", "down", "west", "east"),
+               glow=True, lit_only=True, rot=("y", a, [8, 8.25, 8]))
+             for c, a in (("red", -22.5), ("green", 0), ("cyan", 22.5))]
+    return [
+        E([0, 0, 0], [16, 6, 16], "side", north="front", up="top"),
+        E([11, 6, 6], [15, 10, 10], "side", faces=NO_D, up="top"),
+        E([10, 7, 7], [11, 9, 9], "lamp", faces=("up", "down", "north", "south", "west"), glow=True),
+        E([5, 6, 5], [11, 6.5, 11], "frame", faces=NO_D),
+        E([6, 6.5, 6], [10, 11, 10], "accent", faces=NO_D, rot=("y", 45, [8, 8, 8])),
+        E([1, 7, 6], [5, 9, 8], "frame", faces=NO_D),
+        E([2, 6, 6.5], [3, 7, 7.5], "frame", faces=("north", "south", "west", "east")),
+        E([0, 6, 13], [16, 14, 16], "side", faces=NO_D, north="front", up="top"),
+        E([9.5, 8, 7.75], [10, 8.5, 8.25], "lamp", faces=("up", "down", "north", "south"),
+          glow=True, lit_only=True),
+        *beams,
+    ]
+
+
+def pen():
+    posts = [E([x, 2, z], [x + 2, 14, z + 2], "frame", faces=("north", "south", "west", "east"))
+             for x, z in ((0, 0), (14, 0), (0, 14), (14, 14))]
+    return [
+        E([0, 0, 0], [16, 2, 16], "frame", up="floor"),
+        E([0, 14, 0], [16, 16, 16], "side", north="front", up="top", down="steel"),
+        *posts,
+        E([2, 2, 0.5], [14, 14, 1.5], "bars", faces=PANE_Z),
+        E([14.5, 2, 2], [15.5, 14, 14], "bars", faces=PANE_X),
+        E([0.5, 2, 2], [1.5, 14, 14], "bars", faces=PANE_X),
+        E([2, 2, 14], [14, 14, 16], "side", faces=("north", "south")),
+        E([3, 2, 11], [13, 4, 14], "copper", faces=NO_D, up="fluid_amber"),
+        E([6, 13, 6], [10, 14, 10], "lamp", faces=("down", "north", "south", "west", "east"), glow=12),
+    ]
+
+
+def console():
+    tilt = ("x", -22.5, [8, 12, 10.5])
+    lamps = [E([x, 12, 4], [x + 2, 12.5, 6], "lamp", faces=("up", "north", "west", "east"),
+               glow=10, rot=tilt) for x in (3, 7, 11)]
+    return [
+        E([0, 0, 0], [16, 9, 16], "side", north="front", up="steel"),
+        E([1, 8, 1.5], [15, 12, 10.5], "frame", faces=("up", "west", "east"), up="top", rot=tilt),
+        *lamps,
+        E([0, 8, 10.5], [16, 16, 16], "side", north="front", up="top", faces=NO_D),
+        E([2, 9.5, 10], [14, 15, 10.5], "screen", faces=("north",), glow=11),
+        E([13, 16, 12], [14, 18, 13], "frame", faces=NO_D),
+        E([12.5, 18, 11.5], [14.5, 19, 13.5], "lamp", faces=FACES, glow=8),
+    ]
+
+
+def lab_bench():
+    return [
+        E([0, 0, 0], [16, 1, 16], "frame"),
+        E([1, 1, 1], [15, 11, 15], "side", faces=("north", "south", "west", "east")),
+        E([0, 11, 0], [16, 13, 16], "steel", up="top"),
+        E([2, 13, 2], [6, 16, 6], "glass", faces=NO_D),
+        E([2.5, 13, 2.5], [5.5, 15, 5.5], "fluid_green", faces=NO_D),
+        E([3.5, 16, 3.5], [4.5, 18, 4.5], "glass", faces=("north", "south", "west", "east")),
+        E([8, 13, 9], [13, 13.5, 13], "frame", faces=NO_D),
+        E([11, 13.5, 11], [12, 20, 12], "frame", faces=NO_D),
+        E([8, 17, 10.5], [11, 18, 11.5], "frame", faces=("up", "down", "north", "south", "west")),
+        E([7, 13.5, 9.5], [10, 16.5, 12.5], "glass", faces=NO_D),
+        E([7.5, 13.5, 10], [9.5, 15, 12], "fluid_amber", faces=NO_D),
+        E([8, 16.5, 10.5], [9, 18, 11.5], "glass", faces=("north", "south", "west", "east")),
+        E([9, 13, 3], [14, 14, 6], "frame", faces=NO_D),
+        tube(10, 3.5, 3.5, 4, y=14),
+        tube(12, 3.5, 2.5, 0, y=14),
+    ]
+
+
+MACHINES = {
+    "still": still, "incubator": incubator, "fermenter": fermenter, "centrifuge": centrifuge,
+    "synthesizer": synthesizer, "reactor": reactor, "press": press, "extractor": extractor,
+    "cloning_vat": cloning_vat, "spectrometer": spectrometer, "pen": pen, "console": console,
+}
+
+SHARED = {"steel": "machine_steel", "frame": "machine_frame", "copper": "machine_copper",
+          "glass": "machine_glass", "vent": "machine_vent", "bars": "machine_bars",
+          "screen": "machine_screen", "tubes": "machine_tubes",
+          **{"fluid_" + k: "machine_fluid_" + k for k in FLUIDS if k != "violet"}}
+OWN = ("side", "top", "front", "accent", "lamp")
+
+
+def used_keys(elements):
+    keys = set()
+    for e in elements:
+        for face in e["faces"]:
+            keys.add(e["over"].get(face, e["tex"]))
+    return keys
+
+
+def texture_map(name, keys, own=OWN, extra=None):
+    tex = {"particle": f"biolab:block/{name}_side"}
+    for k in sorted(keys):
+        if k in SHARED:
+            tex[k] = "biolab:block/" + SHARED[k]
+        elif k in own:
+            tex[k] = f"biolab:block/{name}_{k}"
+        elif extra and k in extra:
+            tex[k] = extra[k]
+        else:
+            raise SystemExit(f"{name}: неизвестная текстура #{k}")
+    return tex
+
+
+def write_machine(name, build):
+    elements = build()
+    base = [e for e in elements if not e["lit_only"]]
+    extra = {"floor": f"biolab:block/{name}_floor"}
+    tex = texture_map(name, used_keys(elements), extra=extra)
+    dump_model(os.path.join(MODELS, name + ".json"), {
+        "parent": "minecraft:block/block",
+        "textures": {k: v for k, v in tex.items() if k in used_keys(base) or k == "particle"},
+        "elements": [element_json(e, False) for e in base],
+    })
+    lit_tex = {k: v for k, v in tex.items() if k not in used_keys(base)}
+    if "lamp" in tex:
+        lit_tex["lamp"] = f"biolab:block/{name}_lamp_on"
+    if "screen" in tex:
+        lit_tex["screen"] = "biolab:block/machine_screen_on"
+    dump_model(os.path.join(MODELS, name + "_on.json"), {
+        "parent": f"biolab:block/{name}",
+        "textures": lit_tex,
+        "elements": [element_json(e, True) for e in elements],
+    })
+    variants = {}
+    for facing, y in (("north", 0), ("east", 90), ("south", 180), ("west", 270)):
+        for lit in ("false", "true"):
+            v = {"model": f"biolab:block/{name}{'_on' if lit == 'true' else ''}"}
+            if y:
+                v["y"] = y
+            variants[f"facing={facing},lit={lit}"] = v
+    with open(os.path.join(STATES, name + ".json"), "w") as f:
+        f.write('{ "variants": {\n')
+        f.write(",\n".join(f'  "{k}": {json.dumps(v)}' for k, v in variants.items()))
+        f.write(" } }\n")
+    return len(base), len(elements)
+
+
+def main():
+    os.makedirs(TEX, exist_ok=True)
+    shared_textures()
+    lab_bench_textures()
+    for name, build in MACHINES.items():
+        keys = used_keys(build()) | {"side"}
+        if "lamp" in keys:
+            keys.add("lamp_on")
+        machine_textures(name, PAINTERS[name], keys)
+        n, n_on = write_machine(name, build)
+        print(f"{name:13s} элементов {n:2d} (горящая {n_on:2d})")
+    elements = lab_bench()
+    tex = texture_map("lab_bench", used_keys(elements), own=(),
+                      extra={"side": "biolab:block/lab_bench", "top": "biolab:block/lab_bench_top"})
+    tex["particle"] = "biolab:block/lab_bench"
+    dump_model(os.path.join(MODELS, "lab_bench.json"), {
+        "parent": "minecraft:block/block", "textures": tex,
+        "elements": [element_json(e, False) for e in elements]})
+    print(f"{'lab_bench':13s} элементов {len(elements):2d}")
+
+
+if __name__ == "__main__":
+    main()
