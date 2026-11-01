@@ -93,7 +93,7 @@ def mix(a, b, t):
     return tuple(clamp(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 
-def write_png(name, img):
+def write_png(name, img, folder=TEX):
     h, w = len(img), len(img[0])
     raw = b"".join(b"\x00" + b"".join(bytes(p) for p in row) for row in img)
 
@@ -103,7 +103,7 @@ def write_png(name, img):
 
     data = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
-    with open(os.path.join(TEX, name + ".png"), "wb") as f:
+    with open(os.path.join(folder, name + ".png"), "wb") as f:
         f.write(data)
 
 
@@ -624,6 +624,71 @@ def lab_bench_textures():
     write_png("lab_bench_top", tp)
 
 
+# Операционная (GDD 4.17): стол и кость для срезанных конечностей.
+SURGICAL = (96, 168, 140)  # хирургическая зелень полотна
+STRAP = (92, 58, 36)  # кожа ремней
+BONE = (232, 222, 196)
+
+
+def operating_table_textures():
+    # Тумба под столешницей: бирюзовая полоса, решётка, табличка с крестом.
+    s = plate(STEEL, 120)
+    rect(s, 1, 2, 15, 3, TEAL_DIM)
+    vents(s, 3, 5, 13, 9)
+    label(s, 4, 11, 12, 14, SURGICAL)
+    for x, y in ((7, 11), (8, 11), (6, 12), (7, 12), (8, 12), (9, 12), (7, 13), (8, 13)):
+        put(s, x, y, (230, 60, 60))
+    write_png("operating_table_side", s)
+    # Полотно: зелёная ткань с прострочкой по краю.
+    pad = canvas(SURGICAL)
+    grain(pad, 4, 121)
+    for y in range(0, 16, 3):
+        rect(pad, 0, y, 16, y + 1, shade(SURGICAL, 8))
+    outline(pad, 0, 0, 16, 16, shade(SURGICAL, -40))
+    for i in range(1, 15, 2):
+        for x, y in ((i, 1), (i, 14), (1, i), (14, i)):
+            put(pad, x, y, shade(SURGICAL, 36))
+    write_png("operating_table_pad", pad)
+    # Ремень: кожа с прострочкой, пряжка рисуется отдельным элементом.
+    st = canvas(STRAP)
+    grain(st, 5, 122)
+    for y in (0, 15):
+        rect(st, 0, y, 16, y + 1, shade(STRAP, -30))
+    for x in range(0, 16, 2):
+        put(st, x, 2, shade(STRAP, 30))
+        put(st, x, 13, shade(STRAP, 30))
+    write_png("operating_table_strap", st)
+    # Абажур лампы и её стекло (светится всегда: лампа над изголовьем).
+    shade_img = accent_tex("operating_table", (214, 222, 226))
+    write_png("operating_table_accent", shade_img)
+    write_png("operating_table_lamp", lamp_tex((255, 246, 214), True))
+
+
+def bone_texture():
+    """Кость срезанной конечности (рисует проход костей в `biolab_deep`).
+    Лежит в textures/gui: только оттуда текстуры мода попадают в общий
+    атлас, из которого рисуются мобы (ключ `biolab:gui/surgery/bone`).
+    Конечность берёт из неё произвольный кусок, поэтому без рисунка —
+    светлая кость с волокнами вдоль и тёмными порами."""
+    img = canvas(BONE)
+    rng = random.Random(4170)
+    for x in range(16):
+        d = rng.randint(-10, 8)
+        for y in range(16):
+            img[y][x] = shade(img[y][x], d) + (255,)
+    grain(img, 4, 4171)
+    for _ in range(9):
+        x, y = rng.randrange(16), rng.randrange(16)
+        put(img, x, y, (178, 160, 128))
+    for _ in range(5):  # прожилки — розоватые, кость свежая
+        x, y = rng.randrange(16), rng.randrange(15)
+        put(img, x, y, (214, 168, 150))
+        put(img, x, y + 1, (214, 168, 150))
+    folder = os.path.join(ASSETS, "textures", "gui", "surgery")
+    os.makedirs(folder, exist_ok=True)
+    write_png("bone", img, folder)
+
+
 PAINTERS = {
     "still": paint_still,
     "incubator": paint_incubator,
@@ -970,6 +1035,37 @@ def lab_bench():
     ]
 
 
+def operating_table():
+    """Операционный стол (GDD 4.17): стальной стол на четырёх опорах, полотно
+    с двумя ремнями, над изголовьем (север) — лампа на кронштейне.
+
+    Столешница — на высоте полного блока (y = 16): моба кладут на верхнюю
+    грань блока, и отрисовка поворачивает его так, чтобы он лёг ровно на неё.
+    Для игры стол — сплошной куб, поэтому между опорами — тумба (как у
+    лабораторного стола): сквозь открытые бока был бы виден провал на месте
+    граней соседних блоков. Ремни и лампа выше 16 — не больше чем на 4."""
+    legs = [E([x, 1, z], [x + 2, 13, z + 2], "steel", faces=("north", "south", "west", "east"))
+            for x, z in ((0, 0), (14, 0), (0, 14), (14, 14))]
+    straps = []
+    for z in (4.5, 10.5):
+        straps.append(E([0.5, 13.5, z], [15.5, 16.5, z + 1.5], "strap", faces=NO_D))
+        straps.append(E([10.5, 16.5, z - 0.25], [12.5, 16.75, z + 1.75], "steel", faces=NO_D))
+    return [
+        E([0, 0, 0], [16, 1, 16], "frame"),
+        *legs,
+        E([1, 1, 1], [15, 12, 15], "side", faces=("north", "south", "west", "east")),
+        E([0, 12, 0], [16, 14, 16], "frame", up="steel"),
+        E([1, 14, 1], [15, 16, 15], "pad", faces=NO_D),
+        E([3, 16, 1.5], [13, 17, 4], "pad", faces=NO_D),
+        *straps,
+        E([14, 14, 0.5], [15.5, 20, 2], "steel", faces=NO_D),
+        E([8, 19, 0.75], [14, 20, 1.75], "steel", faces=("up", "down", "north", "south", "west")),
+        E([7.5, 17.5, 0], [12.5, 19, 4], "accent", faces=("up", "north", "south", "west", "east")),
+        E([8, 17.25, 0.5], [12, 17.5, 3.5], "lamp", faces=("down", "north", "south", "west", "east"),
+          glow=True),
+    ]
+
+
 MACHINES = {
     "still": still, "incubator": incubator, "fermenter": fermenter, "centrifuge": centrifuge,
     "synthesizer": synthesizer, "reactor": reactor, "press": press, "extractor": extractor,
@@ -1058,6 +1154,26 @@ def main():
         "parent": "minecraft:block/block", "textures": tex,
         "elements": [element_json(e, False) for e in elements]})
     print(f"{'lab_bench':13s} элементов {len(elements):2d}")
+    write_operating_table()
+    bone_texture()
+
+
+def write_operating_table():
+    """Операционный стол: без `facing` и `lit` (как лабораторный стол), лампа
+    светится всегда — её `light_emission` в единственной модели."""
+    operating_table_textures()
+    elements = operating_table()
+    own = {k: f"biolab:block/operating_table_{k}" for k in ("side", "pad", "strap", "accent", "lamp")}
+    tex = texture_map("operating_table", used_keys(elements), own=(), extra=own)
+    tex["particle"] = "biolab:block/operating_table_side"
+    dump_model(os.path.join(MODELS, "operating_table.json"), {
+        "parent": "minecraft:block/block", "textures": tex,
+        "elements": [element_json(e, True) for e in elements]})
+    with open(os.path.join(STATES, "operating_table.json"), "w") as f:
+        f.write('{ "variants": { "": { "model": "biolab:block/operating_table" } } }\n')
+    with open(os.path.join(ASSETS, "items", "operating_table.json"), "w") as f:
+        f.write('{ "model": { "type": "minecraft:model", "model": "biolab:block/operating_table" } }\n')
+    print(f"{'operating_table':13s} элементов {len(elements):2d}")
 
 
 if __name__ == "__main__":

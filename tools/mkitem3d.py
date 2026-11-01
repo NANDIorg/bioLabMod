@@ -326,7 +326,24 @@ def t_stem(x, y, n):
     return rgba(shade((100, 140, 60), n * 2))
 
 
+def t_canvas(x, y, n):
+    """Полотно носилок (GDD 4.17): защитная ткань, по краям прострочка, в
+    середине красный крест. Грань сверху берёт тексел (x, z) — крест по центру."""
+    if 6 <= x <= 9 and 5 <= y <= 10 or 4 <= x <= 11 and 7 <= y <= 8:
+        return rgba(shade((196, 48, 44), n * 2))
+    base = (126, 132, 88)
+    if y in (1, 14) and x % 2 == 0:
+        base = (164, 168, 120)
+    return rgba(shade(base, n * 3 + (-8 if x in (0, 15) else 0)))
+
+
+def t_pole(x, y, n):
+    return rgba(shade((186, 194, 200), cylinder(x) + n))
+
+
 TEXTURES = {
+    "canvas": t_canvas,
+    "pole": t_pole,
     "glass": t_glass,
     "glass_rim": t_glass_rim,
     "liquid": t_liquid,
@@ -637,6 +654,23 @@ def pod():
     ]
 
 
+def stretcher():
+    """Носилки (GDD 4.17): две жерди вдоль Z с натянутым полотном, распорки
+    под полотном у концов, ручки в резине и короткие ножки."""
+    els = []
+    for x in (2.5, 12):
+        els.append(box([x, 7, 2], [x + 1.5, 8.5, 14], "pole"))
+        for z0, z1 in ((0, 2), (14, 16)):
+            els.append(box([x, 7, z0], [x + 1.5, 8.5, z1], "rubber"))
+        for z in (3.25, 11.75):
+            els.append(box([x + 0.25, 5.5, z], [x + 1.25, 7, z + 1], "steel_dark",
+                           faces=("north", "south", "west", "east", "down")))
+    els.append(box([4, 7.75, 2.5], [12, 8.25, 13.5], "canvas"))
+    for z in (3, 12.25):
+        els.append(box([4, 7, z], [12, 7.5, z + 0.75], "steel_dark"))
+    return els
+
+
 # ---------------------------------------------------------------------------
 # Положение в руке
 # ---------------------------------------------------------------------------
@@ -671,6 +705,17 @@ def pen(s):
     }
 
 
+def flat(s):
+    """Плоская длинная вещь (носилки): в руке — как стоячая, но в инвентаре и
+    от первого лица наклонена сильнее, чтобы было видно полотно, а в рамке
+    лежит полотном к зрителю."""
+    d = upright(s)
+    d["firstperson_righthand"] = tr([25, 45, 0], [0, 3.5, 0], 0.32 * s)
+    d["gui"] = tr([55, -35, 0], [0, 0, 0], 0.9 * s)
+    d["fixed"] = tr([90, 0, 0], [0, 0, 0], 0.75 * s)
+    return d
+
+
 # форма → (геометрия, положение в руке, текстура частиц)
 FORMS = {
     "flask": (flask, upright(1.0), "glass_rim"),
@@ -690,6 +735,7 @@ FORMS = {
     "blueprint": (blueprint, upright(1.0), "blueprint_roll"),
     "bucket": (bucket, upright(1.05), "bucket"),
     "pod": (pod, upright(1.0), "pod"),
+    "stretcher": (stretcher, flat(1.0), "canvas"),
 }
 
 # Варианты формы с другой текстурой (не только цветом): модель-наследник.
@@ -739,6 +785,7 @@ ITEMS = {
     "slime_bucket": ("bucket", "#96ba78"),
     "sludge_bucket": ("bucket", "#60583c"),
     "gm_crop": ("pod", None),
+    "stretcher": ("stretcher", None),
 }
 
 # Объёмные и в инвентаре: GDD 4.12 называет колбу, шприц и тюбик мази вещами,
