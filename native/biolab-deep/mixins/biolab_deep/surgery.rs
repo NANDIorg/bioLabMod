@@ -267,16 +267,25 @@ pub fn set_bone_pass(on: bool) {
 // состояние операционной сервер записывает в общую память процесса по id
 // моба на каждом его тике (`spawn.rs`), а отрисовка читает отсюда.
 
-/// Состояние операционной моба: лежит ли на столе и какие конечности срезаны.
+/// Состояние операционной моба: лежит ли на столе, спит ли под снотворным и
+/// какие конечности срезаны.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Surgery {
     pub on_table: bool,
+    /// Под снотворным (`biolab:sedation`): моб лежит на земле. Иначе не
+    /// понять, подействовал ли укол — ванильного «сна» у мобов нет.
+    pub asleep: bool,
     pub flayed: [bool; 4],
 }
 
 impl Surgery {
     pub fn is_plain(&self) -> bool {
-        !self.on_table && !self.flayed.iter().any(|f| *f)
+        !self.on_table && !self.asleep && !self.flayed.iter().any(|f| *f)
+    }
+
+    /// Рисовать ли моба лёжа: на столе или уснувшим на земле.
+    pub fn lying(&self) -> bool {
+        self.on_table || self.asleep
     }
 }
 
@@ -307,6 +316,11 @@ pub fn read_markers(m: &crate::mobs::Mob) -> Surgery {
     use crate::mobs::finalize::{Attr, has_modifier};
     Surgery {
         on_table: has_modifier(m, Attr::FollowRange, TABLE_MARKER),
+        asleep: m
+            .extra
+            .effects
+            .iter()
+            .any(|(id, ticks, _)| &**id == "biolab:sedation" && *ticks != 0),
         flayed: FLAYED_MARKERS.map(|marker| has_modifier(m, Attr::FollowRange, marker)),
     }
 }
@@ -395,7 +409,9 @@ pub fn hide_flayed(m: &crate::mobs::Mob, poses: &mut crate::mobs::anim::Poses) {
 /// Масштаб вида с поворотом «лёжа», если моб на столе.
 #[cfg(not(test))]
 pub fn lay_on_table(m: &crate::mobs::Mob, value: glam::Mat4) -> glam::Mat4 {
-    if !on_table(m) {
+    // Лёжа рисуется и пациент стола, и уснувший под снотворным: поворот один
+    // и тот же, нижняя точка модели встаёт туда, где стоит моб.
+    if !state_of(m.id).lying() {
         return value;
     }
     let (key, model, _) = body_model(m);
@@ -692,10 +708,12 @@ mod memory_tests {
     fn the_server_state_reaches_the_renderer_by_id() {
         let id = 9_000_001;
         assert_eq!(state_of(id), Surgery::default());
-        let lying = Surgery { on_table: true, flayed: [true, false, false, false] };
+        let lying = Surgery { on_table: true, asleep: false, flayed: [true, false, false, false] };
         remember(id, lying);
         assert_eq!(state_of(id), lying);
         remember(id, Surgery::default());
         assert_eq!(state_of(id), Surgery::default(), "обычного моба забываем");
+        let asleep = Surgery { asleep: true, ..Surgery::default() };
+        assert!(asleep.lying() && !asleep.is_plain(), "уснувший лежит");
     }
 }

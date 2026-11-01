@@ -29,6 +29,20 @@ fn biolab_deep_mob_effects(m: &mut crate::mobs::Mob) {
     if sedated {
         m.ai.target = None;
     }
+    // Уснувший не ходит: скорость гасится модификатором, пока действует
+    // снотворное, и снимается, как только оно кончилось. В сейв он не
+    // возвращается (его нет в `our_modifier`), так что навсегда не залипнет.
+    {
+        use crate::mobs::finalize::{Attr, Op, add_modifier, has_modifier, remove_modifier};
+        const STILL: &str = "biolab:sedation_still";
+        if sedated {
+            if !has_modifier(m, Attr::MovementSpeed, STILL) {
+                add_modifier(m, Attr::MovementSpeed, STILL, -1.0, Op::AddMultipliedTotal);
+            }
+        } else if has_modifier(m, Attr::MovementSpeed, STILL) {
+            remove_modifier(m, Attr::MovementSpeed, STILL);
+        }
+    }
 
     // Мутаген копит нагрузку, и на пороге организм срывается: добавляется
     // ген. Метку вешаем здесь, а прибавки к атрибутам выставит `spawn.rs` —

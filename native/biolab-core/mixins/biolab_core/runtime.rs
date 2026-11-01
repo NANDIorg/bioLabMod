@@ -3139,7 +3139,13 @@ pub fn injection_message(item: &str, mob: &str) -> String {
             "Препарат"
         });
     // «Препарат» — общее слово, поэтому без рода: «Укол: Яд → Корова».
-    format!("Укол: {what} → {}", mob_title(mob))
+    let line = format!("Укол: {what} → {}", mob_title(mob));
+    // Снотворное видно и так (моб ложится), но в чате скажем прямо.
+    if item == "biolab:syringe_sedative" {
+        format!("{line}: засыпает")
+    } else {
+        line
+    }
 }
 
 /// Инъекция мобу и приём внутрь ловят один и тот же клик: хук сущности
@@ -5316,6 +5322,10 @@ mod tests {
     fn an_injection_names_the_drug_and_the_target() {
         let text = injection_message("biolab:syringe_venom", "minecraft:cow");
         assert_eq!(text, "Укол: Яд → Корова");
+        assert_eq!(
+            injection_message("biolab:syringe_sedative", "minecraft:zombie"),
+            "Укол: Седативное → Зомби: засыпает"
+        );
         assert!(injection_message("biolab:syringe", "pig").starts_with("Укол: Препарат"));
     }
 
