@@ -34,6 +34,28 @@ fn biolab_core_interact_entity(
         }
     }
 
+    /// Звук события мода в точке `at` всем игрокам рядом. Звук встаёт в
+    /// очередь уровня (`native_play_sound`, API 25), и сервер рассылает его
+    /// пакетом — в одиночной игре тоже: окно подключено к своему серверу как
+    /// игрок. Без своего сервера (клиент) `native_play_sound` звук не берёт,
+    /// поэтому там выходим сразу. `with_level` — внутренний API игры, не
+    /// хук-поинт: при обновлении Horizon проверить.
+    fn play_at(
+        game: &mut crate::game::Game<'_>,
+        cue: crate::game::biolab_core::Cue,
+        at: [f64; 3],
+    ) {
+        let Some(sound) = crate::game::biolab_core::sound(cue) else {
+            return;
+        };
+        if game.serving.is_none() && game.options.dedicated.is_none() {
+            return;
+        }
+        let _ = game.with_level(|_, level, _| {
+            level.native_play_sound(sound.event, at, sound.source, sound.volume, sound.pitch)
+        });
+    }
+
     if !game.native_on(m::ID) {
         return;
     }
@@ -97,6 +119,14 @@ fn biolab_core_interact_entity(
                 .unwrap_or_default();
             let world = game.world_root.clone();
             m::record_trial(&world, &m::trial_record(m::FRAGMENT_ID, &target));
+            let at = game
+                .mobs
+                .iter()
+                .find(|mob| mob.id as i32 == entity)
+                .map(|mob| [mob.position.x, mob.position.y + 0.9, mob.position.z]);
+            if let Some(at) = at {
+                play_at(game, m::Cue::GeneSplice, at);
+            }
         }
         *claimed = true;
         return;
@@ -114,10 +144,12 @@ fn biolab_core_interact_entity(
         return;
     };
     let name = mob.kind.id.clone();
+    let at = [mob.position.x, mob.position.y + 0.9, mob.position.z];
     for effect in effects {
         mob.add_effect(effect, ticks, amplifier);
     }
     game.native_chat(&m::injection_message(&stack.item, &name));
+    play_at(game, m::mob_injection_cue(&stack.item), at);
     m::remember_injection(game.ticks);
     // Опыт уходит в журнал: пульт потом покажет, кому что вводили.
     let world = game.world_root.clone();

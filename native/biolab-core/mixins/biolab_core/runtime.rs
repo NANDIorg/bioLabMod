@@ -688,6 +688,294 @@ pub fn synth_status(formula: &Formula, blueprint: Option<&Formula>) -> i32 {
     }
 }
 
+// ---- Звуки ----
+//
+// Свои `.ogg` мод проиграть не может, поэтому каждое его событие озвучено
+// подходящим ванильным звуком. Выбор — здесь, одной таблицей: сменить звук
+// значит поправить строку, хуки берут отсюда. Имя события должно быть в
+// реестре `minecraft:sound_event` версии 26.3: незнакомое сервер молча
+// выбрасывает при рассылке (`flush_native_sounds`), так что опечатка
+// здесь — это тишина в игре; тест сверяет таблицу с ванильным списком.
+//
+// Громкость держим низкой (до 0,8, фон машин — 0,2–0,4): лаборатория — это
+// ряды машин, которые работают часами, и шум не должен утомлять. Высоту
+// поднимаем, где ванильный звук слишком «большой» для пробирки, и опускаем,
+// где нужна тяжесть (пресс, перегрев). Ванилла сама зажимает высоту в
+// 0,5–2,0, поэтому за эти пределы не выходим.
+
+/// Ванильный звук события мода. `source` — категория громкости, номер в
+/// `SOUND_SOURCES` игры: её приглушает свой ползунок в настройках.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sound {
+    pub event: &'static str,
+    pub volume: f32,
+    pub pitch: f32,
+    pub source: usize,
+}
+
+/// Категории громкости — индексы в `SOUND_SOURCES` Horizon: master, music,
+/// record, weather, block, hostile, neutral, player, ambient, voice, ui.
+/// Машины звучат как блоки, всё, что делает сам игрок, — как игрок.
+pub const SOURCE_BLOCK: usize = 4;
+pub const SOURCE_PLAYER: usize = 7;
+
+const fn block(event: &'static str, volume: f32, pitch: f32) -> Sound {
+    Sound { event, volume, pitch, source: SOURCE_BLOCK }
+}
+
+const fn player(event: &'static str, volume: f32, pitch: f32) -> Sound {
+    Sound { event, volume, pitch, source: SOURCE_PLAYER }
+}
+
+/// Фаза работы машины, у которой есть свой звук.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    /// Взялась за работу из простоя.
+    Start,
+    /// Редкий фон, пока работает: раз в `MACHINE_HUM_EVERY` тиков.
+    Work,
+    /// Выдала результат.
+    Done,
+}
+
+/// Звуки одной машины: старт, фон и готовый результат.
+pub struct MachineSounds {
+    pub machine: &'static str,
+    pub start: Sound,
+    pub work: Sound,
+    pub done: Sound,
+}
+
+/// Машина → её звуки. Каждой — свой характер, чтобы по звуку было ясно, какая
+/// из соседних машин закончила.
+pub const MACHINE_SOUNDS: [MachineSounds; 11] = [
+    // Перегонный куб: закипает, побулькивает, перелив готового в колбу.
+    MachineSounds {
+        machine: "biolab:still",
+        start: block("minecraft:block.brewing_stand.brew", 0.5, 1.0),
+        work: block("minecraft:block.bubble_column.bubble_pop", 0.3, 0.8),
+        done: block("minecraft:item.bottle.fill", 0.6, 1.0),
+    },
+    // Инкубатор: включилась лампа, капает, культура «шлёпнулась» в чашку.
+    MachineSounds {
+        machine: INCUBATOR,
+        start: block("minecraft:block.copper_bulb.turn_on", 0.4, 1.0),
+        work: block("minecraft:block.beehive.drip", 0.4, 1.0),
+        done: block("minecraft:entity.slime.squish_small", 0.6, 1.2),
+    },
+    // Ферментер: бульканье брожения, всплывают пузыри, слив в бутыль.
+    MachineSounds {
+        machine: "biolab:fermenter",
+        start: block("minecraft:block.bubble_column.bubble_pop", 0.6, 1.0),
+        work: block("minecraft:block.bubble_column.upwards_ambient", 0.3, 1.0),
+        done: block("minecraft:item.bottle.fill", 0.6, 0.8),
+    },
+    // Центрифуга: раскрутка, высокое жужжание ротора, остановка.
+    MachineSounds {
+        machine: CENTRIFUGE,
+        start: block("minecraft:block.grindstone.use", 0.4, 1.4),
+        work: block("minecraft:block.beacon.ambient", 0.35, 1.6),
+        done: block("minecraft:block.beacon.deactivate", 0.4, 1.6),
+    },
+    // Синтезатор: энергия на сборку, кристальный звон атомов, готово.
+    MachineSounds {
+        machine: SYNTHESIZER,
+        start: block("minecraft:block.beacon.power_select", 0.4, 1.4),
+        work: block("minecraft:block.amethyst_block.chime", 0.4, 1.0),
+        done: block("minecraft:block.enchantment_table.use", 0.6, 1.2),
+    },
+    // Реактор: шипение нагрева, треск топки, реакция прошла.
+    MachineSounds {
+        machine: REACTOR,
+        start: block("minecraft:block.fire.extinguish", 0.3, 1.4),
+        work: block("minecraft:block.blastfurnace.fire_crackle", 0.4, 1.0),
+        done: block("minecraft:block.brewing_stand.brew", 0.5, 1.4),
+    },
+    // Пресс: поршень пошёл, возврат, удар — таблетка спрессована.
+    MachineSounds {
+        machine: "biolab:press",
+        start: block("minecraft:block.piston.extend", 0.4, 1.0),
+        work: block("minecraft:block.piston.contract", 0.3, 0.9),
+        done: block("minecraft:block.anvil.land", 0.3, 1.2),
+    },
+    // Экстрактор: щелчки датчика, капли вытяжки, фрагмент в пробирке.
+    MachineSounds {
+        machine: EXTRACTOR,
+        start: block("minecraft:block.sculk_sensor.clicking", 0.4, 1.2),
+        work: block("minecraft:block.pointed_dripstone.drip_water", 0.5, 1.0),
+        done: block("minecraft:item.bottle.fill_dragonbreath", 0.5, 1.2),
+    },
+    // Клонирующий чан: густое бульканье, ровный гул, рождение клона.
+    MachineSounds {
+        machine: CLONING_VAT,
+        start: block("minecraft:block.brewing_stand.brew", 0.4, 0.7),
+        work: block("minecraft:block.conduit.ambient", 0.4, 0.8),
+        done: block("minecraft:block.sniffer_egg.hatch", 0.8, 1.0),
+    },
+    // Спектрометр: щелчок прибора, тиканье развёртки, звон — вещество опознано.
+    MachineSounds {
+        machine: SPECTROMETER,
+        start: block("minecraft:block.comparator.click", 0.5, 1.0),
+        work: block("minecraft:block.comparator.click", 0.3, 0.7),
+        done: block("minecraft:block.note_block.chime", 0.6, 1.4),
+    },
+    // Лабораторный стол: щелчок, скрип инструмента, механизм собрал вещь.
+    MachineSounds {
+        machine: LAB_BENCH,
+        start: block("minecraft:block.wooden_button.click_on", 0.4, 1.2),
+        work: block("minecraft:ui.cartography_table.take_result", 0.3, 1.0),
+        done: block("minecraft:block.crafter.craft", 0.5, 1.0),
+    },
+];
+
+/// Раз в сколько тиков работающая машина подаёт фоновый звук. Четыре
+/// секунды: слышно, что работа идёт, но звук не трещит над ухом. Рецепты
+/// короче этого обходятся стартом и готовым результатом.
+pub const MACHINE_HUM_EVERY: i32 = 80;
+
+/// Отметка «машина занята» в сейве блока: 1 — работала в прошлом тике.
+pub const BUSY_KEY: &str = "biolab_busy";
+
+/// Звук машины в этой фазе, если машина наша.
+pub fn machine_sound(machine: &str, phase: Phase) -> Option<Sound> {
+    let sounds = MACHINE_SOUNDS.iter().find(|s| s.machine == machine)?;
+    Some(match phase {
+        Phase::Start => sounds.start,
+        Phase::Work => sounds.work,
+        Phase::Done => sounds.done,
+    })
+}
+
+/// Какой звук дать машине по итогу тика и занята ли она теперь. `busy` —
+/// работала ли она до этого тика. Старт звучит, только когда машина взялась
+/// за работу из простоя: стопку входа она перерабатывает подряд, и иначе
+/// после каждого готового предмета «готово» и «старт» шли бы парой.
+pub fn machine_beat(busy: bool, step: Step) -> (Option<Phase>, bool) {
+    match step {
+        Step::Idle => (None, false),
+        Step::Working(_) if !busy => (Some(Phase::Start), true),
+        Step::Working(progress) if progress > 0 && progress % MACHINE_HUM_EVERY == 0 => {
+            (Some(Phase::Work), true)
+        }
+        Step::Working(_) => (None, true),
+        Step::Finish => (Some(Phase::Done), true),
+    }
+}
+
+/// События мода вне тика машин: инструменты, препараты, генетика, журнал.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cue {
+    /// Реактор перегрелся и сбросил содержимое.
+    Overheat,
+    /// Укол шприцем себе.
+    SyringeSelf,
+    /// Укол шприцем мобу.
+    SyringeMob,
+    /// Дротик выпущен.
+    DartShot,
+    /// Дротик попал в моба.
+    DartHit,
+    /// Бинт наложен.
+    Bandage,
+    /// Аэрозоль.
+    Spray,
+    /// Мазь.
+    Ointment,
+    /// Таблетка.
+    Pill,
+    /// Микстура от заражения.
+    Remedy,
+    /// Съеден урожай ГМ-грядки.
+    Eat,
+    /// Скальпель: с убитого мутанта срезана ткань.
+    Tissue,
+    /// Ген вживлён мобу.
+    GeneSplice,
+    /// Генотерапия: ген вписан себе.
+    GeneTherapy,
+    /// Мутаген переписал геном (лужа под игроком, шприц мутагена мобу).
+    Mutagen,
+    /// В журнале открылся новый узел.
+    Research,
+}
+
+impl Cue {
+    pub const ALL: [Cue; 16] = [
+        Cue::Overheat,
+        Cue::SyringeSelf,
+        Cue::SyringeMob,
+        Cue::DartShot,
+        Cue::DartHit,
+        Cue::Bandage,
+        Cue::Spray,
+        Cue::Ointment,
+        Cue::Pill,
+        Cue::Remedy,
+        Cue::Eat,
+        Cue::Tissue,
+        Cue::GeneSplice,
+        Cue::GeneTherapy,
+        Cue::Mutagen,
+        Cue::Research,
+    ];
+}
+
+/// Событие → звук.
+pub const SOUNDS: [(Cue, Sound); 16] = [
+    // Набат: содержимое пропало, это надо услышать и из соседней комнаты.
+    (Cue::Overheat, block("minecraft:block.bell.use", 1.0, 0.6)),
+    // Укол — короткое жало пчелы; себе чуть выше и тише, мобу ниже.
+    (Cue::SyringeSelf, player("minecraft:entity.bee.sting", 0.5, 1.5)),
+    (Cue::SyringeMob, player("minecraft:entity.bee.sting", 0.6, 1.2)),
+    // Дротик — лёгкий выстрел и попадание; высота выше стрелы: он меньше.
+    (Cue::DartShot, player("minecraft:entity.arrow.shoot", 0.5, 1.6)),
+    (Cue::DartHit, player("minecraft:entity.arrow.hit", 0.6, 1.4)),
+    // Бинт — шорох ткани.
+    (Cue::Bandage, player("minecraft:item.armor.equip_leather", 0.8, 1.2)),
+    // Аэрозоль — короткий пшик.
+    (Cue::Spray, player("minecraft:entity.generic.extinguish_fire", 0.4, 2.0)),
+    // Мазь — втирание, как воск по меди.
+    (Cue::Ointment, player("minecraft:item.honeycomb.wax_on", 0.6, 1.3)),
+    // Таблетка — быстрый «хрум».
+    (Cue::Pill, player("minecraft:entity.generic.eat", 0.5, 1.5)),
+    (Cue::Remedy, player("minecraft:entity.generic.drink", 0.5, 1.2)),
+    (Cue::Eat, player("minecraft:entity.generic.eat", 0.6, 1.0)),
+    // Скальпель срезал ткань — как ножницы по шерсти.
+    (Cue::Tissue, player("minecraft:entity.sheep.shear", 0.7, 1.3)),
+    // Ген вживлён — заряд якоря возрождения, высоко.
+    (Cue::GeneSplice, player("minecraft:block.respawn_anchor.charge", 0.5, 1.5)),
+    // Генотерапия — низкий «энергетический» отклик маяка.
+    (Cue::GeneTherapy, player("minecraft:block.beacon.power_select", 0.5, 0.9)),
+    // Мутаген — превращение жителя-зомби, ниже обычного: неприятно и чуждо.
+    (Cue::Mutagen, player("minecraft:entity.zombie_villager.converted", 0.5, 0.8)),
+    // Новый узел журнала — короткий звон повышения уровня, высоко и тихо.
+    (Cue::Research, player("minecraft:entity.player.levelup", 0.35, 1.6)),
+];
+
+/// Звук события.
+pub fn sound(cue: Cue) -> Option<Sound> {
+    SOUNDS.iter().find(|(c, _)| *c == cue).map(|(_, s)| *s)
+}
+
+/// Звук приёма препарата по его форме (`FORMS`).
+pub fn dose_cue(form: usize) -> Cue {
+    match form {
+        FORM_INJECTION => Cue::SyringeSelf,
+        FORM_OINTMENT => Cue::Ointment,
+        FORM_SPRAY => Cue::Spray,
+        _ => Cue::Pill,
+    }
+}
+
+/// Звук укола мобу: мутаген слышно отдельно — он переписывает геном.
+pub fn mob_injection_cue(item: &str) -> Cue {
+    if item == "biolab:syringe_mutagen" {
+        Cue::Mutagen
+    } else {
+        Cue::SyringeMob
+    }
+}
+
 // ---- Лабораторный стол ----
 //
 // Верстак лаборатории. Точные вещи — шприцы, дротики, аэрозоли, мази,
@@ -5100,6 +5388,124 @@ mod tests {
         assert_eq!(machine_data_slots(SYNTHESIZER), DATA_SYNTH_ELEMENTS + water.len());
         assert_eq!(machine_data_slots(EXTRACTOR), DATA_GENE_STRENGTH + 1);
         assert_eq!(machine_data_slots(CENTRIFUGE), DATA_SLOTS);
+    }
+
+    /// Все звуки мода: машин и событий.
+    fn all_sounds() -> Vec<Sound> {
+        let mut all: Vec<Sound> = SOUNDS.iter().map(|(_, s)| *s).collect();
+        for m in &MACHINE_SOUNDS {
+            all.extend([m.start, m.work, m.done]);
+        }
+        all
+    }
+
+    #[test]
+    fn every_machine_and_event_has_a_sound() {
+        for machine in &MACHINES {
+            for phase in [Phase::Start, Phase::Work, Phase::Done] {
+                assert!(machine_sound(machine.id, phase).is_some(), "{} без звука", machine.id);
+            }
+        }
+        assert_eq!(MACHINE_SOUNDS.len(), MACHINES.len(), "звуки у чужой машины");
+        assert_eq!(machine_sound("minecraft:furnace", Phase::Start), None);
+        for cue in Cue::ALL {
+            let found = SOUNDS.iter().filter(|(c, _)| *c == cue).count();
+            assert_eq!(found, 1, "{cue:?} в таблице не ровно один раз");
+            assert!(sound(cue).is_some());
+        }
+        assert_eq!(SOUNDS.len(), Cue::ALL.len());
+    }
+
+    #[test]
+    fn sounds_are_vanilla_and_gentle() {
+        for s in all_sounds() {
+            assert!(s.event.starts_with("minecraft:"), "{} — не ванильный", s.event);
+            assert!(!s.event.contains(' ') && s.event == s.event.to_lowercase(), "{}", s.event);
+            // Ванилла зажимает высоту в 0,5–2,0; громче 1 — только дальность.
+            assert!((0.5..=2.0).contains(&s.pitch), "{}: высота {}", s.event, s.pitch);
+            assert!(s.volume > 0.0 && s.volume <= 1.0, "{}: громкость {}", s.event, s.volume);
+            assert!(s.source == SOURCE_BLOCK || s.source == SOURCE_PLAYER);
+        }
+        // Фон машины тише её старта и результата: он звучит чаще всех.
+        for m in &MACHINE_SOUNDS {
+            assert!(m.work.volume <= m.start.volume.max(m.done.volume), "{}", m.machine);
+        }
+        // Машины — категория блоков, остальное делает игрок.
+        assert!(MACHINE_SOUNDS.iter().all(|m| m.done.source == SOURCE_BLOCK));
+        assert_eq!(sound(Cue::Pill).map(|s| s.source), Some(SOURCE_PLAYER));
+    }
+
+    /// Ванильный список звуковых событий 26.3 из ресурсов лаунчера: сначала
+    /// реестр сервера (`registries.json`, по нему сервер и пропускает звук),
+    /// иначе `sounds.json` клиента. Нет лаунчера — `None`, проверку пропускаем.
+    fn vanilla_sound_list() -> Option<(std::path::PathBuf, String)> {
+        let home = std::env::var_os("HOME")?;
+        let versions =
+            std::path::Path::new(&home).join("Library/Application Support/horizon-launcher/versions");
+        let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(versions)
+            .ok()?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        dirs.sort();
+        for file in ["registries.json", "assets/minecraft/sounds.json"] {
+            for dir in dirs.iter().rev() {
+                let path = dir.join(".local/horizon-client/26.3").join(file);
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    return Some((path, text));
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn sound_events_exist_in_vanilla_26_3() {
+        let Some((path, text)) = vanilla_sound_list() else {
+            eprintln!("ванильный список звуков 26.3 не найден — проверка пропущена");
+            return;
+        };
+        let registry = path.ends_with("registries.json");
+        for s in all_sounds() {
+            // В реестре имя полное, в `sounds.json` — без `minecraft:`. Кавычки
+            // с обеих сторон: имя события, а не кусок другого.
+            let name = if registry { s.event } else { s.event.trim_start_matches("minecraft:") };
+            assert!(
+                text.contains(&format!("\"{name}\"")),
+                "{} нет в {}",
+                s.event,
+                path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn machine_starts_once_hums_rarely_and_rings_when_done() {
+        // Из простоя — старт, дальше тишина до фона.
+        assert_eq!(machine_beat(false, Step::Working(1)), (Some(Phase::Start), true));
+        assert_eq!(machine_beat(true, Step::Working(2)), (None, true));
+        assert_eq!(machine_beat(true, Step::Working(MACHINE_HUM_EVERY)), (Some(Phase::Work), true));
+        assert_eq!(machine_beat(true, Step::Working(MACHINE_HUM_EVERY + 1)), (None, true));
+        let hums = (1..=400).filter(|p| machine_beat(true, Step::Working(*p)).0.is_some()).count();
+        assert_eq!(hums, 5, "фон раз в четыре секунды, не каждый тик");
+        // Готово, и следующий предмет стопки идёт без нового старта.
+        assert_eq!(machine_beat(true, Step::Finish), (Some(Phase::Done), true));
+        assert_eq!(machine_beat(true, Step::Working(1)), (None, true));
+        // Простой сбрасывает отметку: следующая работа снова со стартом.
+        assert_eq!(machine_beat(true, Step::Idle), (None, false));
+        assert_eq!(machine_beat(false, Step::Idle), (None, false));
+        // Рецепт в один тик: сразу готово.
+        assert_eq!(machine_beat(false, Step::Finish), (Some(Phase::Done), true));
+    }
+
+    #[test]
+    fn doses_and_injections_pick_their_sound() {
+        let cue = |item: &str| medicine(item).map(|m| dose_cue(m.form));
+        assert_eq!(cue("biolab:pill_penicillin"), Some(Cue::Pill));
+        assert_eq!(cue("biolab:syringe_vaccine"), Some(Cue::SyringeSelf));
+        assert_eq!(cue("biolab:ointment_analgesic"), Some(Cue::Ointment));
+        assert_eq!(cue("biolab:spray_stimulant"), Some(Cue::Spray));
+        assert_eq!(mob_injection_cue("biolab:syringe_venom"), Cue::SyringeMob);
+        assert_eq!(mob_injection_cue("biolab:syringe_mutagen"), Cue::Mutagen);
     }
 }
 

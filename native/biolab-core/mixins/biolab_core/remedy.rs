@@ -5,6 +5,34 @@ fn biolab_core_use_item(
     claimed: &mut bool,
 ) {
     use crate::game::biolab_core as m;
+    /// Звук события мода в точке `at` всем игрокам рядом. Звук встаёт в
+    /// очередь уровня (`native_play_sound`, API 25), и сервер рассылает его
+    /// пакетом — в одиночной игре тоже: окно подключено к своему серверу как
+    /// игрок. Без своего сервера (клиент) `native_play_sound` звук не берёт,
+    /// поэтому там выходим сразу. `with_level` — внутренний API игры, не
+    /// хук-поинт: при обновлении Horizon проверить.
+    fn play_at(
+        game: &mut crate::game::Game<'_>,
+        cue: crate::game::biolab_core::Cue,
+        at: [f64; 3],
+    ) {
+        let Some(sound) = crate::game::biolab_core::sound(cue) else {
+            return;
+        };
+        if game.serving.is_none() && game.options.dedicated.is_none() {
+            return;
+        }
+        let _ = game.with_level(|_, level, _| {
+            level.native_play_sound(sound.event, at, sound.source, sound.volume, sound.pitch)
+        });
+    }
+    /// Звук у головы игрока, который действует.
+    fn play(game: &mut crate::game::Game<'_>, cue: crate::game::biolab_core::Cue) {
+        if let Some(player) = game.native_player() {
+            play_at(game, cue, [player.x, player.y + 1.0, player.z]);
+        }
+    }
+
     if !game.native_on(m::ID) {
         return;
     }
@@ -32,6 +60,7 @@ fn biolab_core_use_item(
             carried.count = carried.count.saturating_sub(1);
         }
         game.native_chat("Повязка наложена: кровотечение остановлено");
+        play(game, m::Cue::Bandage);
         *claimed = true;
         return;
     }
@@ -72,6 +101,8 @@ fn biolab_core_use_item(
                 best = Some((mob.id, far));
             }
         }
+        // Выстрел слышен и при промахе: дротик всё равно улетел.
+        play(game, m::Cue::DartShot);
         let Some((target, _)) = best else {
             game.native_chat("Дротик ушёл в пустоту: цели на прицеле нет");
             *claimed = true;
@@ -83,10 +114,15 @@ fn biolab_core_use_item(
             .find(|mob| mob.id == target)
             .map(|mob| mob.kind.id.to_string())
             .unwrap_or_default();
+        let mut hit = None;
         if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == target) {
             for effect in effects {
                 mob.add_effect(effect, ticks, amplifier);
             }
+            hit = Some([mob.position.x, mob.position.y + 0.9, mob.position.z]);
+        }
+        if let Some(at) = hit {
+            play_at(game, m::Cue::DartHit, at);
         }
         game.native_chat(&m::injection_message(syringe, &name));
         let world = game.world_root.clone();
@@ -133,6 +169,7 @@ fn biolab_core_use_item(
             carried.count = carried.count.saturating_sub(1);
         }
         game.native_chat(&m::crop_label(&genes));
+        play(game, m::Cue::Eat);
         *claimed = true;
         return;
     }
@@ -167,6 +204,7 @@ fn biolab_core_use_item(
         };
         game.native_chat(&m::splice_message(result, name, strength));
         if result == m::Splice::Done {
+            play(game, m::Cue::GeneTherapy);
             let slot = game.selected as i32;
             if let Some(carried) = game.native_carried_stack(slot)
                 && &*carried.item == m::FRAGMENT_ID
@@ -189,6 +227,8 @@ fn biolab_core_use_item(
             return;
         };
         game.native_chat(&m::dose_message(med, &state));
+        // Укол, таблетка, мазь или аэрозоль — по форме препарата.
+        play(game, m::dose_cue(med.form));
         // Съеденную таблетку и вколотую ампулу убираем сами: клик мы забрали,
         // ванильный расход предмета уже не сработает. От шприца остаётся
         // пустой: последний в стаке подменяем прямо в слоте, потому что
@@ -262,6 +302,7 @@ fn biolab_core_use_item(
         let next = state.infection.saturating_sub(relief);
         m::set_infection(&world, uuid, next);
         game.native_chat(&m::remedy_message(state.infection, next));
+        play(game, m::Cue::Remedy);
         *claimed = true;
         return;
     }

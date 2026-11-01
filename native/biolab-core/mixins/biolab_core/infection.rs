@@ -2,6 +2,34 @@
 fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
     use crate::game::biolab_core as m;
     use horizon_client::effects::EffectInstance;
+    /// Звук события мода в точке `at` всем игрокам рядом. Звук встаёт в
+    /// очередь уровня (`native_play_sound`, API 25), и сервер рассылает его
+    /// пакетом — в одиночной игре тоже: окно подключено к своему серверу как
+    /// игрок. Без своего сервера (клиент) `native_play_sound` звук не берёт,
+    /// поэтому там выходим сразу. `with_level` — внутренний API игры, не
+    /// хук-поинт: при обновлении Horizon проверить.
+    fn play_at(
+        game: &mut crate::game::Game<'_>,
+        cue: crate::game::biolab_core::Cue,
+        at: [f64; 3],
+    ) {
+        let Some(sound) = crate::game::biolab_core::sound(cue) else {
+            return;
+        };
+        if game.serving.is_none() && game.options.dedicated.is_none() {
+            return;
+        }
+        let _ = game.with_level(|_, level, _| {
+            level.native_play_sound(sound.event, at, sound.source, sound.volume, sound.pitch)
+        });
+    }
+    /// Звук у головы игрока, который действует.
+    fn play(game: &mut crate::game::Game<'_>, cue: crate::game::biolab_core::Cue) {
+        if let Some(player) = game.native_player() {
+            play_at(game, cue, [player.x, player.y + 1.0, player.z]);
+        }
+    }
+
     if !game.native_on(m::ID) {
         return;
     }
@@ -47,6 +75,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
                     m::mutagen_world_tick(&world, uuid, m::FLUID_EVERY as u32, state.ticks)
             {
                 game.native_chat(&m::mutagen_message(name));
+                play(game, m::Cue::Mutagen);
             }
             if fluid.infects > 0 {
                 m::infect_world_player(&world, uuid, &m::WILD, fluid.infects);
@@ -172,10 +201,18 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             identified: entries.iter().filter(|e| e.identified).count() as u32,
         };
         let (mask, opened) = m::research_tick(&world, uuid, &facts);
+        let mut fresh = false;
         for index in opened {
             if index != 0 {
                 game.native_chat(&m::research_message(index));
+                fresh = true;
             }
+        }
+        // Новый узел — короткий приятный звук, один на все открытые разом.
+        // Играем его здесь, на сервере, где узел и открылся: клиент об этом
+        // узнаёт только по маске и сравнивать её ему не с чем.
+        if fresh {
+            play(game, m::Cue::Research);
         }
         let _ = game.native_net_send_to_player(uuid, m::NET_RESEARCH, &m::research_packet(mask));
     }
