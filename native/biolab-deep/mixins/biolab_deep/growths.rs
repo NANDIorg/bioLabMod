@@ -1090,6 +1090,131 @@ pub fn second_head(strength: u8, head: &Frame, m: &Motion) -> Option<(Xf, f32)> 
     Some((xf, k))
 }
 
+// ---- Игрок от первого лица ----
+//
+// От первого лица игрок видит только руку (её рисует игра, когда рука пуста
+// или держит карту) и то, что само лезет в кадр. На руке — те же наросты, что
+// на модели: когти, лоскут перепонки, хитиновый наплечник, шипы, костяные
+// наросты. Отдельно от руки — третья рука у плеча и щупальца снизу кадра.
+// Рога, хвост, вторая голова, жабры, глаза, челюсть, горб и крылья за спиной
+// из глаз не видно — их нет.
+
+/// Черты, которые видны на руке в кадре.
+pub const FIRST_PERSON_ARM: [&str; 5] =
+    ["rending_claws", "membranes", "chitin", "thorns", "dense_bone"];
+
+/// Наросты на руке в кадре: та же таблица, что у модели, но только черты
+/// руки и только на той руке, которую рисует игра (`frame` — её кадр).
+pub fn first_person_arm(st: &dyn Fn(&str) -> u8, frame: Frame, left: bool, m: Motion) -> Vec<Batch> {
+    let mut frames = [None; 6];
+    let anchor = if left { Anchor::LeftArm } else { Anchor::RightArm };
+    frames[anchor.index()] = Some(frame);
+    let arm_only = |name: &str| if FIRST_PERSON_ARM.contains(&name) { st(name) } else { 0 };
+    build(&arm_only, &frames, m)
+}
+
+/// Третья рука в кадре: поза — как у руки игрока (`player_arm_pose` с этой
+/// стороны и своим замахом), сдвинутая в пространстве вида и уменьшенная.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewArm {
+    pub left: bool,
+    /// Сдвиг в пространстве вида, блоки: x — вправо, y — вверх, z — назад.
+    pub offset: [f32; 3],
+    pub scale: f32,
+    /// Замах 0…1 для `player_arm_pose`.
+    pub attack: f32,
+}
+
+/// Где третья рука в кадре относительно своей руки: выше и чуть дальше —
+/// растёт из-за плеча и нависает над рукой игрока, не закрывая середину.
+pub const VIEW_ARM_OFFSET: [f32; 3] = [0.06, 0.24, 0.1];
+
+/// Замах, запоздавший на долю `delay`: третья рука бьёт следом за своей.
+pub fn delayed(swing: f32, delay: f32) -> f32 {
+    ((swing.clamp(0.0, 1.0) - delay) / (1.0 - delay)).clamp(0.0, 1.0)
+}
+
+/// Лишние руки в кадре (полимелия): правая с первой силы, при силе 3 и левая —
+/// как на модели (`extra_arms`). Чуть покачиваются на месте, при ударе бьют
+/// следом за рукой игрока; размер — как на модели.
+pub fn view_arms(strength: u8, swing: f32, age: f32) -> Vec<ViewArm> {
+    let s = strength.min(3);
+    if s == 0 {
+        return Vec::new();
+    }
+    let scale = [0.75, 0.9, 1.0][usize::from(s) - 1];
+    let mut out = Vec::new();
+    for left in [false, true] {
+        if left && s < 3 {
+            break;
+        }
+        let sign = if left { -1.0 } else { 1.0 };
+        let phase = if left { PI } else { 0.0 };
+        let [x, y, z] = VIEW_ARM_OFFSET;
+        out.push(ViewArm {
+            left,
+            offset: [
+                sign * (x + 0.01 * (age * 0.07 + phase).cos()),
+                y + 0.015 * (age * 0.09 + phase).sin(),
+                z,
+            ],
+            scale,
+            attack: delayed(swing, if left { 0.3 } else { 0.15 }),
+        });
+    }
+    out
+}
+
+/// Щупальце в кадре: основание (пиксели в пространстве вида: x — вправо,
+/// y — вверх, z — назад) и направление первого сегмента. Растёт снизу из-за
+/// края кадра вверх, к середине и вперёд; левое — зеркало правого.
+#[derive(Clone, Copy, Debug)]
+pub struct ViewTentacle {
+    pub off: [f32; 3],
+    pub rot: [f32; 3],
+    pub left: bool,
+    pub phase: f32,
+    pub from_strength: u8,
+}
+
+/// Щупальце в кадре: потолще, чем на модели, — оно ближе к глазам и должно
+/// читаться; концы загибаются вперёд, от игрока.
+const VIEW_TENTACLE: Chain = Chain {
+    segments: 5,
+    length: 2.6,
+    thick: [2.6, 0.8],
+    curl: [-0.08, 0.0, 0.0],
+    sway: [0.12, 0.0, 0.1],
+    speed: 0.14,
+    lag: 0.5,
+    ..C
+};
+
+/// Щупальца в кадре: два с первой силы (по углам), третье и четвёртое — ниже
+/// и шире. Столько же, сколько на модели (`TENTACLES`).
+pub const VIEW_TENTACLES: [ViewTentacle; 4] = [
+    ViewTentacle { off: [15.0, -15.0, -13.0], rot: [-0.3, 0.0, 0.35], left: false, phase: 0.0, from_strength: 1 },
+    ViewTentacle { off: [15.0, -15.0, -13.0], rot: [-0.3, 0.0, 0.35], left: true, phase: 1.3, from_strength: 1 },
+    ViewTentacle { off: [20.0, -17.0, -10.0], rot: [-0.2, 0.0, 0.55], left: false, phase: 2.1, from_strength: 2 },
+    ViewTentacle { off: [20.0, -17.0, -10.0], rot: [-0.2, 0.0, 0.55], left: true, phase: 4.2, from_strength: 3 },
+];
+
+/// Грани щупалец в кадре, в пикселях пространства вида.
+pub fn view_tentacles(strength: u8, m: &Motion) -> Vec<Quad> {
+    let s = strength.min(3);
+    let mut out = Vec::new();
+    if s == 0 {
+        return out;
+    }
+    // Точка крепления — начало координат вида: всё место задаёт `off`.
+    let origin = Frame { to_local: I3, min: [0.0; 3], max: [0.0; 3], down: [0.0, -1.0, 0.0] };
+    for t in VIEW_TENTACLES.iter().filter(|t| t.from_strength <= s) {
+        let c = Chain { off: t.off, rot: t.rot, phase: t.phase, ..VIEW_TENTACLE };
+        chain_quads(&c, &origin, s, t.left, m, &mut out);
+    }
+    out
+}
+
 // ---- Связь с игрой ----
 
 /// Сила гена у мутанта 0…3. Единственная точка, где наросты читают геном.
@@ -1192,10 +1317,20 @@ pub fn draw_growths(
     data: &crate::mobs::MobData,
     out: &mut Vec<crate::mesher::Vertex>,
 ) {
-    let Some(genome) = crate::biolab_mutants::genome(m.id) else {
+    // Игрок (своя модель, чужие игроки, превью в инвентаре) — не моб: его
+    // гены приходят пакетом с сервера (`biolab_players`), а геном мобов по id
+    // к нему не относится. Модель игрока — гуманоид, и крепления те же.
+    let player = crate::biolab_players::is_player(m);
+    let genome = if player { None } else { crate::biolab_mutants::genome(m.id) };
+    let genes = if player { crate::biolab_players::of_model(m.id) } else { None };
+    if genome.is_none() && genes.is_none() {
         return;
+    }
+    let st = |name: &str| match (&genome, &genes) {
+        (Some(g), _) => strength(g, name),
+        (None, Some(p)) => p.strength_of(name),
+        (None, None) => 0,
     };
-    let st = |name: &str| strength(&genome, name);
     if !TRAITS.iter().any(|t| st(*t) > 0) {
         return;
     }
@@ -1233,30 +1368,20 @@ pub fn draw_growths(
     // Красная вспышка от удара — как у тела.
     let overlay = crate::overlay::living(0.0, m.hurt_time > 0 || m.death_time > 0);
     // Цвет тела уже с оттенком мутанта (RETURN на `body_color`, `color.rs`).
+    // У игрока это белый: плоть и перепонка остаются цвета текстуры
+    // (нейтральная розоватая кожа), а не красятся под скин.
     let tint = crate::mobs::render::body_color(m, alpha);
     let still = crate::mobs::anim::Poses::default();
     if let Some(uv) = atlas(SPRITE) {
         for b in build(&st, &frames, motion) {
             let Some(mat) = mats[b.anchor.index()] else { continue };
-            let (color, lit) = match b.paint {
-                Paint::Tinted => (tint, light),
-                Paint::Natural => (0xFFFF_FFFF, light),
-                Paint::Glowing => (0xFFFF_FFFF, 240 | 240 << 8),
-            };
-            let start = out.len();
-            crate::mobs::render::draw(&to_part(&b.quads), mat, &still, uv, color, lit, overlay, out);
-            if b.paint == Paint::Glowing {
-                // Как светящиеся слои (глаза паука): без затенения гранью и с
-                // отметкой яркого для HDR.
-                for v in &mut out[start..] {
-                    v.normal = [0; 4];
-                    v.layer |= u32::from(crate::mesher::BRIGHT) << 16;
-                }
-            }
+            draw_batch(&b, mat, uv, tint, light, overlay, out);
         }
     }
-    // Копии частей самой модели: её текстура и цвет тела.
-    let Some(uv) = atlas(&texture) else {
+    // Копии частей самой модели: её текстура и цвет тела. Скин игрока без
+    // места в атласе (не скачан) игра рисует скином по умолчанию — так же и
+    // его третью руку и вторую голову.
+    let Some(uv) = atlas(&texture).or_else(|| if player { atlas(&m.kind.texture) } else { None }) else {
         return;
     };
     let arms = st("polymelia");
@@ -1293,6 +1418,127 @@ pub fn draw_growths(
                 let mat = head_m * glam::Mat4::from_cols_array(&to_cols(&xf, scale));
                 crate::mobs::render::draw(&copy, mat, &still, uv, tint, light, overlay, out);
             }
+        }
+    }
+}
+
+/// Грани одного якоря одной окраски — одной частью модели под матрицей
+/// якоря `mat`. Плоть и перепонка — цветом `tint`, остальное своим цветом,
+/// свечение — полной яркостью.
+#[cfg(not(test))]
+fn draw_batch(
+    b: &Batch,
+    mat: glam::Mat4,
+    uv: [f32; 4],
+    tint: u32,
+    light: u32,
+    overlay: u32,
+    out: &mut Vec<crate::mesher::Vertex>,
+) {
+    let still = crate::mobs::anim::Poses::default();
+    let (color, lit) = match b.paint {
+        Paint::Tinted => (tint, light),
+        Paint::Natural => (0xFFFF_FFFF, light),
+        Paint::Glowing => (0xFFFF_FFFF, 240 | 240 << 8),
+    };
+    let start = out.len();
+    crate::mobs::render::draw(&to_part(&b.quads), mat, &still, uv, color, lit, overlay, out);
+    if b.paint == Paint::Glowing {
+        // Как светящиеся слои (глаза паука): без затенения гранью и с
+        // отметкой яркого для HDR.
+        for v in &mut out[start..] {
+            v.normal = [0; 4];
+            v.layer |= u32::from(crate::mesher::BRIGHT) << 16;
+        }
+    }
+}
+
+/// Поза части руки в кадре — так же, как её ставит игра
+/// (`Game::first_person_arm`): шарнир плеча из модели, без наклона, только
+/// поворот наружу на 0,1 рад.
+#[cfg(not(test))]
+fn first_person_arm_pose(arm: &crate::mobs::Part, left: bool) -> [f32; 9] {
+    let mut pose = arm.pose;
+    pose[3] = 0.0;
+    pose[4] = 0.0;
+    pose[5] = if left { -0.1 } else { 0.1 };
+    pose
+}
+
+/// Наросты на руке в кадре: в HEAD `Game::first_person_arm`, с той же позой
+/// руки `m`, что у игры. `arm` — часть руки игрока (её кадр — по её граням),
+/// `uv` — текстура наростов в атласе. Свет — как у руки, без вспышки удара:
+/// руку в кадре игра тоже рисует без неё.
+#[cfg(not(test))]
+#[allow(clippy::too_many_arguments)]
+pub fn draw_first_person_arm(
+    st: &dyn Fn(&str) -> u8,
+    arm: &crate::mobs::Part,
+    left: bool,
+    m: glam::Mat4,
+    light: u32,
+    age: f32,
+    uv: [f32; 4],
+    out: &mut Vec<crate::mesher::Vertex>,
+) {
+    let Some((min, max)) = local_bounds(arm) else {
+        return;
+    };
+    let motion = Motion { age, ..Motion::default() };
+    let batches = first_person_arm(st, Frame::new(I3, min, max, false), left, motion);
+    if batches.is_empty() {
+        return;
+    }
+    let p = first_person_arm_pose(arm, left);
+    // Как `render_model`: сдвиг шарнира (пиксели → блоки), поворот Rz·Ry·Rx, масштаб.
+    let mat = m
+        * glam::Mat4::from_translation(glam::Vec3::new(p[0], p[1], p[2]) / 16.0)
+        * glam::Mat4::from_quat(glam::Quat::from_euler(glam::EulerRot::ZYX, p[5], p[4], p[3]))
+        * glam::Mat4::from_scale(glam::Vec3::new(p[6], p[7], p[8]));
+    for b in &batches {
+        draw_batch(b, mat, uv, 0xFFFF_FFFF, light, 0, out);
+    }
+}
+
+/// Наросты в кадре, не привязанные к руке: в RETURN `Game::hand_geometry`.
+/// Третья рука — копия руки игрока (`arms`: правая, левая) с его скином
+/// (`skin`) в позе руки в кадре со своим сдвигом и замахом; щупальца — свои
+/// кубы с текстурой наростов (`growth`). `to_world` — кадр рук (вид с
+/// покачиванием), как у игры.
+#[cfg(not(test))]
+#[allow(clippy::too_many_arguments)]
+pub fn draw_first_person_view(
+    st: &dyn Fn(&str) -> u8,
+    arms: [Option<&crate::mobs::Part>; 2],
+    to_world: glam::Mat4,
+    swing: f32,
+    age: f32,
+    light: u32,
+    skin: Option<[f32; 4]>,
+    growth: Option<[f32; 4]>,
+    out: &mut Vec<crate::mesher::Vertex>,
+) {
+    let still = crate::mobs::anim::Poses::default();
+    if let Some(uv) = skin {
+        for a in view_arms(st("polymelia"), swing, age) {
+            let Some(arm) = arms[usize::from(a.left)] else { continue };
+            let mut copy = arm.clone();
+            copy.pose = first_person_arm_pose(arm, a.left);
+            // Масштаб — после позы руки: рука уменьшается на своём месте, а
+            // не съезжает к середине кадра.
+            let mat = to_world
+                * glam::Mat4::from_translation(glam::Vec3::from_array(a.offset))
+                * crate::first_person::player_arm_pose(a.left, 0.0, a.attack)
+                * glam::Mat4::from_scale(glam::Vec3::splat(a.scale));
+            crate::mobs::render::draw(&copy, mat, &still, uv, 0xFFFF_FFFF, light, 0, out);
+        }
+    }
+    if let Some(uv) = growth {
+        let motion = Motion { age, swing, ..Motion::default() };
+        let quads = view_tentacles(st("tentacles"), &motion);
+        if !quads.is_empty() {
+            let b = Batch { anchor: Anchor::Body, paint: Material::Flesh.paint(), quads };
+            draw_batch(&b, to_world, uv, 0xFFFF_FFFF, light, 0, out);
         }
     }
 }
@@ -1720,6 +1966,107 @@ mod tests {
         }
         assert!(max_x < head.min[0] + 0.5, "копия не влезает в голову: {max_x}");
         assert!(xf.t[1] > 0.0, "ниже — на плече");
+    }
+
+    /// Рука игрока в кадре: куб (−3, −2, −2)…(1, 10, 2) у правой, зеркально у
+    /// левой (широкий скин).
+    fn first_person_frames() -> [Frame; 2] {
+        [
+            Frame::new(I3, [-3.0, -2.0, -2.0], [1.0, 10.0, 2.0], false),
+            Frame::new(I3, [-1.0, -2.0, -2.0], [3.0, 10.0, 2.0], false),
+        ]
+    }
+
+    #[test]
+    fn the_first_person_arm_shows_only_what_grows_on_the_arm() {
+        let [right, left] = first_person_frames();
+        for gene in TRAITS {
+            let b = first_person_arm(&only(gene, 3), right, false, Motion::default());
+            if FIRST_PERSON_ARM.contains(&gene) {
+                assert!(quads(&b) > 0, "{gene} на руке в кадре");
+                assert!(b.iter().all(|b| b.anchor == Anchor::RightArm), "{gene}");
+                // На левой руке — зеркальные наросты той же черты.
+                let l = first_person_arm(&only(gene, 3), left, true, Motion::default());
+                assert!(quads(&l) > 0 && l.iter().all(|b| b.anchor == Anchor::LeftArm), "{gene} слева");
+            } else {
+                assert!(b.is_empty(), "{gene} из глаз не видно");
+            }
+        }
+        // Рога, хвост, вторая голова от первого лица не рисуются.
+        for gene in ["horns", "tail", "dicephaly", "polymelia", "tentacles"] {
+            assert!(!FIRST_PERSON_ARM.contains(&gene));
+        }
+        // Когти торчат из кисти дальше конца руки.
+        let b = first_person_arm(&only("rending_claws", 1), right, false, Motion::default());
+        let tip = b.iter().flat_map(|b| &b.quads).flat_map(|q| q.pos).map(|p| p[1]).fold(f32::MIN, f32::max);
+        assert!(tip > 10.5, "когти за кистью: {tip}");
+        // Лоскут перепонки на руке — со второй силы, как на модели.
+        assert!(first_person_arm(&only("membranes", 1), right, false, Motion::default()).is_empty());
+    }
+
+    #[test]
+    fn the_third_arm_in_view_strikes_after_the_hand() {
+        assert!(view_arms(0, 0.5, 0.0).is_empty());
+        for s in 1..=2 {
+            let a = view_arms(s, 0.0, 0.0);
+            assert_eq!(a.len(), 1);
+            assert!(!a[0].left, "первая — справа, как на модели");
+        }
+        let three = view_arms(3, 0.0, 10.0);
+        assert_eq!(three.len(), 2);
+        assert!(three[1].left);
+        // Над своей рукой и по своей стороне кадра.
+        assert!(three[0].offset[0] > 0.0 && three[1].offset[0] < 0.0);
+        assert!(three.iter().all(|a| a.offset[1] > 0.1));
+        let scales = [1, 2, 3].map(|s| view_arms(s, 0.0, 0.0)[0].scale);
+        assert!(scales[0] < scales[1] && scales[1] < scales[2]);
+        // Замах — следом за рукой: начинается позже, кончается вместе с ней.
+        assert_eq!(view_arms(1, 0.0, 0.0)[0].attack, 0.0);
+        assert_eq!(view_arms(1, 1.0, 0.0)[0].attack, 1.0);
+        assert_eq!(view_arms(1, 0.1, 0.0)[0].attack, 0.0);
+        let mid = view_arms(1, 0.5, 0.0)[0].attack;
+        assert!(mid > 0.0 && mid < 0.5, "{mid}");
+        // Покачивается на месте.
+        assert_ne!(view_arms(1, 0.0, 0.0)[0].offset, view_arms(1, 0.0, 20.0)[0].offset);
+    }
+
+    #[test]
+    fn view_tentacles_rise_from_below_into_view() {
+        let m = Motion::default();
+        assert!(view_tentacles(0, &m).is_empty());
+        for (s, count) in [(1, 2), (2, 3), (3, 4)] {
+            assert_eq!(view_tentacles(s, &m).len(), count * 5 * 6, "{count} щупальца по 5 сегментов");
+        }
+        let q = view_tentacles(1, &m);
+        let (right, left) = q.split_at(q.len() / 2);
+        for t in [right, left] {
+            // Основание — под нижним краем кадра, конец — выше основания,
+            // всё целиком — перед глазами (вид смотрит в −Z).
+            let base = t[0].pos.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
+            let tip = t.last().unwrap().pos.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+            assert!(base < -12.0, "{base}");
+            assert!(tip > base + 8.0, "растёт вверх: {base} → {tip}");
+            assert!(t.iter().flat_map(|q| q.pos).all(|p| p[2] < 0.0), "перед глазами");
+        }
+        // Входят в кадр: основание за нижним краем (угол обзора рук — 70° по
+        // вертикали, tg 35° ≈ 0,7), конец — в кадре, как бы ни извивались.
+        let slope = |p: [f32; 3]| p[1] / -p[2];
+        for (s, age) in (1..=3).flat_map(|s| (0..120).step_by(5).map(move |a| (s, a))) {
+            let q = view_tentacles(s, &Motion { age: age as f32, ..m });
+            for t in q.chunks(5 * 6) {
+                assert!(slope(t[0].pos[0]) < -0.7, "основание видно: {:?}", t[0].pos[0]);
+                let tip = t.last().unwrap().pos[2];
+                assert!(slope(tip).abs() < 0.7, "конец за кадром на {age}: {tip:?}");
+            }
+        }
+        // Правое справа, левое слева.
+        assert!(right[0].pos[0][0] > 5.0 && left[0].pos[0][0] < -5.0);
+        // Извиваются.
+        let later = view_tentacles(1, &Motion { age: 15.0, ..m });
+        assert!((q[29].pos[0][0] - later[29].pos[0][0]).abs() > 0.2);
+        // Развёртка щупальца в кадре влезает в блок своего материала.
+        let [w, h] = net_extent(chain_net(&VIEW_TENTACLE));
+        assert!(w <= BLOCK[0] && h <= BLOCK[1], "{w}×{h}");
     }
 
     #[test]

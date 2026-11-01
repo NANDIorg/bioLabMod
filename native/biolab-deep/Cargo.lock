@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "biolab-core"
+version = "0.1.0"
+
+[[package]]
 name = "biolab-deep"
 version = "0.1.0"
+dependencies = [
+ "biolab-core",
+]

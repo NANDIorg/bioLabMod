@@ -15,6 +15,71 @@ mod tab;
 mod surgery;
 #[path = "../mixins/biolab_deep/growths.rs"]
 mod growths;
+#[path = "../mixins/biolab_deep/players.rs"]
+mod players;
+
+/// Гены игрока идут с сервера пакетом: собирает его `biolab-core`
+/// (`genes_packet`), разбирает и раскладывает по моделям `biolab_players`.
+/// Проверяем настоящим кодом обеих сторон (GDD 4.19, этап «игрок»).
+#[test]
+fn the_genes_packet_from_core_reaches_the_player_models() {
+    use biolab_core::{PlayerState, Splice, genes_packet, splice_player};
+    assert_eq!(biolab_core::NET_GENES, players::CHANNEL);
+    assert_eq!(biolab_core::GENES_PACKET_VERSION, players::VERSION);
+    let mut me = PlayerState::default();
+    assert_eq!(splice_player(&mut me, "tentacles", 2), Splice::Done);
+    assert_eq!(splice_player(&mut me, "polymelia", 3), Splice::Done);
+    let mut other = PlayerState::default();
+    assert_eq!(splice_player(&mut other, "horns", 1), Splice::Done);
+    let data = genes_packet(&[(7, me), (8, other), (9, PlayerState::default())]);
+
+    let list = players::decode(&data).expect("пакет core разбирается");
+    assert_eq!(list.iter().map(|(u, _)| *u).collect::<Vec<_>>(), vec![7, 8, 9]);
+    // Сущности окна: у игрока 8 две (пересоздана), 9 без генов, 55 нет в пакете.
+    let entities = [(100, 8), (101, 8), (102, 9), (103, 55)];
+    let (own, others) = players::assign(list, &entities);
+    let own = own.expect("свои гены — первая запись");
+    assert_eq!(own.strength_of("tentacles"), 2);
+    assert_eq!(own.strength_of("polymelia"), 3);
+    assert_eq!(own.strength_of("horns"), 0);
+    assert_eq!(others[&100].strength_of("horns"), 1);
+    assert_eq!(others[&101], others[&100]);
+    assert!(!others.contains_key(&102) && !others.contains_key(&103));
+
+    // Все черты наростов — гены, которые core знает по имени: иначе игроку
+    // они не придут никогда.
+    for gene in growths::TRAITS {
+        assert!(biolab_core::GENES.iter().any(|g| g.name == gene), "{gene} нет у core");
+    }
+    // Рука в кадре ищет в атласе ту же текстуру наростов, что и модель.
+    assert_eq!(players::SPRITE, growths::SPRITE);
+
+    // Память окна: своя модель — id 0, чужие — по id сущности.
+    assert!(players::receive(&data, &entities));
+    assert_eq!(players::of_model(players::OWN_MODEL).map(|g| g.strength_of("tentacles")), Some(2));
+    assert_eq!(players::of_model(100).map(|g| g.strength_of("horns")), Some(1));
+    assert!(players::of_model(102).is_none());
+    assert_eq!(players::own().map(|g| g.strength_of("polymelia")), Some(3));
+    // Чужая версия или обрезанный пакет не трогают то, что уже известно.
+    assert!(!players::receive(&[players::VERSION + 1], &entities));
+    assert!(!players::receive(&data[..data.len() - 1], &entities));
+    assert!(players::own().is_some());
+    // Генов не стало — наросты снимаются: пакет приходит и пустым.
+    assert!(players::receive(&genes_packet(&[(7, PlayerState::default())]), &entities));
+    assert!(players::own().is_none());
+    assert!(players::of_model(players::OWN_MODEL).is_none());
+    assert!(players::of_model(100).is_none());
+}
+
+/// Сила гена у игрока — как у мутанта: 0–3, нулевые гены не хранятся.
+#[test]
+fn player_genes_read_like_a_genome() {
+    let genes = players::PlayerGenes::new([("tail".to_owned(), 5), ("horns".to_owned(), 0)]);
+    assert_eq!(genes.strength_of("tail"), 3);
+    assert_eq!(genes.strength_of("horns"), 0);
+    assert!(!genes.is_empty());
+    assert!(players::PlayerGenes::new([("horns".to_owned(), 0)]).is_empty());
+}
 
 /// Наросты читают силу гена по имени: каждая видимая черта (GDD 4.19) должна
 /// называть ген из таблицы генов, иначе она молча не нарисуется.
