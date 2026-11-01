@@ -5628,7 +5628,7 @@ pub const RESEARCH: [Research; 47] = [
     node("vaccine", 2, (3, 1), "biolab:syringe_vaccine", "Вакцина", &["weakened"], Unlock::Item(&["biolab:syringe_vaccine"]), "Соберите на столе шприц и ослабленный штамм."),
     node("immunity", 2, (4, 1), "minecraft:golden_apple", "Иммунитет", &["vaccine"], Unlock::Immune, "Вакцину в руку и ПКМ в воздух."),
     node("infection", 2, (0, 3), "minecraft:rotten_flesh", "Заражение", &[], Unlock::Infected, "Съешьте гнилую плоть или подойдите к зомби."),
-    node("remedy", 2, (1, 3), "biolab:remedy", "Лекарство", &["infection"], Unlock::Item(&["biolab:remedy"]), "Прогоните культуру: ферментер, центрифуга."),
+    node("remedy", 2, (1, 3), "biolab:remedy", "Сыворотка", &["infection"], Unlock::Item(&["biolab:remedy"]), "Прогоните культуру: ферментер, центрифуга."),
     node("hardened", 2, (2, 3), "minecraft:fermented_spider_eye", "Стойкий штамм", &["remedy"], Unlock::Hardened, "Бросьте курс пенициллина, не долечившись."),
     // Фармакология
     node("mold", 3, (0, 1), "biolab:mold", "Плесень", &[], Unlock::Item(&["biolab:mold"]), "Положите хлеб в инкубатор."),
