@@ -1,1 +1,29 @@
-{ "model": { "type": "minecraft:model", "model": "biolab:item/flask" } }
+{
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/flask"
+        },
+        "when": [
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/flask",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 4623580
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
+}

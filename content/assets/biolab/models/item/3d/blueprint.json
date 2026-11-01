@@ -1,0 +1,302 @@
+{
+  "textures": {
+    "blueprint": "biolab:item/3d/blueprint",
+    "blueprint_end": "biolab:item/3d/blueprint_end",
+    "blueprint_roll": "biolab:item/3d/blueprint_roll",
+    "particle": "biolab:item/3d/blueprint_roll"
+  },
+  "elements": [
+    {
+      "from": [
+        1.0,
+        9.25,
+        7.0
+      ],
+      "to": [
+        15.0,
+        12.25,
+        9.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            15,
+            6.5,
+            1,
+            9.5
+          ],
+          "texture": "#blueprint_roll"
+        },
+        "south": {
+          "uv": [
+            1,
+            6.5,
+            15,
+            9.5
+          ],
+          "texture": "#blueprint_roll"
+        },
+        "west": {
+          "uv": [
+            7,
+            6.5,
+            9,
+            9.5
+          ],
+          "texture": "#blueprint_end"
+        },
+        "east": {
+          "uv": [
+            9,
+            6.5,
+            7,
+            9.5
+          ],
+          "texture": "#blueprint_end"
+        },
+        "up": {
+          "uv": [
+            1,
+            7,
+            15,
+            9
+          ],
+          "texture": "#blueprint_roll"
+        },
+        "down": {
+          "uv": [
+            1,
+            9,
+            15,
+            7
+          ],
+          "texture": "#blueprint_roll"
+        }
+      }
+    },
+    {
+      "from": [
+        1.0,
+        9.75,
+        6.5
+      ],
+      "to": [
+        15.0,
+        11.75,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            15,
+            7,
+            1,
+            9
+          ],
+          "texture": "#blueprint_roll"
+        },
+        "south": {
+          "uv": [
+            1,
+            7,
+            15,
+            9
+          ],
+          "texture": "#blueprint_roll"
+        },
+        "west": {
+          "uv": [
+            6.5,
+            7,
+            9.5,
+            9
+          ],
+          "texture": "#blueprint_end"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            7,
+            6.5,
+            9
+          ],
+          "texture": "#blueprint_end"
+        },
+        "up": {
+          "uv": [
+            1,
+            6.5,
+            15,
+            9.5
+          ],
+          "texture": "#blueprint_roll"
+        },
+        "down": {
+          "uv": [
+            1,
+            9.5,
+            15,
+            6.5
+          ],
+          "texture": "#blueprint_roll"
+        }
+      }
+    },
+    {
+      "from": [
+        1.5,
+        3.75,
+        9.0
+      ],
+      "to": [
+        14.5,
+        9.75,
+        9.25
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            14.5,
+            9,
+            1.5,
+            15
+          ],
+          "texture": "#blueprint"
+        },
+        "south": {
+          "uv": [
+            1.5,
+            9,
+            14.5,
+            15
+          ],
+          "texture": "#blueprint"
+        },
+        "west": {
+          "uv": [
+            9,
+            9,
+            9.25,
+            15
+          ],
+          "texture": "#blueprint"
+        },
+        "east": {
+          "uv": [
+            9.25,
+            9,
+            9,
+            15
+          ],
+          "texture": "#blueprint"
+        },
+        "up": {
+          "uv": [
+            1.5,
+            9,
+            14.5,
+            9.25
+          ],
+          "texture": "#blueprint"
+        },
+        "down": {
+          "uv": [
+            1.5,
+            9.25,
+            14.5,
+            9
+          ],
+          "texture": "#blueprint"
+        }
+      }
+    }
+  ],
+  "gui_light": "side",
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [
+        75,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        2.5,
+        0
+      ],
+      "scale": [
+        0.45,
+        0.45,
+        0.45
+      ]
+    },
+    "firstperson_righthand": {
+      "rotation": [
+        0,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        1.5,
+        0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "gui": {
+      "rotation": [
+        20,
+        -35,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.95,
+        0.95,
+        0.95
+      ]
+    },
+    "ground": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        0.35,
+        0.35,
+        0.35
+      ]
+    },
+    "fixed": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.75,
+        0.75,
+        0.75
+      ]
+    }
+  }
+}

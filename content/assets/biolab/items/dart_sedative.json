@@ -1,6 +1,30 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/dart_sedative"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/dart_sedative"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/dart",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 9861832
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
 }

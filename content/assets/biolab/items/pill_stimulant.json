@@ -1,6 +1,30 @@
 {
- "model": {
-  "type": "minecraft:model",
-  "model": "biolab:item/pill_stimulant"
- }
+  "model": {
+    "type": "minecraft:select",
+    "cases": [
+      {
+        "model": {
+          "type": "minecraft:model",
+          "model": "biolab:item/pill_stimulant"
+        },
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ]
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "biolab:item/3d/pill",
+      "tints": [
+        {
+          "type": "minecraft:constant",
+          "value": 12880970
+        }
+      ]
+    },
+    "property": "minecraft:display_context"
+  }
 }

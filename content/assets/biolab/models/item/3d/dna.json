@@ -1,0 +1,600 @@
+{
+  "textures": {
+    "dna_rung": "biolab:item/3d/dna_rung",
+    "dna_rung_flip": "biolab:item/3d/dna_rung_flip",
+    "particle": "biolab:item/3d/dna_rung"
+  },
+  "elements": [
+    {
+      "from": [
+        3.5,
+        0.5,
+        7.25
+      ],
+      "to": [
+        12.5,
+        2.0,
+        8.75
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12.5,
+            7.25,
+            3.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "south": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "west": {
+          "uv": [
+            3.5,
+            7.25,
+            5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "east": {
+          "uv": [
+            11,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "up": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "down": {
+          "uv": [
+            3.5,
+            8.75,
+            12.5,
+            7.25
+          ],
+          "texture": "#dna_rung"
+        }
+      }
+    },
+    {
+      "from": [
+        3.5,
+        2.75,
+        7.25
+      ],
+      "to": [
+        12.5,
+        4.25,
+        8.75
+      ],
+      "rotation": {
+        "angle": -45,
+        "axis": "y",
+        "origin": [
+          8.0,
+          3.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            12.5,
+            7.25,
+            3.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "south": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "west": {
+          "uv": [
+            3.5,
+            7.25,
+            5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "east": {
+          "uv": [
+            11,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "up": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "down": {
+          "uv": [
+            3.5,
+            8.75,
+            12.5,
+            7.25
+          ],
+          "texture": "#dna_rung"
+        }
+      }
+    },
+    {
+      "from": [
+        7.25,
+        5.0,
+        3.5
+      ],
+      "to": [
+        8.75,
+        6.5,
+        12.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7.25,
+            3.5,
+            8.75,
+            5
+          ],
+          "texture": "#dna_rung"
+        },
+        "south": {
+          "uv": [
+            7.25,
+            11,
+            8.75,
+            12.5
+          ],
+          "texture": "#dna_rung"
+        },
+        "west": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "east": {
+          "uv": [
+            12.5,
+            7.25,
+            3.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "up": {
+          "uv": [
+            7.25,
+            3.5,
+            8.75,
+            12.5
+          ],
+          "texture": "#dna_rung"
+        },
+        "down": {
+          "uv": [
+            7.25,
+            12.5,
+            8.75,
+            3.5
+          ],
+          "texture": "#dna_rung"
+        }
+      }
+    },
+    {
+      "from": [
+        7.25,
+        7.25,
+        3.5
+      ],
+      "to": [
+        8.75,
+        8.75,
+        12.5
+      ],
+      "rotation": {
+        "angle": -45,
+        "axis": "y",
+        "origin": [
+          8.0,
+          8.0,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            7.25,
+            3.5,
+            8.75,
+            5
+          ],
+          "texture": "#dna_rung"
+        },
+        "south": {
+          "uv": [
+            7.25,
+            11,
+            8.75,
+            12.5
+          ],
+          "texture": "#dna_rung"
+        },
+        "west": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "east": {
+          "uv": [
+            12.5,
+            7.25,
+            3.5,
+            8.75
+          ],
+          "texture": "#dna_rung"
+        },
+        "up": {
+          "uv": [
+            7.25,
+            3.5,
+            8.75,
+            12.5
+          ],
+          "texture": "#dna_rung"
+        },
+        "down": {
+          "uv": [
+            7.25,
+            12.5,
+            8.75,
+            3.5
+          ],
+          "texture": "#dna_rung"
+        }
+      }
+    },
+    {
+      "from": [
+        3.5,
+        9.5,
+        7.25
+      ],
+      "to": [
+        12.5,
+        11.0,
+        8.75
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12.5,
+            7.25,
+            3.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "south": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "west": {
+          "uv": [
+            3.5,
+            7.25,
+            5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "east": {
+          "uv": [
+            11,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "up": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "down": {
+          "uv": [
+            3.5,
+            8.75,
+            12.5,
+            7.25
+          ],
+          "texture": "#dna_rung_flip"
+        }
+      }
+    },
+    {
+      "from": [
+        3.5,
+        11.75,
+        7.25
+      ],
+      "to": [
+        12.5,
+        13.25,
+        8.75
+      ],
+      "rotation": {
+        "angle": -45,
+        "axis": "y",
+        "origin": [
+          8.0,
+          12.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            12.5,
+            7.25,
+            3.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "south": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "west": {
+          "uv": [
+            3.5,
+            7.25,
+            5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "east": {
+          "uv": [
+            11,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "up": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "down": {
+          "uv": [
+            3.5,
+            8.75,
+            12.5,
+            7.25
+          ],
+          "texture": "#dna_rung_flip"
+        }
+      }
+    },
+    {
+      "from": [
+        7.25,
+        14.0,
+        3.5
+      ],
+      "to": [
+        8.75,
+        15.5,
+        12.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7.25,
+            3.5,
+            8.75,
+            5
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "south": {
+          "uv": [
+            7.25,
+            11,
+            8.75,
+            12.5
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "west": {
+          "uv": [
+            3.5,
+            7.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "east": {
+          "uv": [
+            12.5,
+            7.25,
+            3.5,
+            8.75
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "up": {
+          "uv": [
+            7.25,
+            3.5,
+            8.75,
+            12.5
+          ],
+          "texture": "#dna_rung_flip"
+        },
+        "down": {
+          "uv": [
+            7.25,
+            12.5,
+            8.75,
+            3.5
+          ],
+          "texture": "#dna_rung_flip"
+        }
+      }
+    }
+  ],
+  "gui_light": "side",
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [
+        75,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        2.5,
+        0
+      ],
+      "scale": [
+        0.45,
+        0.45,
+        0.45
+      ]
+    },
+    "firstperson_righthand": {
+      "rotation": [
+        0,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        1.5,
+        0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "gui": {
+      "rotation": [
+        20,
+        -35,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.95,
+        0.95,
+        0.95
+      ]
+    },
+    "ground": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        0.35,
+        0.35,
+        0.35
+      ]
+    },
+    "fixed": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.75,
+        0.75,
+        0.75
+      ]
+    }
+  }
+}
