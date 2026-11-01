@@ -1,27 +1,12 @@
 {
   "model": {
-    "type": "minecraft:select",
-    "cases": [
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/pill",
+    "tints": [
       {
-        "model": {
-          "type": "minecraft:model",
-          "model": "biolab:item/pill_antidote"
-        },
-        "when": [
-          "gui"
-        ]
+        "type": "minecraft:constant",
+        "value": 4210758
       }
-    ],
-    "fallback": {
-      "type": "minecraft:model",
-      "model": "biolab:item/3d/pill",
-      "tints": [
-        {
-          "type": "minecraft:constant",
-          "value": 4210758
-        }
-      ]
-    },
-    "property": "minecraft:display_context"
+    ]
   }
 }

@@ -1,27 +1,12 @@
 {
   "model": {
-    "type": "minecraft:select",
-    "cases": [
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/jar",
+    "tints": [
       {
-        "model": {
-          "type": "minecraft:model",
-          "model": "biolab:item/nutrient_broth"
-        },
-        "when": [
-          "gui"
-        ]
+        "type": "minecraft:constant",
+        "value": 12899980
       }
-    ],
-    "fallback": {
-      "type": "minecraft:model",
-      "model": "biolab:item/3d/jar",
-      "tints": [
-        {
-          "type": "minecraft:constant",
-          "value": 12899980
-        }
-      ]
-    },
-    "property": "minecraft:display_context"
+    ]
   }
 }

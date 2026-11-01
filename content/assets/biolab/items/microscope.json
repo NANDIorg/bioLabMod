@@ -1,21 +1,6 @@
 {
   "model": {
-    "type": "minecraft:select",
-    "cases": [
-      {
-        "model": {
-          "type": "minecraft:model",
-          "model": "biolab:item/microscope"
-        },
-        "when": [
-          "gui"
-        ]
-      }
-    ],
-    "fallback": {
-      "type": "minecraft:model",
-      "model": "biolab:item/3d/microscope"
-    },
-    "property": "minecraft:display_context"
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/microscope"
   }
 }

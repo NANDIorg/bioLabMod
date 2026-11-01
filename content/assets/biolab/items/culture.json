@@ -1,27 +1,12 @@
 {
   "model": {
-    "type": "minecraft:select",
-    "cases": [
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/petri_colonies",
+    "tints": [
       {
-        "model": {
-          "type": "minecraft:model",
-          "model": "biolab:item/culture"
-        },
-        "when": [
-          "gui"
-        ]
+        "type": "minecraft:constant",
+        "value": 12899990
       }
-    ],
-    "fallback": {
-      "type": "minecraft:model",
-      "model": "biolab:item/3d/petri_colonies",
-      "tints": [
-        {
-          "type": "minecraft:constant",
-          "value": 12899990
-        }
-      ]
-    },
-    "property": "minecraft:display_context"
+    ]
   }
 }

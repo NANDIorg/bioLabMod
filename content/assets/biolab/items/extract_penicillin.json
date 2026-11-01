@@ -1,27 +1,12 @@
 {
   "model": {
-    "type": "minecraft:select",
-    "cases": [
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/jar",
+    "tints": [
       {
-        "model": {
-          "type": "minecraft:model",
-          "model": "biolab:item/extract_penicillin"
-        },
-        "when": [
-          "gui"
-        ]
+        "type": "minecraft:constant",
+        "value": 14869172
       }
-    ],
-    "fallback": {
-      "type": "minecraft:model",
-      "model": "biolab:item/3d/jar",
-      "tints": [
-        {
-          "type": "minecraft:constant",
-          "value": 14869172
-        }
-      ]
-    },
-    "property": "minecraft:display_context"
+    ]
   }
 }

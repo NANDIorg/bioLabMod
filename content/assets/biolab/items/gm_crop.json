@@ -1,21 +1,6 @@
 {
   "model": {
-    "type": "minecraft:select",
-    "cases": [
-      {
-        "model": {
-          "type": "minecraft:model",
-          "model": "biolab:item/gm_crop"
-        },
-        "when": [
-          "gui"
-        ]
-      }
-    ],
-    "fallback": {
-      "type": "minecraft:model",
-      "model": "biolab:item/3d/pod"
-    },
-    "property": "minecraft:display_context"
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/pod"
   }
 }
