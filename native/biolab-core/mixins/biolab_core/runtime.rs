@@ -4842,56 +4842,56 @@ const fn node(
 pub const RESEARCH: [Research; 47] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
-    node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол."),
-    node("flask", 0, (2, 0), "biolab:flask", "Колба", &["bench"], Unlock::Item(&["biolab:flask"]), "Сделайте колбу."),
-    node("analyzer", 0, (3, 0), "biolab:analyzer", "Анализатор крови", &["flask"], Unlock::Item(&["biolab:analyzer"]), "Соберите анализатор крови."),
-    node("swab", 0, (2, 2), "biolab:swab", "Ватная палочка", &["bench"], Unlock::Item(&["biolab:swab"]), "Сделайте ватную палочку."),
-    node("agar", 0, (3, 2), "biolab:agar", "Агар", &["swab"], Unlock::Item(&["biolab:agar"]), "Перегоните сушёную ламинарию в агар."),
-    node("bandage", 0, (4, 2), "biolab:bandage", "Бинт", &["agar"], Unlock::Item(&["biolab:bandage"]), "Сделайте бинт из шерсти и агара."),
+    node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
+    node("flask", 0, (2, 0), "biolab:flask", "Колба", &["bench"], Unlock::Item(&["biolab:flask"]), "Сделайте колбу на верстаке: пузырёк и глина."),
+    node("analyzer", 0, (3, 0), "biolab:analyzer", "Анализатор крови", &["flask"], Unlock::Item(&["biolab:analyzer"]), "Соберите анализатор на лабораторном столе."),
+    node("swab", 0, (2, 2), "biolab:swab", "Ватная палочка", &["bench"], Unlock::Item(&["biolab:swab"]), "Соберите ватную палочку на столе."),
+    node("agar", 0, (3, 2), "biolab:agar", "Агар", &["swab"], Unlock::Item(&["biolab:agar"]), "Сушёную ламинарию — в перегонный куб."),
+    node("bandage", 0, (4, 2), "biolab:bandage", "Бинт", &["agar"], Unlock::Item(&["biolab:bandage"]), "Соберите бинт на столе: шерсть и агар."),
     // Химия
-    node("still", 1, (0, 1), "biolab:still", "Перегонный куб", &[], Unlock::Item(&["biolab:still"]), "Соберите перегонный куб."),
-    node("elements", 1, (1, 1), "biolab:element_carbon", "Элементы", &["still"], Unlock::Item(ELEMENT_ITEMS), "Добудьте любой элемент в перегонном кубе."),
-    node("synth", 1, (2, 1), "biolab:synthesizer", "Синтезатор", &["elements"], Unlock::Item(&["biolab:synthesizer"]), "Соберите синтезатор."),
-    node("bonds", 1, (2, 0), "biolab:element_hydrogen", "Правило связей", &["synth"], Unlock::Discovered(1), "Соберите в синтезаторе любое вещество."),
-    node("spectro", 1, (3, 1), "biolab:spectrometer", "Спектрометр", &["synth"], Unlock::Item(&["biolab:spectrometer"]), "Соберите спектрометр."),
-    node("identify", 1, (4, 0), "biolab:flask", "Опознание", &["spectro"], Unlock::Identified(1), "Опознайте вещество спектрометром."),
-    node("blueprint", 1, (4, 1), "biolab:blueprint", "Чертежи", &["spectro"], Unlock::Item(&["biolab:blueprint"]), "Получите чертёж из спектрометра."),
-    node("reactor", 1, (3, 2), "biolab:reactor", "Реактор", &["synth"], Unlock::Item(&["biolab:reactor"]), "Соберите реактор."),
-    node("collection", 1, (5, 0), "biolab:element_gold", "Десять веществ", &["identify"], Unlock::Identified(10), "Опознайте десять веществ."),
-    node("separation", 1, (2, 2), "biolab:centrifuge", "Разделение", &["synth"], Unlock::Item(&["biolab:centrifuge"]), "Соберите центрифугу."),
+    node("still", 1, (0, 1), "biolab:still", "Перегонный куб", &[], Unlock::Item(&["biolab:still"]), "Сделайте перегонный куб: медь и печь."),
+    node("elements", 1, (1, 1), "biolab:element_carbon", "Элементы", &["still"], Unlock::Item(ELEMENT_ITEMS), "Положите песок или древесный уголь в куб."),
+    node("synth", 1, (2, 1), "biolab:synthesizer", "Синтезатор", &["elements"], Unlock::Item(&["biolab:synthesizer"]), "Сделайте синтезатор на верстаке."),
+    node("bonds", 1, (2, 0), "biolab:element_hydrogen", "Правило связей", &["synth"], Unlock::Discovered(1), "Соберите вещество в синтезаторе, хоть H2O."),
+    node("spectro", 1, (3, 1), "biolab:spectrometer", "Спектрометр", &["synth"], Unlock::Item(&["biolab:spectrometer"]), "Сделайте спектрометр: нужен анализатор."),
+    node("identify", 1, (4, 0), "biolab:flask", "Опознание", &["spectro"], Unlock::Identified(1), "Положите колбу с веществом в спектрометр."),
+    node("blueprint", 1, (4, 1), "biolab:blueprint", "Чертежи", &["spectro"], Unlock::Item(&["biolab:blueprint"]), "Заберите чертёж из выхода спектрометра."),
+    node("reactor", 1, (3, 2), "biolab:reactor", "Реактор", &["synth"], Unlock::Item(&["biolab:reactor"]), "Сделайте реактор: железо и доменная печь."),
+    node("collection", 1, (5, 0), "biolab:element_gold", "Десять веществ", &["identify"], Unlock::Identified(10), "Опознайте спектрометром десять веществ."),
+    node("separation", 1, (2, 2), "biolab:centrifuge", "Разделение", &["synth"], Unlock::Item(&["biolab:centrifuge"]), "Сделайте центрифугу на верстаке."),
     // Микробиология
-    node("incubator", 2, (0, 1), "biolab:incubator", "Инкубатор", &[], Unlock::Item(&["biolab:incubator"]), "Соберите инкубатор."),
-    node("culture", 2, (1, 1), "biolab:culture", "Культура", &["incubator"], Unlock::Item(&["biolab:culture"]), "Вырастите культуру из мазка."),
-    node("strain", 2, (2, 0), "biolab:microscope", "Штамм", &["culture"], Unlock::Item(&["biolab:microscope"]), "Соберите микроскоп."),
-    node("weakened", 2, (2, 1), "biolab:culture_weakened", "Ослабленная культура", &["culture"], Unlock::Item(&["biolab:culture_weakened"]), "Нагрейте культуру в реакторе."),
-    node("vaccine", 2, (3, 1), "biolab:syringe_vaccine", "Вакцина", &["weakened"], Unlock::Item(&["biolab:syringe_vaccine"]), "Наберите вакцину в шприц."),
-    node("immunity", 2, (4, 1), "minecraft:golden_apple", "Иммунитет", &["vaccine"], Unlock::Immune, "Привейтесь вакциной."),
-    node("infection", 2, (0, 3), "minecraft:rotten_flesh", "Заражение", &[], Unlock::Infected, "Подхватите заразу: гнилая плоть, зомби рядом, лужа."),
-    node("remedy", 2, (1, 3), "biolab:remedy", "Лекарство", &["infection"], Unlock::Item(&["biolab:remedy"]), "Сделайте лекарство из культуры."),
-    node("hardened", 2, (2, 3), "minecraft:fermented_spider_eye", "Стойкий штамм", &["remedy"], Unlock::Hardened, "Бросьте курс лечения на полпути."),
+    node("incubator", 2, (0, 1), "biolab:incubator", "Инкубатор", &[], Unlock::Item(&["biolab:incubator"]), "Сделайте инкубатор: медь, стекло, печь."),
+    node("culture", 2, (1, 1), "biolab:culture", "Культура", &["incubator"], Unlock::Item(&["biolab:culture"]), "Положите ватную палочку в инкубатор."),
+    node("strain", 2, (2, 0), "biolab:microscope", "Штамм", &["culture"], Unlock::Item(&["biolab:microscope"]), "Соберите микроскоп на лабораторном столе."),
+    node("weakened", 2, (2, 1), "biolab:culture_weakened", "Ослабленная культура", &["culture"], Unlock::Item(&["biolab:culture_weakened"]), "Нагрейте культуру в реакторе до 60–140 °C."),
+    node("vaccine", 2, (3, 1), "biolab:syringe_vaccine", "Вакцина", &["weakened"], Unlock::Item(&["biolab:syringe_vaccine"]), "Соберите на столе шприц и ослабленный штамм."),
+    node("immunity", 2, (4, 1), "minecraft:golden_apple", "Иммунитет", &["vaccine"], Unlock::Immune, "Вакцину в руку и ПКМ в воздух."),
+    node("infection", 2, (0, 3), "minecraft:rotten_flesh", "Заражение", &[], Unlock::Infected, "Съешьте гнилую плоть или подойдите к зомби."),
+    node("remedy", 2, (1, 3), "biolab:remedy", "Лекарство", &["infection"], Unlock::Item(&["biolab:remedy"]), "Прогоните культуру: ферментер, центрифуга."),
+    node("hardened", 2, (2, 3), "minecraft:fermented_spider_eye", "Стойкий штамм", &["remedy"], Unlock::Hardened, "Бросьте курс пенициллина, не долечившись."),
     // Фармакология
     node("mold", 3, (0, 1), "biolab:mold", "Плесень", &[], Unlock::Item(&["biolab:mold"]), "Положите хлеб в инкубатор."),
-    node("fermenter", 3, (1, 1), "biolab:fermenter", "Ферментер", &["mold"], Unlock::Item(&["biolab:fermenter"]), "Соберите ферментер."),
-    node("extracts", 3, (2, 1), "biolab:extract_penicillin", "Экстракты", &["fermenter"], Unlock::Item(&["biolab:extract_penicillin", "biolab:extract_salicylate", "biolab:extract_caffeine", "biolab:extract_sedative", "biolab:extract_venom", "biolab:extract_raw"]), "Получите любой экстракт."),
-    node("pills", 3, (3, 0), "biolab:press", "Таблетки", &["extracts"], Unlock::Item(&["biolab:pill_penicillin", "biolab:pill_analgesic", "biolab:pill_stimulant", "biolab:pill_antidote"]), "Спрессуйте таблетку."),
-    node("injections", 3, (3, 1), "biolab:syringe", "Инъекции", &["extracts"], Unlock::Item(&["biolab:syringe_penicillin", "biolab:syringe_sedative", "biolab:syringe_stimulant", "biolab:syringe_venom"]), "Наберите лекарство в шприц."),
-    node("topical", 3, (3, 2), "biolab:ointment_analgesic", "Мази и аэрозоли", &["extracts"], Unlock::Item(&["biolab:ointment_analgesic", "biolab:spray_analgesic", "biolab:spray_stimulant"]), "Сделайте мазь или аэрозоль."),
-    node("antidote", 3, (2, 3), "biolab:pill_antidote", "Антидот", &["extracts"], Unlock::Item(&["biolab:pill_antidote"]), "Спрессуйте антидот из угля."),
-    node("window", 3, (4, 0), "biolab:pill_analgesic", "Терапевтическое окно", &["pills"], Unlock::Medicine, "Примите любое лекарство."),
-    node("overdose", 3, (5, 0), "biolab:pill_stimulant", "Передозировка", &["window"], Unlock::Overdose, "Перестарайтесь с дозой или бросьте стимулятор."),
-    node("darts", 3, (4, 1), "biolab:dart_sedative", "Дротики", &["injections"], Unlock::Item(&["biolab:dart_sedative", "biolab:dart_venom"]), "Сделайте дротик."),
+    node("fermenter", 3, (1, 1), "biolab:fermenter", "Ферментер", &["mold"], Unlock::Item(&["biolab:fermenter"]), "Сделайте ферментер: медь, бочка, печь."),
+    node("extracts", 3, (2, 1), "biolab:extract_penicillin", "Экстракты", &["fermenter"], Unlock::Item(&["biolab:extract_penicillin", "biolab:extract_salicylate", "biolab:extract_caffeine", "biolab:extract_sedative", "biolab:extract_venom", "biolab:extract_raw"]), "Положите плесень или какао в ферментер."),
+    node("pills", 3, (3, 0), "biolab:press", "Таблетки", &["extracts"], Unlock::Item(&["biolab:pill_penicillin", "biolab:pill_analgesic", "biolab:pill_stimulant", "biolab:pill_antidote"]), "Сделайте пресс и положите в него экстракт."),
+    node("injections", 3, (3, 1), "biolab:syringe", "Инъекции", &["extracts"], Unlock::Item(&["biolab:syringe_penicillin", "biolab:syringe_sedative", "biolab:syringe_stimulant", "biolab:syringe_venom"]), "Соберите на столе шприц с экстрактом."),
+    node("topical", 3, (3, 2), "biolab:ointment_analgesic", "Мази и аэрозоли", &["extracts"], Unlock::Item(&["biolab:ointment_analgesic", "biolab:spray_analgesic", "biolab:spray_stimulant"]), "Соберите мазь или аэрозоль на столе."),
+    node("antidote", 3, (2, 3), "biolab:pill_antidote", "Антидот", &["extracts"], Unlock::Item(&["biolab:pill_antidote"]), "Положите древесный уголь в пресс."),
+    node("window", 3, (4, 0), "biolab:pill_analgesic", "Терапевтическое окно", &["pills"], Unlock::Medicine, "Примите лекарство: в руку и ПКМ в воздух."),
+    node("overdose", 3, (5, 0), "biolab:pill_stimulant", "Передозировка", &["window"], Unlock::Overdose, "Примите двойную дозу или дождитесь ломки."),
+    node("darts", 3, (4, 1), "biolab:dart_sedative", "Дротики", &["injections"], Unlock::Item(&["biolab:dart_sedative", "biolab:dart_venom"]), "Соберите дротик: шприц, перо и палка."),
     // Генетика
-    node("scalpel", 4, (0, 1), "biolab:scalpel", "Скальпель", &[], Unlock::Item(&["biolab:scalpel"]), "Сделайте скальпель."),
-    node("tissue", 4, (1, 1), "biolab:mutant_tissue", "Ткань мутанта", &["scalpel"], Unlock::Item(&["biolab:mutant_tissue"]), "Добудьте мутанта скальпелем."),
-    node("extractor", 4, (2, 1), "biolab:extractor", "Экстрактор ДНК", &["tissue"], Unlock::Item(&["biolab:extractor"]), "Соберите экстрактор ДНК."),
-    node("fragment", 4, (3, 1), "biolab:dna_fragment", "Фрагмент ДНК", &["extractor"], Unlock::Item(&["biolab:dna_fragment"]), "Достаньте ген из ткани."),
-    node("mutagen", 4, (2, 3), "biolab:mutagen", "Мутаген", &["extractor"], Unlock::Item(&["biolab:mutagen", "biolab:mutagen_bucket", "biolab:syringe_mutagen"]), "Сделайте мутаген."),
-    node("splicing", 4, (4, 0), "biolab:microscope", "Сплайсинг", &["fragment"], Unlock::Item(&["biolab:microscope"]), "Соберите микроскоп."),
-    node("vat", 4, (5, 0), "biolab:cloning_vat", "Клонирующий чан", &["splicing"], Unlock::Item(&["biolab:cloning_vat"]), "Соберите клонирующий чан."),
-    node("pen", 4, (5, 1), "biolab:pen", "Вольер и пульт", &["vat"], Unlock::Item(&["biolab:pen", "biolab:console"]), "Сделайте вольер или пульт."),
-    node("therapy", 4, (4, 2), "biolab:syringe", "Генотерапия", &["fragment"], Unlock::Gene, "Примените фрагмент ДНК на себе."),
-    node("crops", 4, (5, 2), "biolab:gm_plot", "ГМ-грядка", &["therapy"], Unlock::Item(&["biolab:gm_plot", "biolab:gm_crop"]), "Сделайте ГМ-грядку."),
-    node("animal_genes", 4, (3, 2), "minecraft:rabbit_foot", "Гены животных", &["extractor"], Unlock::Item(&["minecraft:rabbit_foot", "minecraft:glow_ink_sac", "minecraft:turtle_scute", "minecraft:magma_cream"]), "Добудьте лапку кролика, щиток черепахи или магму."),
+    node("scalpel", 4, (0, 1), "biolab:scalpel", "Скальпель", &[], Unlock::Item(&["biolab:scalpel"]), "Соберите скальпель на лабораторном столе."),
+    node("tissue", 4, (1, 1), "biolab:mutant_tissue", "Ткань мутанта", &["scalpel"], Unlock::Item(&["biolab:mutant_tissue"]), "Убейте мутанта: сейчас это любой зомби."),
+    node("extractor", 4, (2, 1), "biolab:extractor", "Экстрактор ДНК", &["tissue"], Unlock::Item(&["biolab:extractor"]), "Сделайте экстрактор ДНК: нужен микроскоп."),
+    node("fragment", 4, (3, 1), "biolab:dna_fragment", "Фрагмент ДНК", &["extractor"], Unlock::Item(&["biolab:dna_fragment"]), "Положите мутантную ткань в экстрактор."),
+    node("mutagen", 4, (2, 3), "biolab:mutagen", "Мутаген", &["extractor"], Unlock::Item(&["biolab:mutagen", "biolab:mutagen_bucket", "biolab:syringe_mutagen"]), "Соберите мутаген на лабораторном столе."),
+    node("splicing", 4, (4, 0), "biolab:microscope", "Сплайсинг", &["fragment"], Unlock::Item(&["biolab:microscope"]), "Соберите микроскоп на лабораторном столе."),
+    node("vat", 4, (5, 0), "biolab:cloning_vat", "Клонирующий чан", &["splicing"], Unlock::Item(&["biolab:cloning_vat"]), "Сделайте клонирующий чан: нужен ферментер."),
+    node("pen", 4, (5, 1), "biolab:pen", "Вольер и пульт", &["vat"], Unlock::Item(&["biolab:pen", "biolab:console"]), "Сделайте вольер из решёток или пульт."),
+    node("therapy", 4, (4, 2), "biolab:syringe", "Генотерапия", &["fragment"], Unlock::Gene, "Фрагмент ДНК в руку и ПКМ в воздух."),
+    node("crops", 4, (5, 2), "biolab:gm_plot", "ГМ-грядка", &["therapy"], Unlock::Item(&["biolab:gm_plot", "biolab:gm_crop"]), "Сделайте ГМ-грядку: земля, агар, мука."),
+    node("animal_genes", 4, (3, 2), "minecraft:rabbit_foot", "Гены животных", &["extractor"], Unlock::Item(&["minecraft:rabbit_foot", "minecraft:glow_ink_sac", "minecraft:turtle_scute", "minecraft:magma_cream"]), "Добудьте кроличью лапку или сгусток магмы."),
 ];
 
 /// Номер узла по id.
@@ -5190,6 +5190,124 @@ pub fn page_buttons(l: &ResearchLayout) -> [[f32; 4]; 3] {
 
 pub fn inside(rect: [f32; 4], at: [f32; 2]) -> bool {
     at[0] >= rect[0] && at[1] >= rect[1] && at[0] < rect[0] + rect[2] && at[1] < rect[1] + rect[3]
+}
+
+// Вёрстка страницы записи. Одно правило на отрисовку (`research_draw.rs`) и
+// на тест «страница влезает в экран»: отрисовка меряет текст шрифтом игры,
+// тест — оценкой с запасом, а переносы, высоты строк и низ страницы общие.
+
+/// Где на странице текст: левый край, верх первой строки, ширина строки и
+/// низ, ниже которого рисовать нельзя — под ним кнопки «<», «к карте», «>».
+pub fn page_area(l: &ResearchLayout) -> [f32; 4] {
+    let [x, y, w, _] = l.page;
+    [x + 10.0, y + 8.0, w - 20.0, page_buttons(l)[0][1] - 2.0]
+}
+
+/// Строка страницы на экране: заголовок, одна строка текста после переноса,
+/// отбивка, ряд иконок или рецепт.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PageRow {
+    Title(String),
+    Text(String),
+    Gap,
+    Items(Vec<String>),
+    Recipe(RecipeView),
+}
+
+impl PageRow {
+    /// Высота рисунка строки и шаг до следующей, в пикселях интерфейса:
+    /// заголовок — текст и черта под ним, строка текста — 8, иконки — 16,
+    /// сетка 3×3 из слотов по 18, у стола под сеткой ещё подпись, строка
+    /// машины — один слот.
+    pub fn height(&self) -> (f32, f32) {
+        match self {
+            PageRow::Title(_) => (12.0, 15.0),
+            PageRow::Text(_) => (8.0, 10.0),
+            PageRow::Gap => (0.0, 5.0),
+            PageRow::Items(_) => (16.0, 19.0),
+            PageRow::Recipe(RecipeView::Grid { .. }) => (54.0, 58.0),
+            PageRow::Recipe(RecipeView::Bench { .. }) => (65.0, 70.0),
+            PageRow::Recipe(RecipeView::Machine { .. }) => (18.0, 22.0),
+        }
+    }
+}
+
+/// Перенос по словам: строка растёт, пока влезает в ширину; слово длиннее
+/// строки встаёт одно. Ширину меряет `measure`: в игре шрифт, в тестах оценка.
+pub fn wrap_text(text: &str, width: f32, measure: impl Fn(&str) -> f32) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+        if line.is_empty() || measure(&candidate) <= width {
+            line = candidate;
+        } else {
+            lines.push(std::mem::take(&mut line));
+            line = word.to_string();
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// Страница строками экрана: текст перенесён по ширине, рецепты разобраны.
+/// Рецепт, который не нашёлся или не разобрался, пропускается.
+pub fn page_rows(
+    page: &str,
+    width: f32,
+    measure: impl Fn(&str) -> f32,
+    recipe: impl Fn(&str) -> Option<RecipeView>,
+) -> Vec<PageRow> {
+    let mut rows = Vec::new();
+    for line in page_lines(page) {
+        match line {
+            Line::Title(title) => rows.push(PageRow::Title(title)),
+            Line::Text(text) => {
+                rows.extend(wrap_text(&text, width, &measure).into_iter().map(PageRow::Text));
+            }
+            Line::Gap => rows.push(PageRow::Gap),
+            Line::Items(items) => rows.push(PageRow::Items(items)),
+            Line::Craft(name) => {
+                if let Some(view) = recipe(&name) {
+                    rows.push(PageRow::Recipe(view));
+                }
+            }
+        }
+    }
+    rows
+}
+
+/// Сколько строк страницы влезет: строка рисуется, если её рисунок кончается
+/// не ниже `bottom`. Первая невлезшая и всё после неё не рисуются.
+pub fn rows_fitting(rows: &[PageRow], top: f32, bottom: f32) -> usize {
+    let mut row = top;
+    for (i, line) in rows.iter().enumerate() {
+        let (drawn, step) = line.height();
+        if row + drawn > bottom {
+            return i;
+        }
+        row += step;
+    }
+    rows.len()
+}
+
+/// Ширина строки шрифтом Minecraft, оценка с запасом — для проверок вёрстки
+/// без игры. Буквы и цифры по 6 пикселей, широкие кириллические — 8, пробел
+/// 4, точки и запятые 3, тире, стрелка и «№» — 9. Оценка не меньше настоящей
+/// ширины, поэтому переносов по ней выходит не меньше, чем в игре.
+pub fn estimated_text_width(text: &str) -> f32 {
+    text.chars()
+        .map(|c| match c {
+            ' ' => 4.0,
+            '.' | ',' | ':' | ';' | '!' | '\'' | '|' | 'i' | 'l' => 3.0,
+            'Ж' | 'Ш' | 'Щ' | 'Ы' | 'Ю' | 'Ф' | 'М' | 'ж' | 'ш' | 'щ' | 'ы' | 'ю' | 'ф' | 'м' => 8.0,
+            '—' | '→' | '№' | '…' => 9.0,
+            '–' => 7.0,
+            _ => 6.0,
+        })
+        .sum()
 }
 
 /// Что сейчас открыто на экране журнала.
@@ -5740,7 +5858,7 @@ mod research_tests {
         let mask = mask | research_bit(bench);
         assert_eq!(node_state(mask, flask), NodeState::Open);
         assert_eq!(node_state(mask, analyzer), NodeState::Hidden);
-        assert_eq!(research_tooltip(mask, flask)[1], "Сделайте колбу.");
+        assert_eq!(research_tooltip(mask, flask)[1], RESEARCH[flask].hint);
         assert_eq!(research_progress(mask), format!("Изучено 2 из {}", RESEARCH.len()));
         // Частично открытые предшественники: виден вопрос.
         let window = research_index("window").unwrap();
@@ -5816,7 +5934,7 @@ mod research_tests {
         assert_eq!(manual, vec!["# Один\nтекст".to_string(), "# Два".to_string()]);
         assert_eq!(research_pages(text, research_index("bench").unwrap()), vec!["# Стол".to_string()]);
         let flask = research_index("flask").unwrap();
-        assert_eq!(research_pages(text, flask), vec!["# Колба\nСделайте колбу.".to_string()]);
+        assert_eq!(research_pages(text, flask), vec![format!("# Колба\n{}", RESEARCH[flask].hint)]);
     }
 
     #[test]
@@ -5835,6 +5953,146 @@ mod research_tests {
                 }
             }
         }
+    }
+
+    /// Записи журнала из контента.
+    fn records() -> String {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        std::fs::read_to_string(root.join(RESEARCH_PATH)).unwrap()
+    }
+
+    /// Рецепт по имени файла, как его читает страница.
+    fn content_recipe(name: &str) -> Option<RecipeView> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let json = std::fs::read_to_string(root.join(recipe_path(name))).ok()?;
+        recipe_view(&json)
+    }
+
+    fn result_of(view: &RecipeView) -> String {
+        match view {
+            RecipeView::Grid { result, .. }
+            | RecipeView::Bench { result, .. }
+            | RecipeView::Machine { result, .. } => result.clone(),
+        }
+    }
+
+    #[test]
+    fn every_crafted_item_has_its_recipe_in_some_record() {
+        let text = records();
+        let mut shown = std::collections::HashSet::new();
+        for i in 0..RESEARCH.len() {
+            for page in research_pages(&text, i) {
+                for line in page_lines(&page) {
+                    if let Line::Craft(name) = line
+                        && let Some(view) = content_recipe(&name)
+                    {
+                        shown.insert(result_of(&view));
+                    }
+                }
+            }
+        }
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        let mut missing = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let view = recipe_view(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let result = result_of(&view);
+            if !shown.contains(&result) {
+                missing.push(format!("{result} ({})", path.file_stem().unwrap().to_string_lossy()));
+            }
+        }
+        missing.sort();
+        assert!(missing.is_empty(), "крафт не показан ни в одной записи: {missing:#?}");
+    }
+
+    #[test]
+    fn text_wraps_by_width_and_a_long_page_is_cut() {
+        let by_chars = |s: &str| s.chars().count() as f32 * 6.0;
+        assert_eq!(wrap_text("один два три", 60.0, by_chars), vec!["один два", "три"]);
+        assert_eq!(wrap_text("сверхдлинноеслово и", 30.0, by_chars), vec!["сверхдлинноеслово", "и"]);
+        assert!(wrap_text("   ", 60.0, by_chars).is_empty());
+
+        let machine = RecipeView::Machine {
+            input: "a".into(),
+            machine: "biolab:still".into(),
+            result: "b".into(),
+            count: 1,
+            seconds: 4,
+            byproduct: None,
+        };
+        let page = "# Заголовок\nстрока\n\n@item a b\n@craft нет\n@craft есть";
+        let rows = page_rows(page, 100.0, by_chars, |name| (name == "есть").then(|| machine.clone()));
+        assert_eq!(
+            rows,
+            vec![
+                PageRow::Title("Заголовок".into()),
+                PageRow::Text("строка".into()),
+                PageRow::Gap,
+                PageRow::Items(vec!["a".into(), "b".into()]),
+                PageRow::Recipe(machine),
+            ],
+            "ненайденный рецепт места не занимает"
+        );
+        // 15 + 10 + 5 + 19 = 49: строка машины встаёт на 49 и рисуется до 67.
+        assert_eq!(rows_fitting(&rows, 0.0, 67.0), 5);
+        assert_eq!(rows_fitting(&rows, 0.0, 66.0), 4);
+        assert_eq!(rows_fitting(&rows, 0.0, 11.0), 0);
+
+        assert_eq!(estimated_text_width("Аб в"), 22.0);
+        assert!(estimated_text_width("Ж") > estimated_text_width("А"));
+        assert!(estimated_text_width("i.") < estimated_text_width("ab"));
+
+        // Текст кончается над кнопками и не вылезает за пергамент.
+        let l = research_layout(427.0, 240.0);
+        let [left, top, width, bottom] = page_area(&l);
+        assert!(bottom < page_buttons(&l)[0][1]);
+        assert!(top > l.page[1] && left + width < l.page[0] + l.page[2]);
+    }
+
+    #[test]
+    fn every_page_fits_the_smallest_screen() {
+        let l = research_layout(427.0, 240.0);
+        let [_, top, width, bottom] = page_area(&l);
+        let text = records();
+        let mut problems = Vec::new();
+        for (i, r) in RESEARCH.iter().enumerate() {
+            for (p, page) in research_pages(&text, i).iter().enumerate() {
+                let at = format!("{} стр. {}", r.id, p + 1);
+                let rows = page_rows(page, width, estimated_text_width, content_recipe);
+                let fit = rows_fitting(&rows, top, bottom);
+                if fit < rows.len() {
+                    problems.push(format!("{at}: влезло {fit} строк из {}, обрезано с «{:?}»", rows.len(), rows[fit]));
+                }
+                // Справа вверху иконка узла: заголовок короче черты под ним.
+                match rows.first() {
+                    Some(PageRow::Title(title)) if estimated_text_width(title) <= width - 24.0 => {}
+                    Some(PageRow::Title(title)) => problems.push(format!("{at}: заголовок «{title}» налезет на иконку")),
+                    _ => problems.push(format!("{at}: страница начинается не с заголовка")),
+                }
+                for row in &rows {
+                    match row {
+                        PageRow::Text(line) if estimated_text_width(line) > width => {
+                            problems.push(format!("{at}: слово шире строки: «{line}»"));
+                        }
+                        PageRow::Items(items) if items.len() as f32 * 19.0 - 3.0 > width => {
+                            problems.push(format!("{at}: иконок больше, чем влезает в ряд"));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn hints_say_what_to_do_and_fit_beside_the_cursor() {
+        let wide: Vec<String> = RESEARCH
+            .iter()
+            .filter(|r| !r.hint.ends_with('.') || estimated_text_width(r.hint) + 8.0 > 270.0)
+            .map(|r| format!("{}: {} ({} пикс.)", r.id, r.hint, estimated_text_width(r.hint)))
+            .collect();
+        assert!(wide.is_empty(), "подсказка без точки или шире 270 пикселей:\n{}", wide.join("\n"));
     }
 
     #[test]

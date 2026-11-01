@@ -15,25 +15,6 @@ fn biolab_deep_research_draw(
     const NOTE: u32 = 0x8A7A66;
     const RULE: u32 = 0xFF_A0794A;
 
-    /// Строка по ширине: ширину меряет сам шрифт.
-    fn wrap(game: &crate::game::Game<'_>, text: &str, width: f32) -> Vec<String> {
-        let mut lines = Vec::new();
-        let mut line = String::new();
-        for word in text.split_whitespace() {
-            let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
-            if game.native_text_width(&candidate) <= width || line.is_empty() {
-                line = candidate;
-            } else {
-                lines.push(std::mem::take(&mut line));
-                line = word.to_string();
-            }
-        }
-        if !line.is_empty() {
-            lines.push(line);
-        }
-        lines
-    }
-
     /// Ванильный слот: тёмный верх-лево, светлый низ-право.
     fn slot(
         game: &crate::game::Game<'_>,
@@ -246,32 +227,36 @@ fn biolab_deep_research_draw(
             }
             game.native_item(batch, m::RESEARCH[node].icon, [px + pw - 24.0, py + 6.0], 16.0);
 
-            let left = px + 10.0;
-            let text_width = pw - 20.0;
-            let bottom = py + ph - 18.0;
-            let mut row = py + 8.0;
-            for line in m::page_lines(&pages[page]) {
-                if row > bottom - 8.0 {
+            // Вёрстка общая с тестом «страница влезает в экран» (`runtime.rs`,
+            // `page_rows`): переносы, высоты строк и низ страницы считает он,
+            // здесь только рисунок. Невлезшая строка и всё после неё не рисуются.
+            let [left, top, text_width, bottom] = m::page_area(&l);
+            let rows = m::page_rows(
+                &pages[page],
+                text_width,
+                |text| game.native_text_width(text),
+                |name| {
+                    game.native_data(&m::recipe_path(name))
+                        .and_then(|bytes| String::from_utf8(bytes).ok())
+                        .and_then(|json| m::recipe_view(&json))
+                },
+            );
+            let mut row = top;
+            for line in rows {
+                let (drawn, step) = line.height();
+                if row + drawn > bottom {
                     break;
                 }
                 match line {
-                    m::Line::Title(title) => {
+                    m::PageRow::Title(title) => {
                         game.native_text(batch, &title, [left, row], TITLE_INK, false);
-                        row += 11.0;
-                        game.native_fill(batch, [left, row, text_width - 24.0, 1.0], RULE);
-                        row += 4.0;
+                        game.native_fill(batch, [left, row + 11.0, text_width - 24.0, 1.0], RULE);
                     }
-                    m::Line::Text(text) => {
-                        for piece in wrap(game, &text, text_width) {
-                            if row > bottom - 8.0 {
-                                break;
-                            }
-                            game.native_text(batch, &piece, [left, row], INK, false);
-                            row += 10.0;
-                        }
+                    m::PageRow::Text(text) => {
+                        game.native_text(batch, &text, [left, row], INK, false);
                     }
-                    m::Line::Gap => row += 5.0,
-                    m::Line::Items(items) => {
+                    m::PageRow::Gap => {}
+                    m::PageRow::Items(items) => {
                         let mut spot = left;
                         for item in items {
                             if spot + 16.0 > left + text_width {
@@ -281,21 +266,10 @@ fn biolab_deep_research_draw(
                                 spot += 19.0;
                             }
                         }
-                        row += 19.0;
                     }
-                    m::Line::Craft(name) => {
-                        let Some(recipe) = game
-                            .native_data(&m::recipe_path(&name))
-                            .and_then(|bytes| String::from_utf8(bytes).ok())
-                            .and_then(|json| m::recipe_view(&json))
-                        else {
-                            continue;
-                        };
+                    m::PageRow::Recipe(recipe) => {
                         match recipe {
                             m::RecipeView::Grid { cells, result, count, shapeless } => {
-                                if row + 54.0 > bottom + 4.0 {
-                                    break;
-                                }
                                 for (k, cell) in cells.iter().enumerate() {
                                     let at = [left + (k % 3) as f32 * 18.0, row + (k / 3) as f32 * 18.0];
                                     slot(game, batch, at, cell.as_deref(), 1);
@@ -305,14 +279,10 @@ fn biolab_deep_research_draw(
                                 if shapeless {
                                     game.native_text(batch, "без формы", [left + 96.0, row + 23.0], NOTE, false);
                                 }
-                                row += 58.0;
                             }
                             // Стол: та же сетка, что у верстака, над результатом —
                             // иконка стола, под сеткой — подпись и время.
                             m::RecipeView::Bench { cells, result, count, seconds } => {
-                                if row + 66.0 > bottom + 4.0 {
-                                    break;
-                                }
                                 for (k, cell) in cells.iter().enumerate() {
                                     let at = [left + (k % 3) as f32 * 18.0, row + (k / 3) as f32 * 18.0];
                                     slot(game, batch, at, cell.as_deref(), 1);
@@ -322,12 +292,8 @@ fn biolab_deep_research_draw(
                                 slot(game, batch, [left + 72.0, row + 18.0], Some(&result), count);
                                 let note = format!("на лабораторном столе, {seconds} с");
                                 game.native_text(batch, &note, [left, row + 57.0], NOTE, false);
-                                row += 70.0;
                             }
                             m::RecipeView::Machine { input, machine, result, count, seconds, byproduct } => {
-                                if row + 18.0 > bottom + 4.0 {
-                                    break;
-                                }
                                 slot(game, batch, [left, row], Some(&input), 1);
                                 game.native_item(batch, &machine, [left + 24.0, row + 1.0], 16.0);
                                 let time = format!("{seconds} с →");
@@ -341,11 +307,11 @@ fn biolab_deep_research_draw(
                                     let plus_width = game.native_text_width("+");
                                     slot(game, batch, [plus + plus_width + 3.0, row], Some(&extra), extra_count);
                                 }
-                                row += 22.0;
                             }
                         }
                     }
                 }
+                row += step;
             }
 
             // Кнопки внизу страницы: «<», «к карте», «>» и номер страницы.
