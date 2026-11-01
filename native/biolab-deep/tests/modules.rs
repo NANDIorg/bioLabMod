@@ -13,6 +13,22 @@ mod mutants;
 mod tab;
 #[path = "../mixins/biolab_deep/surgery.rs"]
 mod surgery;
+#[path = "../mixins/biolab_deep/growths.rs"]
+mod growths;
+
+/// Наросты читают силу гена по имени: каждая видимая черта (GDD 4.19) должна
+/// называть ген из таблицы генов, иначе она молча не нарисуется.
+#[test]
+fn growth_traits_name_real_genes() {
+    for gene in growths::TRAITS {
+        assert!(mutants::gene_index(gene).is_some(), "{gene} нет в таблице генов");
+    }
+    // Сила гена приходит из генома так же, как её читает `growths::strength`.
+    let mut genome = mutants::Genome::default();
+    assert!(genome.add(mutants::Gene { index: mutants::gene_index("tail").unwrap(), strength: 2 }));
+    assert_eq!(genome.strength_of("tail").min(3), 2);
+    assert_eq!(genome.strength_of("horns"), 0);
+}
 
 /// Урон своих эффектов у игрока (`runtime.rs`, бинарник) и у мобов
 /// (`effects.rs`, библиотека) считается двумя копиями одной логики: они не
