@@ -5636,3 +5636,873 @@ mod research_tests {
         assert_eq!(recipe_view("{\"type\":\"minecraft:smelting\",\"result\":\"x\"}"), None);
     }
 }
+
+// ---- Экраны машин ----
+//
+// У каждой машины свой экран поверх её ванильного меню (GDD 4.16): раскладка
+// слотов, лабораторная панель, прибор и шкала прогресса. Здесь только числа и
+// тексты — раскладка, прямоугольники приборов, подсказки, кадры анимации, —
+// а рисуют хуки `screen_layout.rs`, `screen_draw.rs`, `screen_tooltip.rs`.
+// Всё, что прибор показывает, приходит слотами данных по контракту `DATA_*`;
+// до первого пакета с сервера массив пуст, поэтому читаем через `screen_datum`.
+
+/// Раскладка экрана машины: размер, где стоит каждый слот контейнера (None —
+/// слот спрятан и выпадает из меню), где начинается инвентарь игрока, и два
+/// прямоугольника: прибор машины и её шкала прогресса. Всё — в пикселях GUI
+/// от левого верхнего угла панели; позиция слота — угол предмета, рамка на
+/// пиксель шире.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MachineScreen {
+    pub width: f32,
+    pub height: f32,
+    pub slots: Vec<Option<[f32; 2]>>,
+    /// Левая колонка и первый ряд инвентаря игрока; хотбар на 58 ниже ряда.
+    pub inventory: [f32; 2],
+    pub gauge: [f32; 4],
+    pub progress: [f32; 4],
+}
+
+/// Ширина экрана, как у ванильных контейнеров.
+pub const SCREEN_WIDTH: f32 = 176.0;
+/// Высота и первый ряд инвентаря у экранов на меню печки и сетки 3×3.
+pub const SCREEN_HEIGHT: f32 = 166.0;
+pub const SCREEN_INVENTORY_Y: f32 = 84.0;
+/// Экран на меню воронки ниже: так стоит инвентарь у ванильной воронки.
+pub const HOPPER_HEIGHT: f32 = 133.0;
+pub const HOPPER_INVENTORY_Y: f32 = 51.0;
+/// Полоса заголовка: иконка машины и название. Приборы начинаются ниже.
+pub const SCREEN_HEADER: f32 = 16.0;
+
+/// Название машины на экране, если сервер не прислал своё, и что она делает —
+/// для подсказки над шкалой.
+pub const SCREEN_NAMES: [(&str, &str, &str); 10] = [
+    ("biolab:still", "Перегонный куб", "Перегонка"),
+    ("biolab:incubator", "Инкубатор", "Рост культуры"),
+    ("biolab:fermenter", "Ферментер", "Брожение"),
+    ("biolab:centrifuge", "Центрифуга", "Разделение"),
+    ("biolab:synthesizer", "Синтезатор", "Сборка"),
+    ("biolab:reactor", "Реактор", "Реакция"),
+    ("biolab:press", "Пресс для таблеток", "Прессовка"),
+    ("biolab:extractor", "Экстрактор ДНК", "Выделение ДНК"),
+    ("biolab:cloning_vat", "Клонирующий чан", "Рост клона"),
+    ("biolab:spectrometer", "Спектрометр", "Анализ"),
+];
+
+/// Название машины для заголовка.
+pub fn machine_title(id: &str) -> &'static str {
+    SCREEN_NAMES.iter().find(|n| n.0 == id).map_or("", |n| n.1)
+}
+
+/// Что машина делает, одним словом.
+pub fn machine_verb(id: &str) -> &'static str {
+    SCREEN_NAMES.iter().find(|n| n.0 == id).map_or("Работа", |n| n.2)
+}
+
+/// Экран машины на меню печки: вход, «топливо», выход. Слот 1 нужен только
+/// чану (питательный раствор), у остальных он спрятан — и из меню на сервере
+/// тоже, так что shift-клик туда ничего не положит.
+fn furnace_screen(
+    input: [f32; 2],
+    fuel: Option<[f32; 2]>,
+    output: [f32; 2],
+    gauge: [f32; 4],
+    progress: [f32; 4],
+) -> MachineScreen {
+    MachineScreen {
+        width: SCREEN_WIDTH,
+        height: SCREEN_HEIGHT,
+        slots: vec![Some(input), fuel, Some(output)],
+        inventory: [8.0, SCREEN_INVENTORY_Y],
+        gauge,
+        progress,
+    }
+}
+
+/// Раскладка экрана машины; None — не наша машина.
+///
+/// Синтезатор и центрифуга стоят ровно там, где ванильные сетка 3×3 и
+/// воронка ставят свои слоты и инвентарь: Horizon раскладывает меню
+/// `minecraft:generic_3x3` и `minecraft:hopper` по-своему раньше, чем
+/// спрашивает мод (`machine_slot_position` в `game.rs`), и при другой
+/// раскладке предметы легли бы мимо нарисованных рамок. У машин на меню
+/// печки раскладка своя целиком.
+pub fn machine_screen(id: &str) -> Option<MachineScreen> {
+    let machine = machine(id)?;
+    let screen = match machine.id {
+        "biolab:still" => furnace_screen(
+            [20.0, 35.0],
+            None,
+            [138.0, 35.0],
+            [44.0, 18.0, 86.0, 44.0],
+            [44.0, 65.0, 86.0, 5.0],
+        ),
+        "biolab:incubator" => furnace_screen(
+            [22.0, 35.0],
+            None,
+            [138.0, 35.0],
+            [46.0, 18.0, 84.0, 42.0],
+            [46.0, 64.0, 84.0, 5.0],
+        ),
+        "biolab:fermenter" => furnace_screen(
+            [26.0, 35.0],
+            None,
+            [134.0, 35.0],
+            [60.0, 17.0, 56.0, 46.0],
+            [60.0, 66.0, 56.0, 4.0],
+        ),
+        "biolab:reactor" => furnace_screen(
+            [26.0, 22.0],
+            None,
+            [134.0, 22.0],
+            [22.0, 44.0, 132.0, 27.0],
+            [50.0, 25.0, 76.0, 10.0],
+        ),
+        "biolab:press" => furnace_screen(
+            [26.0, 35.0],
+            None,
+            [134.0, 35.0],
+            [58.0, 17.0, 60.0, 46.0],
+            [58.0, 66.0, 60.0, 4.0],
+        ),
+        "biolab:extractor" => furnace_screen(
+            [26.0, 35.0],
+            None,
+            [134.0, 35.0],
+            [50.0, 18.0, 76.0, 34.0],
+            [50.0, 58.0, 76.0, 8.0],
+        ),
+        "biolab:cloning_vat" => furnace_screen(
+            [20.0, 20.0],
+            Some([20.0, 50.0]),
+            [146.0, 35.0],
+            [44.0, 17.0, 84.0, 55.0],
+            [133.0, 20.0, 6.0, 48.0],
+        ),
+        "biolab:spectrometer" => furnace_screen(
+            [10.0, 20.0],
+            None,
+            [10.0, 50.0],
+            [32.0, 17.0, 137.0, 55.0],
+            [13.0, 39.0, 12.0, 9.0],
+        ),
+        // Сетка 3×3: входы 0–7, последний слот — выход.
+        "biolab:synthesizer" => MachineScreen {
+            width: SCREEN_WIDTH,
+            height: SCREEN_HEIGHT,
+            slots: (0..machine.slots)
+                .map(|i| Some([62.0 + (i % 3) as f32 * 18.0, 17.0 + (i / 3) as f32 * 18.0]))
+                .collect(),
+            inventory: [8.0, SCREEN_INVENTORY_Y],
+            gauge: [7.0, 17.0, 52.0, 54.0],
+            progress: [118.0, 17.0, 50.0, 54.0],
+        },
+        // Воронка: вход 0 и четыре выхода в ряд.
+        "biolab:centrifuge" => MachineScreen {
+            width: SCREEN_WIDTH,
+            height: HOPPER_HEIGHT,
+            slots: (0..machine.slots).map(|i| Some([44.0 + i as f32 * 18.0, 20.0])).collect(),
+            inventory: [8.0, HOPPER_INVENTORY_Y],
+            gauge: [14.0, 18.0, 20.0, 20.0],
+            progress: [138.0, 24.0, 30.0, 10.0],
+        },
+        _ => return None,
+    };
+    Some(screen)
+}
+
+/// Выход ли этот слот: у центрифуги выходы 1–4, у остальных — последний слот.
+/// Выходы на экране в бирюзовой рамке.
+pub fn is_output_slot(id: &str, slot: usize) -> bool {
+    match machine(id) {
+        Some(m) if m.id == "biolab:centrifuge" => slot >= 1 && slot < m.slots,
+        Some(m) => slot + 1 == m.slots,
+        None => false,
+    }
+}
+
+/// Рамка слота: на пиксель шире предмета с каждой стороны.
+pub fn slot_frame(at: [f32; 2]) -> [f32; 4] {
+    [at[0] - 1.0, at[1] - 1.0, 18.0, 18.0]
+}
+
+/// Где стоят 36 слотов инвентаря игрока: сперва хотбар, потом три ряда,
+/// как их нумерует Horizon.
+pub fn inventory_slots(screen: &MachineScreen) -> Vec<[f32; 2]> {
+    let [x, y] = screen.inventory;
+    (0..36usize)
+        .map(|i| match i {
+            0..9 => [x + i as f32 * 18.0, y + 58.0],
+            _ => [x + ((i - 9) % 9) as f32 * 18.0, y + ((i - 9) / 9) as f32 * 18.0],
+        })
+        .collect()
+}
+
+/// Всё, что машина ставит на панель выше инвентаря: рамки видимых слотов,
+/// прибор и шкала. Друг на друга они не налезают.
+pub fn screen_rects(screen: &MachineScreen) -> Vec<[f32; 4]> {
+    let mut rects: Vec<[f32; 4]> = screen.slots.iter().flatten().map(|at| slot_frame(*at)).collect();
+    rects.push(screen.gauge);
+    rects.push(screen.progress);
+    rects
+}
+
+/// Пересекаются ли два прямоугольника (касание — не пересечение).
+pub fn rects_overlap(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+}
+
+/// Слот данных: до первого пакета с сервера массив пуст.
+pub fn screen_datum(data: &[i32], index: usize, default: i32) -> i32 {
+    data.get(index).copied().unwrap_or(default)
+}
+
+/// Прогресс 0–1 из общих слотов данных.
+pub fn screen_progress(data: &[i32]) -> f32 {
+    let total = screen_datum(data, DATA_TOTAL, 0);
+    if total <= 0 {
+        return 0.0;
+    }
+    (screen_datum(data, DATA_PROGRESS, 0) as f32 / total as f32).clamp(0.0, 1.0)
+}
+
+/// Работает ли машина сейчас: горит «пламя» или идёт прогресс.
+pub fn screen_working(data: &[i32]) -> bool {
+    screen_datum(data, DATA_TOTAL, 0) > 0
+        && (screen_datum(data, DATA_LIT, 0) > 0 || screen_datum(data, DATA_PROGRESS, 0) > 0)
+}
+
+/// Кадр анимации от системного времени: стоящая машина замирает на нулевом.
+pub fn anim_frame(working: bool, millis: u128, period_ms: u128, frames: u32) -> u32 {
+    if !working || frames == 0 || period_ms == 0 {
+        return 0;
+    }
+    ((millis / period_ms) % u128::from(frames)) as u32
+}
+
+/// Фаза 0–1 бегущей анимации (капли, пузыри): за `cycle_ms` проходит круг.
+pub fn anim_phase(working: bool, millis: u128, cycle_ms: u128) -> f32 {
+    if !working || cycle_ms == 0 {
+        return 0.0;
+    }
+    (millis % cycle_ms) as f32 / cycle_ms as f32
+}
+
+/// Змеевик перегонного куба: четыре горизонтальных колена внутри прибора.
+/// Точка на трубе при пройденной доле пути `s` (0–1): по ней бегут капли.
+pub fn coil_point(gauge: [f32; 4], s: f32) -> [f32; 2] {
+    let (left, right) = (gauge[0] + 6.0, gauge[0] + gauge[2] - 6.0);
+    let s = s.clamp(0.0, 0.999) * COIL_RUNS as f32;
+    let run = s as usize;
+    let along = s - run as f32;
+    // Колена идут змейкой: чётные слева направо, нечётные обратно.
+    let px = if run % 2 == 0 {
+        left + (right - left) * along
+    } else {
+        right - (right - left) * along
+    };
+    [px, coil_row(gauge, run)]
+}
+
+/// Сколько колен у змеевика.
+pub const COIL_RUNS: usize = 4;
+
+/// Высота `run`-го колена змеевика.
+pub fn coil_row(gauge: [f32; 4], run: usize) -> f32 {
+    let step = (gauge[3] - 10.0) / (COIL_RUNS - 1) as f32;
+    (gauge[1] + 5.0 + run as f32 * step).floor()
+}
+
+/// Пузырь в баке ферментера: `k`-й из нескольких, всплывает за круг фазы.
+pub fn bubble_point(gauge: [f32; 4], k: u32, phase: f32) -> [f32; 2] {
+    let [x, y, w, h] = gauge;
+    let lane = (k * 37 % 5) as f32;
+    let t = (phase + k as f32 * 0.29).fract();
+    [x + 8.0 + lane * (w - 18.0) / 4.0, y + h - 6.0 - t * (h - 14.0)]
+}
+
+/// Градусник реактора: шкала от 0 до этого числа.
+pub const THERMO_MAX: i32 = 1000;
+
+/// Трубка градусника внутри прибора реактора: слева колба, сверху отметка
+/// цели нагрева, снизу полоса диапазона рецепта и подпись.
+pub fn thermo_tube(gauge: [f32; 4]) -> [f32; 4] {
+    [gauge[0] + 12.0, gauge[1] + 8.0, gauge[2] - 14.0, 6.0]
+}
+
+/// Где на трубке стоит эта температура.
+pub fn thermo_x(tube: [f32; 4], temperature: i32) -> f32 {
+    tube[0] + tube[2] * temperature.clamp(0, THERMO_MAX) as f32 / THERMO_MAX as f32
+}
+
+/// Показания реактора из слотов данных.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReactorReading {
+    pub temperature: i32,
+    /// None — под реактором нет источника нагрева.
+    pub target: Option<i32>,
+    /// None — текущему рецепту температура не важна.
+    pub range: Option<(i32, i32)>,
+}
+
+pub fn reactor_reading(data: &[i32]) -> ReactorReading {
+    let target = screen_datum(data, DATA_HEAT_TARGET, -1);
+    let (min, max) = (screen_datum(data, DATA_RANGE_MIN, 0), screen_datum(data, DATA_RANGE_MAX, 0));
+    ReactorReading {
+        temperature: screen_datum(data, DATA_TEMPERATURE, ROOM_TEMPERATURE),
+        target: (target >= 0).then_some(target),
+        range: (min != 0 || max != 0).then_some((min, max)),
+    }
+}
+
+/// Набор элементов из подряд идущих слотов данных, по порядку `ELEMENTS`.
+fn formula_from_data(data: &[i32], first: usize) -> Formula {
+    let mut formula = Formula::default();
+    for (i, count) in formula.iter_mut().enumerate() {
+        *count = screen_datum(data, first + i, 0).max(0) as u32;
+    }
+    formula
+}
+
+/// Что набрано в синтезаторе.
+pub fn synth_formula(data: &[i32]) -> Formula {
+    formula_from_data(data, DATA_SYNTH_ELEMENTS)
+}
+
+/// Состав колбы во входе спектрометра.
+pub fn spectrum(data: &[i32]) -> Formula {
+    formula_from_data(data, DATA_SPECTRUM)
+}
+
+/// Статус синтезатора словами.
+pub fn synth_status_text(status: i32) -> &'static str {
+    match status {
+        SYNTH_UNSTABLE => "Неустойчиво: связи не сходятся",
+        SYNTH_STABLE => "Устойчиво: соберётся",
+        SYNTH_NOT_BLUEPRINT => "Не совпадает с чертежом",
+        _ => "Пусто: положите элементы",
+    }
+}
+
+/// Цвет статуса синтезатора (RGB): формула на табло горит им.
+pub fn synth_status_colour(status: i32) -> u32 {
+    match status {
+        SYNTH_UNSTABLE => 0xE8_5A4A,
+        SYNTH_STABLE => 0x5A_E8B4,
+        SYNTH_NOT_BLUEPRINT => 0xE8_B04A,
+        _ => 0x8A_9AA0,
+    }
+}
+
+/// Запись формулы по элементам: `C6`, `H12`, `O6` — чтобы переносить
+/// длинную формулу на табло синтезатора между элементами, а не посреди.
+pub fn formula_tokens(text: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    for c in text.chars() {
+        if c.is_ascii_uppercase() || tokens.is_empty() {
+            tokens.push(String::new());
+        }
+        if let Some(last) = tokens.last_mut() {
+            last.push(c);
+        }
+    }
+    tokens
+}
+
+/// Полоса спектра элемента `i`: 18 полос по ширине прибора, под ними символы
+/// в два ряда вперемежку, чтобы двухбуквенные не налезали друг на друга.
+pub fn spectrum_bar(gauge: [f32; 4], i: usize) -> [f32; 4] {
+    let pitch = ((gauge[2] - 8.0) / ELEMENTS.len() as f32).floor();
+    let left = (gauge[0] + (gauge[2] - pitch * ELEMENTS.len() as f32) / 2.0).floor();
+    [left + i as f32 * pitch + 1.0, gauge[1] + 3.0, pitch - 2.0, gauge[3] - 25.0]
+}
+
+/// Где подписан символ элемента `i`: центр строки под полосой, в верхнем или
+/// нижнем ряду.
+pub fn spectrum_label(gauge: [f32; 4], i: usize) -> [f32; 2] {
+    let bar = spectrum_bar(gauge, i);
+    [bar[0] + bar[2] / 2.0, bar[1] + bar[3] + 2.0 + (i % 2) as f32 * 9.0]
+}
+
+/// Над какой полосой спектра курсор.
+pub fn spectrum_index(gauge: [f32; 4], at: [f32; 2]) -> Option<usize> {
+    (0..ELEMENTS.len()).find(|&i| {
+        let b = spectrum_bar(gauge, i);
+        at[0] >= b[0] - 1.0
+            && at[0] < b[0] + b[2] + 1.0
+            && at[1] >= gauge[1]
+            && at[1] < gauge[1] + gauge[3]
+    })
+}
+
+/// Высота полосы спектра 0–1: шкала по самому большому числу, но не мельче 4
+/// атомов, иначе одинокий атом рисовался бы во всю высоту.
+pub fn spectrum_level(formula: &Formula, i: usize) -> f32 {
+    let top = formula.iter().copied().max().unwrap_or(0).max(4);
+    formula.get(i).copied().unwrap_or(0) as f32 / top as f32
+}
+
+/// Ген в чане или экстракторе: номер в `GENES` и сила; −1 — гена нет.
+pub fn screen_gene(data: &[i32]) -> Option<(&'static GeneKind, i32)> {
+    let index = usize::try_from(screen_datum(data, DATA_GENE, -1)).ok()?;
+    GENES.get(index).map(|g| (g, screen_datum(data, DATA_GENE_STRENGTH, 0)))
+}
+
+/// Штамм культуры во входе инкубатора; нули — культуры нет.
+pub fn screen_strain(data: &[i32]) -> Option<Strain> {
+    let values: [i32; 4] = std::array::from_fn(|i| screen_datum(data, DATA_STRAIN + i, 0));
+    values.iter().any(|v| *v > 0).then(|| Strain::of(values))
+}
+
+/// Силуэт клона в чане: голова, тело, две руки, две ноги — прямоугольники
+/// по центру прибора, ногами на дне.
+pub fn clone_parts(gauge: [f32; 4]) -> [[f32; 4]; 6] {
+    let cx = (gauge[0] + gauge[2] / 2.0).floor();
+    let floor = gauge[1] + gauge[3] - 14.0;
+    [
+        [cx - 4.0, floor - 30.0, 8.0, 8.0],
+        [cx - 4.0, floor - 22.0, 8.0, 12.0],
+        [cx - 7.0, floor - 22.0, 3.0, 11.0],
+        [cx + 4.0, floor - 22.0, 3.0, 11.0],
+        [cx - 4.0, floor - 10.0, 3.0, 10.0],
+        [cx + 1.0, floor - 10.0, 3.0, 10.0],
+    ]
+}
+
+/// Часть силуэта, которая уже выросла: клон растёт снизу вверх по прогрессу.
+pub fn clone_grown(part: [f32; 4], gauge: [f32; 4], progress: f32) -> Option<[f32; 4]> {
+    let parts = clone_parts(gauge);
+    let top = parts.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
+    let bottom = parts.iter().map(|p| p[1] + p[3]).fold(f32::MIN, f32::max);
+    let cut = (bottom - (bottom - top) * progress.clamp(0.0, 1.0)).round();
+    let y = part[1].max(cut);
+    let h = part[1] + part[3] - y;
+    (h > 0.0).then_some([part[0], y, part[2], h])
+}
+
+/// Плита пресса: опускается от верха прибора к таблетке по ходу прогресса.
+pub fn press_plate(gauge: [f32; 4], progress: f32) -> [f32; 4] {
+    let travel = gauge[3] - 24.0;
+    let y = (gauge[1] + 4.0 + travel * progress.clamp(0.0, 1.0)).floor();
+    [gauge[0] + 6.0, y, gauge[2] - 12.0, 6.0]
+}
+
+/// Атомы с правильным окончанием: 1 атом, 2 атома, 5 атомов.
+pub fn atoms_word(n: u32) -> String {
+    let word = match (n % 10, n % 100) {
+        (_, 11..=14) => "атомов",
+        (1, _) => "атом",
+        (2..=4, _) => "атома",
+        _ => "атомов",
+    };
+    format!("{n} {word}")
+}
+
+/// Подсказка над шкалой прогресса: что идёт и сколько осталось.
+pub fn progress_tooltip(id: &str, data: &[i32]) -> Vec<String> {
+    let verb = machine_verb(id);
+    let total = screen_datum(data, DATA_TOTAL, 0);
+    if total <= 0 {
+        return vec![format!("{verb} не идёт")];
+    }
+    let progress = screen_datum(data, DATA_PROGRESS, 0).clamp(0, total);
+    let percent = progress * 100 / total;
+    // Двадцать тиков в секунду; неполная секунда считается целой.
+    let seconds = (total - progress + 19) / 20;
+    vec![format!("{verb}: {percent}%, осталось {seconds} с")]
+}
+
+/// Подсказка над градусником: «Температура 58 °C, рецепту нужно 55–65 °C».
+pub fn reactor_tooltip(data: &[i32]) -> Vec<String> {
+    let r = reactor_reading(data);
+    let mut lines = vec![match r.range {
+        Some((min, max)) => format!("Температура {} °C, рецепту нужно {min}–{max} °C", r.temperature),
+        None => format!("Температура {} °C, рецепту она не важна", r.temperature),
+    }];
+    lines.push(match r.target {
+        Some(target) => format!("Источник греет до {target} °C"),
+        None => format!("Нагрева нет: остывает до {ROOM_TEMPERATURE} °C"),
+    });
+    // Источник, который греет выше предела, рано или поздно сорвёт реактор.
+    if r.target.is_some_and(|t| t > OVERHEAT) || r.temperature > OVERHEAT {
+        lines.push(format!("§cВыше {OVERHEAT} °C — перегрев, содержимое выбросит"));
+    } else {
+        lines.push(format!("§7Перегрев выше {OVERHEAT} °C"));
+    }
+    lines
+}
+
+/// Подсказка над табло синтезатора: формула, имя и статус.
+pub fn synth_tooltip(data: &[i32]) -> Vec<String> {
+    let formula = synth_formula(data);
+    if formula.iter().all(|c| *c == 0) {
+        return vec![synth_status_text(SYNTH_EMPTY).to_string()];
+    }
+    let status = screen_datum(data, DATA_SYNTH_STATUS, SYNTH_EMPTY);
+    let text = formula_text(&formula);
+    let name = compound_name_of(&formula);
+    let first = if name == text { text } else { format!("{text} — {name}") };
+    vec![first, synth_status_text(status).to_string()]
+}
+
+/// Подсказка над спектром: состав целиком и полоса под курсором.
+pub fn spectrum_tooltip(gauge: [f32; 4], data: &[i32], at: [f32; 2]) -> Vec<String> {
+    let formula = spectrum(data);
+    if formula.iter().all(|c| *c == 0) {
+        return vec!["Спектр пуст: положите колбу во вход".to_string()];
+    }
+    let mut lines = vec![format!("Состав: {}", formula_text(&formula))];
+    if let Some(i) = spectrum_index(gauge, at) {
+        lines.push(format!("{}: {}", ELEMENTS[i].symbol, atoms_word(formula[i])));
+    }
+    lines
+}
+
+/// Ген и сила словами.
+pub fn gene_tooltip(prefix: &str, data: &[i32]) -> Vec<String> {
+    match screen_gene(data) {
+        Some((gene, strength)) => vec![
+            format!("{prefix}: {}, сила {strength}", gene.title),
+            format!("§7{}", gene.about),
+        ],
+        None => vec![format!("{prefix}: нет")],
+    }
+}
+
+/// Подсказка над полосками штамма.
+pub fn strain_tooltip(data: &[i32]) -> Vec<String> {
+    match screen_strain(data) {
+        Some(strain) => {
+            let mut lines = vec!["Штамм культуры".to_string()];
+            for (name, value) in STRAIN_NAMES.iter().zip(strain.values()) {
+                lines.push(format!("{name} {value} из 5"));
+            }
+            lines
+        }
+        None => vec!["Культуры нет: положите чашку во вход".to_string()],
+    }
+}
+
+/// Подсказка экрана машины в точке `at` (от левого верхнего угла панели):
+/// над прибором — его числа словами, над шкалой — прогресс. Пусто, если
+/// курсор не над ними.
+pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
+    let Some(screen) = machine_screen(id) else {
+        return Vec::new();
+    };
+    if inside(screen.progress, at) {
+        let mut lines = Vec::new();
+        if id == SYNTHESIZER {
+            let status = screen_datum(data, DATA_SYNTH_STATUS, SYNTH_EMPTY);
+            lines.push(synth_status_text(status).to_string());
+        }
+        lines.extend(progress_tooltip(id, data));
+        return lines;
+    }
+    if !inside(screen.gauge, at) {
+        return Vec::new();
+    }
+    let working = screen_working(data);
+    let percent = (screen_progress(data) * 100.0) as i32;
+    match id {
+        REACTOR => reactor_tooltip(data),
+        SYNTHESIZER => synth_tooltip(data),
+        SPECTROMETER => spectrum_tooltip(screen.gauge, data, at),
+        CLONING_VAT => {
+            let mut lines = gene_tooltip("Ген клона", data);
+            lines.push(format!("Клон вырос на {percent}%"));
+            lines
+        }
+        EXTRACTOR => gene_tooltip("Последний ген", data),
+        "biolab:incubator" => strain_tooltip(data),
+        "biolab:still" if working => vec!["Змеевик горячий: идёт перегонка".to_string()],
+        "biolab:still" => vec!["Змеевик холодный: перегонять нечего".to_string()],
+        "biolab:fermenter" if working => vec!["Бак бродит".to_string()],
+        "biolab:fermenter" => vec!["Бак стоит: брожения нет".to_string()],
+        "biolab:centrifuge" if working => vec!["Барабан крутится: идёт разделение".to_string()],
+        "biolab:centrifuge" => vec!["Барабан стоит".to_string()],
+        "biolab:press" => vec![format!("Плита опущена на {percent}%")],
+        _ => Vec::new(),
+    }
+}
+
+// Цвета экранов: ARGB для заливок, RGB для текста. Сталь с бирюзовой
+// подсветкой — те же цвета, что в текстурах `gui/machine` (tools/mkgui_machine.py).
+pub const SCREEN_EDGE: u32 = 0xFF_101619;
+pub const SCREEN_STEEL: u32 = 0xFF_5B666E;
+pub const SCREEN_STEEL_LIGHT: u32 = 0xFF_9AA8B1;
+pub const SCREEN_STEEL_DARK: u32 = 0xFF_343D43;
+pub const SCREEN_TEAL: u32 = 0xFF_3FD8C4;
+pub const SCREEN_TEAL_DIM: u32 = 0xFF_1E6A62;
+pub const SCREEN_GLASS: u32 = 0xFF_0E1A1E;
+pub const SCREEN_SLOT: u32 = 0xFF_2C353B;
+pub const SCREEN_RED: u32 = 0xFF_D8443A;
+pub const SCREEN_AMBER: u32 = 0xFF_E0A040;
+pub const SCREEN_GREEN: u32 = 0xFF_5AE8B4;
+pub const SCREEN_TEXT: u32 = 0xE6_F4F2;
+pub const SCREEN_TEXT_DIM: u32 = 0x9F_B8BC;
+
+#[cfg(test)]
+mod screen_tests {
+    use super::*;
+
+    /// Где можно рисовать прибор: под заголовком, над подписью инвентаря
+    /// (она на 11 выше первого ряда), с полями по краям панели.
+    fn work_area(s: &MachineScreen) -> [f32; 4] {
+        [4.0, SCREEN_HEADER, s.width - 8.0, s.inventory[1] - 12.0 - SCREEN_HEADER]
+    }
+
+    fn contains(outer: [f32; 4], inner: [f32; 4]) -> bool {
+        inner[0] >= outer[0]
+            && inner[1] >= outer[1]
+            && inner[0] + inner[2] <= outer[0] + outer[2]
+            && inner[1] + inner[3] <= outer[1] + outer[3]
+    }
+
+    fn centre(r: [f32; 4]) -> [f32; 2] {
+        [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0]
+    }
+
+    #[test]
+    fn every_machine_has_a_screen_for_its_slots() {
+        for m in &MACHINES {
+            let s = machine_screen(m.id).unwrap_or_else(|| panic!("{} без экрана", m.id));
+            assert_eq!(s.slots.len(), m.slots, "{}", m.id);
+            assert_eq!(s.width, SCREEN_WIDTH, "{}", m.id);
+            assert!(!machine_title(m.id).is_empty(), "{} без названия", m.id);
+            assert_ne!(machine_verb(m.id), "Работа", "{} без глагола", m.id);
+        }
+        assert_eq!(machine_screen("biolab:pen"), None);
+        assert_eq!(machine_screen("minecraft:furnace"), None);
+    }
+
+    #[test]
+    fn slots_and_gauges_fit_the_panel_and_do_not_overlap() {
+        for m in &MACHINES {
+            let s = machine_screen(m.id).unwrap();
+            let area = work_area(&s);
+            let rects = screen_rects(&s);
+            for (i, r) in rects.iter().enumerate() {
+                assert!(contains(area, *r), "{}: {r:?} вне панели {area:?}", m.id);
+                for other in &rects[i + 1..] {
+                    assert!(!rects_overlap(*r, *other), "{}: {r:?} налезает на {other:?}", m.id);
+                }
+            }
+            let panel = [0.0, 0.0, s.width, s.height];
+            for at in inventory_slots(&s) {
+                let frame = slot_frame(at);
+                assert!(contains([3.0, 3.0, s.width - 6.0, s.height - 6.0], frame), "{}: инвентарь {frame:?}", m.id);
+                assert!(contains(panel, frame));
+                for r in &rects {
+                    assert!(!rects_overlap(*r, frame), "{}: {r:?} налезает на инвентарь", m.id);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fuel_slot_shows_only_at_the_vat() {
+        for m in MACHINES.iter().filter(|m| m.menu == "minecraft:furnace") {
+            let s = machine_screen(m.id).unwrap();
+            assert_eq!(s.slots[SLOT_FUEL].is_some(), m.id == CLONING_VAT, "{}", m.id);
+            assert!(s.slots[SLOT_INPUT].is_some() && s.slots[SLOT_OUTPUT].is_some(), "{}", m.id);
+            assert!(is_output_slot(m.id, SLOT_OUTPUT) && !is_output_slot(m.id, SLOT_FUEL), "{}", m.id);
+        }
+        let outputs: Vec<usize> = (0..6).filter(|i| is_output_slot("biolab:centrifuge", *i)).collect();
+        assert_eq!(outputs, vec![1, 2, 3, 4]);
+        assert!(is_output_slot(SYNTHESIZER, 8) && !is_output_slot(SYNTHESIZER, 7));
+        assert!(!is_output_slot("biolab:pen", 0));
+    }
+
+    #[test]
+    fn grid_and_hopper_keep_vanilla_places() {
+        // Horizon ставит слоты этих меню сам (DispenserMenu, HopperMenu):
+        // раскладка обязана совпасть, иначе рамки разойдутся с предметами.
+        let synth = machine_screen(SYNTHESIZER).unwrap();
+        assert_eq!(synth.slots[8], Some([98.0, 53.0]));
+        assert_eq!(synth.slots[0], Some([62.0, 17.0]));
+        assert_eq!((synth.height, synth.inventory), (166.0, [8.0, 84.0]));
+        let centrifuge = machine_screen("biolab:centrifuge").unwrap();
+        assert_eq!(centrifuge.slots[0], Some([44.0, 20.0]));
+        assert_eq!(centrifuge.slots[4], Some([116.0, 20.0]));
+        assert_eq!((centrifuge.height, centrifuge.inventory), (133.0, [8.0, 51.0]));
+        assert_eq!(inventory_slots(&centrifuge)[0], [8.0, 109.0]);
+        assert_eq!(inventory_slots(&centrifuge)[35], [152.0, 87.0]);
+    }
+
+    #[test]
+    fn instrument_parts_stay_inside_their_gauges() {
+        let still = machine_screen("biolab:still").unwrap();
+        for k in 0..=20 {
+            let p = coil_point(still.gauge, k as f32 / 20.0);
+            assert!(inside(still.gauge, p), "капля {p:?}");
+        }
+        let fermenter = machine_screen("biolab:fermenter").unwrap();
+        for k in 0..6 {
+            for step in 0..10 {
+                let p = bubble_point(fermenter.gauge, k, step as f32 / 10.0);
+                assert!(inside(fermenter.gauge, p), "пузырь {p:?}");
+            }
+        }
+        let reactor = machine_screen(REACTOR).unwrap();
+        let tube = thermo_tube(reactor.gauge);
+        assert!(contains(reactor.gauge, tube));
+        assert!(thermo_x(tube, OVERHEAT) < tube[0] + tube[2]);
+        assert_eq!(thermo_x(tube, -50), tube[0]);
+        assert_eq!(thermo_x(tube, 5000), tube[0] + tube[2]);
+        let spectro = machine_screen(SPECTROMETER).unwrap();
+        for i in 0..ELEMENTS.len() {
+            let bar = spectrum_bar(spectro.gauge, i);
+            assert!(contains(spectro.gauge, bar), "полоса {i}: {bar:?}");
+            assert_eq!(spectrum_index(spectro.gauge, centre(bar)), Some(i));
+            let label = spectrum_label(spectro.gauge, i);
+            // Символ шириной до 12 и высотой 8 вокруг центра строки.
+            assert!(contains(spectro.gauge, [label[0] - 6.0, label[1], 12.0, 8.0]), "символ {i}");
+            if i + 2 < ELEMENTS.len() {
+                let next = spectrum_label(spectro.gauge, i + 2);
+                assert!(next[0] - label[0] >= 12.0, "символы {i} и {} налезают", i + 2);
+            }
+            if i + 1 < ELEMENTS.len() {
+                assert!(!rects_overlap(bar, spectrum_bar(spectro.gauge, i + 1)));
+            }
+        }
+        let vat = machine_screen(CLONING_VAT).unwrap();
+        for part in clone_parts(vat.gauge) {
+            assert!(contains(vat.gauge, part), "клон {part:?}");
+            assert_eq!(clone_grown(part, vat.gauge, 0.0), None);
+            assert_eq!(clone_grown(part, vat.gauge, 1.0), Some(part));
+        }
+        // На середине ноги уже есть, головы ещё нет.
+        let parts = clone_parts(vat.gauge);
+        assert_eq!(clone_grown(parts[4], vat.gauge, 0.5), Some(parts[4]));
+        assert_eq!(clone_grown(parts[0], vat.gauge, 0.5), None);
+        let press = machine_screen("biolab:press").unwrap();
+        let (up, down) = (press_plate(press.gauge, 0.0), press_plate(press.gauge, 1.0));
+        assert!(contains(press.gauge, up) && contains(press.gauge, down));
+        assert!(down[1] > up[1]);
+    }
+
+    #[test]
+    fn animation_follows_time_only_while_working() {
+        assert_eq!(anim_frame(false, 12_345, 100, 4), 0);
+        let frames: Vec<u32> = [0, 100, 250, 399, 400].iter().map(|t| anim_frame(true, *t, 100, 4)).collect();
+        assert_eq!(frames, vec![0, 1, 2, 3, 0]);
+        assert_eq!(anim_frame(true, 500, 100, 0), 0);
+        assert_eq!(anim_phase(false, 777, 1000), 0.0);
+        assert_eq!(anim_phase(true, 1_250, 1000), 0.25);
+        assert!(!screen_working(&[]));
+        assert!(screen_working(&[1, 1, 0, 100]));
+        assert!(!screen_working(&[0, 0, 0, 0]));
+        assert_eq!(screen_progress(&[]), 0.0);
+        assert_eq!(screen_progress(&[1, 1, 25, 100]), 0.25);
+        assert_eq!(screen_progress(&[1, 1, 300, 100]), 1.0);
+    }
+
+    #[test]
+    fn data_slots_read_by_the_contract() {
+        assert_eq!(reactor_reading(&[]), ReactorReading { temperature: ROOM_TEMPERATURE, target: None, range: None });
+        assert_eq!(
+            reactor_reading(&[1, 1, 40, 100, 58, 300, 55, 65]),
+            ReactorReading { temperature: 58, target: Some(300), range: Some((55, 65)) }
+        );
+        assert_eq!(screen_gene(&[]).map(|g| g.0.name), None);
+        assert_eq!(screen_gene(&[0, 0, 0, 0, -1, 0]).map(|g| g.0.name), None);
+        assert_eq!(screen_gene(&[0, 0, 0, 0, 1, 3]).map(|g| (g.0.name, g.1)), Some(("dwarfism", 3)));
+        assert_eq!(screen_gene(&[0, 0, 0, 0, 999, 3]).map(|g| g.0.name), None);
+        assert_eq!(screen_strain(&[0; 8]), None);
+        assert_eq!(screen_strain(&[0, 0, 0, 0, 3, 2, 4, 1]), Some(Strain::of([3, 2, 4, 1])));
+        let mut data = vec![0; machine_data_slots(SYNTHESIZER)];
+        data[DATA_SYNTH_ELEMENTS] = 12;
+        data[DATA_SYNTH_ELEMENTS + 1] = 6;
+        data[DATA_SYNTH_ELEMENTS + 3] = 6;
+        assert_eq!(formula_text(&synth_formula(&data)), "C6H12O6");
+        assert_eq!(formula_tokens("C6H12O6"), vec!["C6", "H12", "O6"]);
+        assert_eq!(formula_tokens("ClNa").concat(), "ClNa");
+        assert_eq!(formula_tokens(""), Vec::<String>::new());
+        let mut salt = Formula::default();
+        salt[4] = 1;
+        salt[11] = 1;
+        assert_eq!(spectrum_level(&salt, 4), 0.25);
+        assert_eq!(spectrum_level(&salt, 0), 0.0);
+    }
+
+    #[test]
+    fn tooltips_say_numbers_in_words() {
+        let reactor = machine_screen(REACTOR).unwrap();
+        let typical = [1, 1, 40, 100, 58, 300, 55, 65];
+        let lines = screen_tooltip(REACTOR, &typical, centre(reactor.gauge));
+        assert_eq!(lines[0], "Температура 58 °C, рецепту нужно 55–65 °C");
+        assert_eq!(lines[1], "Источник греет до 300 °C");
+        assert_eq!(lines[2], "§7Перегрев выше 900 °C");
+        let lava = [1, 1, 40, 100, 870, 950, 0, 0];
+        let lines = screen_tooltip(REACTOR, &lava, centre(reactor.gauge));
+        assert_eq!(lines[0], "Температура 870 °C, рецепту она не важна");
+        assert!(lines[2].starts_with("§cВыше 900 °C"));
+        let empty = screen_tooltip(REACTOR, &[], centre(reactor.gauge));
+        assert_eq!(empty[0], "Температура 20 °C, рецепту она не важна");
+        assert_eq!(empty[1], "Нагрева нет: остывает до 20 °C");
+
+        let still = machine_screen("biolab:still").unwrap();
+        assert_eq!(screen_tooltip("biolab:still", &[1, 1, 40, 100], centre(still.progress)), vec!["Перегонка: 40%, осталось 3 с"]);
+        assert_eq!(screen_tooltip("biolab:still", &[], centre(still.progress)), vec!["Перегонка не идёт"]);
+        assert_eq!(screen_tooltip("biolab:still", &[], centre(still.gauge)), vec!["Змеевик холодный: перегонять нечего"]);
+        assert_eq!(screen_tooltip("biolab:still", &[1, 1, 40, 100], [1.0, 1.0]), Vec::<String>::new());
+
+        let synth = machine_screen(SYNTHESIZER).unwrap();
+        let mut data = vec![0; machine_data_slots(SYNTHESIZER)];
+        assert_eq!(screen_tooltip(SYNTHESIZER, &data, centre(synth.gauge)), vec!["Пусто: положите элементы"]);
+        assert_eq!(screen_tooltip(SYNTHESIZER, &[], centre(synth.gauge)), vec!["Пусто: положите элементы"]);
+        data[DATA_SYNTH_STATUS] = SYNTH_STABLE;
+        data[DATA_SYNTH_ELEMENTS] = 12;
+        data[DATA_SYNTH_ELEMENTS + 1] = 6;
+        data[DATA_SYNTH_ELEMENTS + 3] = 6;
+        assert_eq!(
+            screen_tooltip(SYNTHESIZER, &data, centre(synth.gauge)),
+            vec!["C6H12O6 — глюкоза", "Устойчиво: соберётся"]
+        );
+        data[DATA_SYNTH_STATUS] = SYNTH_UNSTABLE;
+        data[DATA_SYNTH_ELEMENTS + 3] = 7;
+        assert_eq!(
+            screen_tooltip(SYNTHESIZER, &data, centre(synth.gauge)),
+            vec!["C6H12O7", "Неустойчиво: связи не сходятся"]
+        );
+        assert_eq!(screen_tooltip(SYNTHESIZER, &data, centre(synth.progress))[0], "Неустойчиво: связи не сходятся");
+
+        let spectro = machine_screen(SPECTROMETER).unwrap();
+        let mut data = vec![0; machine_data_slots(SPECTROMETER)];
+        assert_eq!(screen_tooltip(SPECTROMETER, &data, centre(spectro.gauge)), vec!["Спектр пуст: положите колбу во вход"]);
+        data[DATA_SPECTRUM + 4] = 1;
+        data[DATA_SPECTRUM + 11] = 1;
+        let na = centre(spectrum_bar(spectro.gauge, 4));
+        assert_eq!(screen_tooltip(SPECTROMETER, &data, na), vec!["Состав: ClNa", "Na: 1 атом"]);
+
+        let vat = machine_screen(CLONING_VAT).unwrap();
+        let lines = screen_tooltip(CLONING_VAT, &[1, 1, 100, 400, 0, 2], centre(vat.gauge));
+        assert_eq!(lines[0], "Ген клона: Гигантизм, сила 2");
+        assert_eq!(lines[2], "Клон вырос на 25%");
+        assert_eq!(screen_tooltip(CLONING_VAT, &[], centre(vat.gauge))[0], "Ген клона: нет");
+
+        let extractor = machine_screen(EXTRACTOR).unwrap();
+        assert_eq!(screen_tooltip(EXTRACTOR, &[0, 0, 0, 0, 1, 1], centre(extractor.gauge))[0], "Последний ген: Карликовость, сила 1");
+        assert_eq!(screen_tooltip(EXTRACTOR, &[], centre(extractor.gauge)), vec!["Последний ген: нет"]);
+
+        let incubator = machine_screen("biolab:incubator").unwrap();
+        let lines = screen_tooltip("biolab:incubator", &[0, 0, 0, 0, 3, 2, 4, 1], centre(incubator.gauge));
+        assert_eq!(lines, vec!["Штамм культуры", "Заразность 3 из 5", "Инкубация 2 из 5", "Тяжесть 4 из 5", "Стойкость 1 из 5"]);
+        assert_eq!(screen_tooltip("biolab:incubator", &[], centre(incubator.gauge)), vec!["Культуры нет: положите чашку во вход"]);
+
+        let press = machine_screen("biolab:press").unwrap();
+        assert_eq!(screen_tooltip("biolab:press", &[1, 1, 50, 100], centre(press.gauge)), vec!["Плита опущена на 50%"]);
+        let centrifuge = machine_screen("biolab:centrifuge").unwrap();
+        assert_eq!(screen_tooltip("biolab:centrifuge", &[1, 1, 5, 100], centre(centrifuge.gauge)), vec!["Барабан крутится: идёт разделение"]);
+        assert_eq!(screen_tooltip("biolab:pen", &[], [50.0, 50.0]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn atoms_agree_with_their_number() {
+        let words: Vec<String> = [1, 2, 4, 5, 11, 12, 21, 22, 25].iter().map(|n| atoms_word(*n)).collect();
+        assert_eq!(
+            words,
+            vec!["1 атом", "2 атома", "4 атома", "5 атомов", "11 атомов", "12 атомов", "21 атом", "22 атома", "25 атомов"]
+        );
+    }
+}

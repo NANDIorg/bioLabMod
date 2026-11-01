@@ -1,0 +1,522 @@
+// Экран машины: лабораторная панель, рамки слотов, заголовок с иконкой и
+// прибор машины со своей шкалой. Horizon до нас рисует простую серую панель
+// с рамками, а после нас — предметы; наша панель её закрывает, поэтому рамки
+// слотов и инвентаря рисуем заново. Раскладка, приборы и числа — в модуле
+// мода (`machine_screen`, `screen_*`), здесь только кисть. Текстуры из
+// `gui/machine` необязательны: без спрайта рисуем заливками того же цвета.
+fn biolab_core_screen_draw(
+    game: &crate::game::Game<'_>,
+    block: &str,
+    data: &[i32],
+    batch: &mut horizon_client::hud::HudBatch,
+    origin: [f32; 2],
+) {
+    use crate::game::biolab_core as m;
+
+    /// Кисть: всё в координатах от левого верхнего угла панели.
+    struct Pen<'a, 'g> {
+        game: &'a crate::game::Game<'g>,
+        batch: &'a mut horizon_client::hud::HudBatch,
+        origin: [f32; 2],
+    }
+
+    impl Pen<'_, '_> {
+        fn at(&self, r: [f32; 4]) -> [f32; 4] {
+            [self.origin[0] + r[0], self.origin[1] + r[1], r[2], r[3]]
+        }
+
+        fn fill(&mut self, r: [f32; 4], argb: u32) {
+            if r[2] <= 0.0 || r[3] <= 0.0 {
+                return;
+            }
+            let dst = self.at(r);
+            self.game.native_fill(&mut *self.batch, dst, argb);
+        }
+
+        fn sprite(&mut self, name: &str, src: [f32; 4], r: [f32; 4]) -> bool {
+            if r[2] <= 0.0 || r[3] <= 0.0 {
+                return true;
+            }
+            let dst = self.at(r);
+            self.game.native_sprite(&mut *self.batch, name, src, dst)
+        }
+
+        fn text(&mut self, text: &str, at: [f32; 2], rgb: u32, shadow: bool) {
+            let at = [self.origin[0] + at[0], self.origin[1] + at[1]];
+            self.game.native_text(&mut *self.batch, text, at, rgb, shadow);
+        }
+
+        fn width(&self, text: &str) -> f32 {
+            self.game.native_text_width(text)
+        }
+
+        fn item(&mut self, item: &str, at: [f32; 2], size: f32) -> bool {
+            let at = [self.origin[0] + at[0], self.origin[1] + at[1]];
+            self.game.native_item(&mut *self.batch, item, at, size)
+        }
+
+        /// Застеклённое окно прибора: тёмный кант, стекло, блик сверху.
+        fn glass(&mut self, r: [f32; 4]) {
+            let [x, y, w, h] = r;
+            self.fill(r, m::SCREEN_EDGE);
+            self.fill([x + 1.0, y + 1.0, w - 2.0, h - 2.0], m::SCREEN_GLASS);
+            self.fill([x + 1.0, y + 1.0, w - 2.0, 1.0], m::SCREEN_TEAL_DIM);
+        }
+
+        /// Полоса, заполненная на долю `f`: вдоль длинной стороны, вертикальная
+        /// — снизу вверх.
+        fn bar(&mut self, r: [f32; 4], f: f32, argb: u32) {
+            let [x, y, w, h] = r;
+            self.fill(r, m::SCREEN_EDGE);
+            self.fill([x + 1.0, y + 1.0, w - 2.0, h - 2.0], m::SCREEN_STEEL_DARK);
+            let f = f.clamp(0.0, 1.0);
+            if h > w {
+                let lh = ((h - 2.0) * f).floor();
+                self.fill([x + 1.0, y + h - 1.0 - lh, w - 2.0, lh], argb);
+            } else {
+                let lw = ((w - 2.0) * f).floor();
+                self.fill([x + 1.0, y + 1.0, lw, h - 2.0], argb);
+            }
+        }
+
+        /// Строка, обрезанная по ширине с многоточием.
+        fn fit(&self, text: &str, width: f32) -> String {
+            if self.width(text) <= width {
+                return text.to_string();
+            }
+            let mut out: String = text.to_string();
+            while !out.is_empty() && self.width(&format!("{out}…")) > width {
+                out.pop();
+            }
+            format!("{}…", out.trim_end())
+        }
+
+        /// Текст словами по ширине.
+        fn wrap(&self, text: &str, width: f32) -> Vec<String> {
+            let mut lines = Vec::new();
+            let mut line = String::new();
+            for word in text.split_whitespace() {
+                let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                if self.width(&candidate) <= width || line.is_empty() {
+                    line = candidate;
+                } else {
+                    lines.push(std::mem::take(&mut line));
+                    line = word.to_string();
+                }
+            }
+            if !line.is_empty() {
+                lines.push(line);
+            }
+            lines
+        }
+    }
+
+    /// Прямоугольник, обрезанный справа по `x`: заполненная часть стрелки.
+    fn clip_x(r: [f32; 4], x: f32) -> [f32; 4] {
+        [r[0], r[1], (x - r[0]).clamp(0.0, r[2]), r[3]]
+    }
+
+    let Some(layout) = m::machine_screen(block) else {
+        return;
+    };
+    let mut pen = Pen { game, batch, origin };
+    let (w, h) = (layout.width, layout.height);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let working = m::screen_working(data);
+    let progress = m::screen_progress(data);
+
+    // Панель: сталь, светлая фаска сверху-слева, тёмная снизу-справа,
+    // бирюзовая подсветка под заголовком.
+    let panel = if h == m::SCREEN_HEIGHT { "biolab:gui/machine/panel" } else { "biolab:gui/machine/panel_short" };
+    if !pen.sprite(panel, [0.0, 0.0, w, h], [0.0, 0.0, w, h]) {
+        pen.fill([0.0, 0.0, w, h], m::SCREEN_EDGE);
+        pen.fill([1.0, 1.0, w - 2.0, h - 2.0], m::SCREEN_STEEL);
+        pen.fill([1.0, 1.0, w - 2.0, 1.0], m::SCREEN_STEEL_LIGHT);
+        pen.fill([1.0, 1.0, 1.0, h - 2.0], m::SCREEN_STEEL_LIGHT);
+        pen.fill([1.0, h - 2.0, w - 2.0, 1.0], m::SCREEN_STEEL_DARK);
+        pen.fill([w - 2.0, 1.0, 1.0, h - 2.0], m::SCREEN_STEEL_DARK);
+        pen.fill([4.0, m::SCREEN_HEADER - 1.0, w - 8.0, 1.0], m::SCREEN_TEAL_DIM);
+        pen.fill([4.0, m::SCREEN_HEADER - 1.0, 24.0, 1.0], m::SCREEN_TEAL);
+        for (x, y) in [(3.0, 3.0), (w - 5.0, 3.0), (3.0, h - 5.0), (w - 5.0, h - 5.0)] {
+            pen.fill([x, y, 2.0, 2.0], m::SCREEN_STEEL_DARK);
+        }
+    }
+
+    // Рамки слотов: машины и все 36 инвентаря. Выходы — в бирюзовой.
+    let mut frames: Vec<([f32; 4], bool)> = Vec::new();
+    for (i, at) in layout.slots.iter().enumerate() {
+        if let Some(at) = at {
+            frames.push((m::slot_frame(*at), m::is_output_slot(block, i)));
+        }
+    }
+    for at in m::inventory_slots(&layout) {
+        frames.push((m::slot_frame(at), false));
+    }
+    for (r, output) in frames {
+        let sprite = if output { "biolab:gui/machine/slot_out" } else { "biolab:gui/machine/slot" };
+        if !pen.sprite(sprite, [0.0, 0.0, 18.0, 18.0], r) {
+            let [x, y, _, _] = r;
+            pen.fill([x, y, 18.0, 18.0], m::SCREEN_STEEL_LIGHT);
+            pen.fill([x, y, 17.0, 17.0], m::SCREEN_EDGE);
+            pen.fill([x + 1.0, y + 1.0, 16.0, 16.0], if output { 0xFF_1D3A38 } else { m::SCREEN_SLOT });
+            if output {
+                pen.fill([x + 1.0, y + 16.0, 16.0, 1.0], m::SCREEN_TEAL);
+            }
+        }
+    }
+
+    // Заголовок: иконка машины, название, лампа работы.
+    pen.item(block, [5.0, 3.0], 12.0);
+    let title = game.native_screen_title().unwrap_or_else(|| m::machine_title(block).to_string());
+    let title = pen.fit(&title, w - 40.0);
+    pen.text(&title, [20.0, 5.0], m::SCREEN_TEXT, true);
+    pen.fill([w - 12.0, 5.0, 6.0, 6.0], m::SCREEN_EDGE);
+    pen.fill([w - 11.0, 6.0, 4.0, 4.0], if working { m::SCREEN_GREEN } else { m::SCREEN_STEEL_DARK });
+    let [ix, iy] = layout.inventory;
+    pen.text("Инвентарь", [ix, iy - 11.0], 0xC8_D8DA, false);
+
+    let g = layout.gauge;
+    let p = layout.progress;
+    match block {
+        // Змеевик: медная труба змейкой, по ней бегут капли дистиллята.
+        "biolab:still" => {
+            pen.glass(g);
+            let copper = if working { 0xFF_D88A45 } else { 0xFF_8A5A34 };
+            let (left, right) = (g[0] + 6.0, g[0] + g[2] - 6.0);
+            for run in 0..m::COIL_RUNS {
+                let row = m::coil_row(g, run);
+                pen.fill([left - 1.0, row - 1.0, right - left + 2.0, 3.0], copper);
+                if run + 1 < m::COIL_RUNS {
+                    let x = if run % 2 == 0 { right } else { left };
+                    let next = m::coil_row(g, run + 1);
+                    pen.fill([x - 1.0, row - 1.0, 3.0, next - row + 3.0], copper);
+                }
+            }
+            if working {
+                let phase = m::anim_phase(true, millis, 2400);
+                for k in 0..3 {
+                    let at = m::coil_point(g, (phase + k as f32 / 3.0).fract());
+                    pen.fill([at[0] - 1.0, at[1] - 1.0, 3.0, 3.0], m::SCREEN_TEAL);
+                }
+            }
+            pen.bar(p, progress, m::SCREEN_TEAL);
+        }
+        // Инкубатор: четыре полоски штамма по пять делений.
+        "biolab:incubator" => {
+            pen.glass(g);
+            let values = m::screen_strain(data).map(|s| s.values()).unwrap_or([0; 4]);
+            let colours = [0xFF_E0604A, m::SCREEN_AMBER, 0xFF_B070E0, m::SCREEN_TEAL];
+            for (k, short) in ["Зар", "Инк", "Тяж", "Стк"].iter().enumerate() {
+                let y = g[1] + 3.0 + k as f32 * 10.0;
+                pen.text(short, [g[0] + 3.0, y], m::SCREEN_TEXT_DIM, false);
+                for s in 0..5 {
+                    let on = (s as i32) < values[k];
+                    let cell = [g[0] + 26.0 + s as f32 * 11.0, y + 1.0, 9.0, 6.0];
+                    pen.fill(cell, if on { colours[k] } else { m::SCREEN_STEEL_DARK });
+                }
+            }
+            pen.bar(p, progress, m::SCREEN_GREEN);
+        }
+        // Ферментер: бак с бражкой, уровень растёт с прогрессом, пузыри.
+        "biolab:fermenter" => {
+            pen.glass(g);
+            let inner = [g[0] + 2.0, g[1] + 4.0, g[2] - 4.0, g[3] - 6.0];
+            let level = (inner[3] * (0.35 + 0.5 * progress)).floor();
+            let top = inner[1] + inner[3] - level;
+            pen.fill([inner[0], top, inner[2], level], 0xFF_6E8A34);
+            pen.fill([inner[0], top, inner[2], 1.0], 0xFF_A8C85A);
+            if working {
+                let phase = m::anim_phase(true, millis, 1800);
+                for k in 0..5 {
+                    let at = m::bubble_point(g, k, phase);
+                    if at[1] > top + 1.0 {
+                        pen.fill([at[0], at[1], 2.0, 2.0], 0xFF_D8F08A);
+                    }
+                }
+            }
+            // Люк сверху и обручи бака.
+            pen.fill([g[0] + g[2] / 2.0 - 8.0, g[1] + 1.0, 16.0, 3.0], m::SCREEN_STEEL_LIGHT);
+            pen.fill([g[0] + 1.0, g[1] + 14.0, 2.0, 2.0], m::SCREEN_STEEL_LIGHT);
+            pen.fill([g[0] + g[2] - 3.0, g[1] + 14.0, 2.0, 2.0], m::SCREEN_STEEL_LIGHT);
+            pen.bar(p, progress, 0xFF_A8C85A);
+        }
+        // Центрифуга: барабан крутится четырьмя кадрами, пока идёт разделение.
+        "biolab:centrifuge" => {
+            let frame = m::anim_frame(working, millis, 90, 4) as f32;
+            if !pen.sprite("biolab:gui/machine/drum", [frame * 20.0, 0.0, 20.0, 20.0], g) {
+                let [x, y, _, _] = g;
+                pen.fill([x + 1.0, y + 4.0, 18.0, 12.0], m::SCREEN_EDGE);
+                pen.fill([x + 4.0, y + 1.0, 12.0, 18.0], m::SCREEN_EDGE);
+                pen.fill([x + 2.0, y + 5.0, 16.0, 10.0], m::SCREEN_STEEL_DARK);
+                pen.fill([x + 5.0, y + 2.0, 10.0, 16.0], m::SCREEN_STEEL_DARK);
+                let spoke = m::SCREEN_STEEL_LIGHT;
+                match frame as u32 {
+                    0 => pen.fill([x + 9.0, y + 3.0, 2.0, 14.0], spoke),
+                    2 => pen.fill([x + 3.0, y + 9.0, 14.0, 2.0], spoke),
+                    f => {
+                        for k in 0..5 {
+                            let d = 4.0 + k as f32 * 2.5;
+                            let sx = if f == 1 { x + d } else { x + 18.0 - d };
+                            pen.fill([sx - 1.0, y + d - 1.0, 2.0, 2.0], spoke);
+                        }
+                    }
+                }
+                pen.fill([x + 8.0, y + 8.0, 4.0, 4.0], m::SCREEN_TEAL);
+            }
+            pen.bar(p, progress, m::SCREEN_TEAL);
+        }
+        // Реактор: градусник с красной зоной перегрева, отметкой цели нагрева
+        // и полосой диапазона рецепта; стрелка прогресса над ним.
+        "biolab:reactor" => {
+            pen.glass(g);
+            let r = m::reactor_reading(data);
+            let tube = m::thermo_tube(g);
+            let hot = m::thermo_x(tube, m::OVERHEAT);
+            pen.fill([g[0] + 3.0, tube[1] - 2.0, 10.0, 10.0], m::SCREEN_EDGE);
+            pen.fill([g[0] + 4.0, tube[1] - 1.0, 8.0, 8.0], m::SCREEN_RED);
+            pen.fill(tube, m::SCREEN_STEEL_DARK);
+            pen.fill([hot, tube[1], tube[0] + tube[2] - hot, tube[3]], 0xFF_5A1A16);
+            for k in 1..10 {
+                let x = m::thermo_x(tube, k * 100);
+                pen.fill([x, tube[1] + tube[3], 1.0, 1.0], m::SCREEN_STEEL_LIGHT);
+            }
+            let fits = m::temperature_fits(r.temperature, r.range);
+            let mercury = if r.temperature > m::OVERHEAT { 0xFF_FF5A40 } else { m::SCREEN_RED };
+            let tx = m::thermo_x(tube, r.temperature);
+            pen.fill([tube[0], tube[1] + 1.0, tx - tube[0], tube[3] - 2.0], mercury);
+            if let Some((min, max)) = r.range {
+                let (a, b) = (m::thermo_x(tube, min), m::thermo_x(tube, max));
+                let band = if fits { m::SCREEN_GREEN } else { m::SCREEN_AMBER };
+                pen.fill([a, tube[1] + tube[3] + 1.0, (b - a).max(1.0), 2.0], band);
+            }
+            if let Some(target) = r.target {
+                let x = m::thermo_x(tube, target).floor();
+                pen.fill([x - 2.0, tube[1] - 5.0, 5.0, 1.0], m::SCREEN_AMBER);
+                pen.fill([x - 1.0, tube[1] - 4.0, 3.0, 1.0], m::SCREEN_AMBER);
+                pen.fill([x, tube[1] - 3.0, 1.0, 2.0], m::SCREEN_AMBER);
+            }
+            let reading = format!("{} °C", r.temperature);
+            let colour = if r.temperature > m::OVERHEAT {
+                0xFF_6A50
+            } else if r.range.is_some() && fits {
+                0x5A_E8B4
+            } else {
+                m::SCREEN_TEXT
+            };
+            let row = g[1] + g[3] - 10.0;
+            pen.text(&reading, [g[0] + 3.0, row], colour, true);
+            let goal = match r.target {
+                Some(t) => format!("нагрев до {t}"),
+                None => "без нагрева".to_string(),
+            };
+            let gw = pen.width(&goal);
+            pen.text(&goal, [g[0] + g[2] - gw - 3.0, row], m::SCREEN_TEXT_DIM, false);
+
+            // Стрелка: древко и наконечник, заполняются слева направо.
+            let fill_x = p[0] + p[2] * progress;
+            let shaft = [p[0], p[1] + 3.0, p[2] - 5.0, 4.0];
+            pen.fill(shaft, m::SCREEN_STEEL_DARK);
+            pen.fill(clip_x(shaft, fill_x), m::SCREEN_AMBER);
+            for k in 0..5 {
+                let piece = [p[0] + p[2] - 5.0 + k as f32, p[1] + k as f32, 1.0, p[3] - 2.0 * k as f32];
+                let lit = piece[0] < fill_x;
+                pen.fill(piece, if lit { m::SCREEN_AMBER } else { m::SCREEN_STEEL_DARK });
+            }
+        }
+        // Синтезатор: табло с набранной формулой и именем в цвете статуса,
+        // справа лампа статуса, число атомов и шкала сборки.
+        "biolab:synthesizer" => {
+            pen.glass(g);
+            let status = m::screen_datum(data, m::DATA_SYNTH_STATUS, m::SYNTH_EMPTY);
+            let colour = m::synth_status_colour(status);
+            let formula = m::synth_formula(data);
+            let atoms: u32 = formula.iter().sum();
+            let inner = g[2] - 6.0;
+            let bottom = g[1] + g[3] - 2.0;
+            let mut row = g[1] + 4.0;
+            if atoms == 0 {
+                pen.text("—", [g[0] + 3.0, row], m::SCREEN_TEXT_DIM, false);
+            } else {
+                let text = m::formula_text(&formula);
+                let mut line = String::new();
+                let mut lines = Vec::new();
+                for token in m::formula_tokens(&text) {
+                    let candidate = format!("{line}{token}");
+                    if !line.is_empty() && pen.width(&candidate) > inner {
+                        lines.push(std::mem::take(&mut line));
+                        line = token;
+                    } else {
+                        line = candidate;
+                    }
+                }
+                if !line.is_empty() {
+                    lines.push(line);
+                }
+                for line in lines {
+                    if row + 8.0 > bottom {
+                        break;
+                    }
+                    pen.text(&line, [g[0] + 3.0, row], colour, true);
+                    row += 10.0;
+                }
+                let name = m::compound_name_of(&formula);
+                if name != text {
+                    row += 2.0;
+                    for line in pen.wrap(&name, inner) {
+                        if row + 8.0 > bottom {
+                            break;
+                        }
+                        let line = pen.fit(&line, inner);
+                        pen.text(&line, [g[0] + 3.0, row], m::SCREEN_TEXT, false);
+                        row += 10.0;
+                    }
+                }
+            }
+            pen.glass(p);
+            pen.fill([p[0] + 4.0, p[1] + 5.0, 10.0, 10.0], m::SCREEN_EDGE);
+            pen.fill([p[0] + 5.0, p[1] + 6.0, 8.0, 8.0], 0xFF00_0000 | colour);
+            let percent = format!("{}%", (progress * 100.0) as i32);
+            pen.text(&percent, [p[0] + 18.0, p[1] + 6.0], m::SCREEN_TEXT, false);
+            let count = format!("{atoms} ат.");
+            pen.text(&count, [p[0] + 4.0, p[1] + 22.0], m::SCREEN_TEXT_DIM, false);
+            pen.bar([p[0] + 3.0, p[1] + p[3] - 10.0, p[2] - 6.0, 7.0], progress, 0xFF00_0000 | colour);
+        }
+        // Пресс: станина, шток и плита, которая опускается на таблетку.
+        "biolab:press" => {
+            pen.glass(g);
+            let cx = (g[0] + g[2] / 2.0).floor();
+            pen.fill([g[0] + 3.0, g[1] + 2.0, 3.0, g[3] - 4.0], m::SCREEN_STEEL);
+            pen.fill([g[0] + g[2] - 6.0, g[1] + 2.0, 3.0, g[3] - 4.0], m::SCREEN_STEEL);
+            pen.fill([g[0] + 3.0, g[1] + 2.0, g[2] - 6.0, 2.0], m::SCREEN_STEEL_LIGHT);
+            let plate = m::press_plate(g, progress);
+            pen.fill([cx - 1.0, g[1] + 4.0, 2.0, plate[1] - g[1] - 4.0], m::SCREEN_STEEL_DARK);
+            pen.fill(plate, m::SCREEN_STEEL_LIGHT);
+            pen.fill([plate[0], plate[1] + plate[3] - 1.0, plate[2], 1.0], m::SCREEN_STEEL_DARK);
+            let anvil = [g[0] + 8.0, g[1] + g[3] - 8.0, g[2] - 16.0, 6.0];
+            pen.fill(anvil, m::SCREEN_STEEL);
+            pen.fill([anvil[0], anvil[1], anvil[2], 1.0], m::SCREEN_STEEL_LIGHT);
+            if working {
+                pen.fill([cx - 4.0, anvil[1] - 3.0, 8.0, 3.0], 0xFF_F0ECE0);
+            }
+            pen.bar(p, progress, m::SCREEN_TEAL);
+        }
+        // Экстрактор: имя последнего гена и его сила, шкала — спираль ДНК.
+        "biolab:extractor" => {
+            pen.glass(g);
+            pen.text("ДНК", [g[0] + 3.0, g[1] + 3.0], m::SCREEN_TEXT_DIM, false);
+            match m::screen_gene(data) {
+                Some((gene, strength)) => {
+                    let mut row = g[1] + 13.0;
+                    for line in pen.wrap(gene.title, g[2] - 6.0).into_iter().take(2) {
+                        let line = pen.fit(&line, g[2] - 6.0);
+                        pen.text(&line, [g[0] + 3.0, row], 0x3F_D8C4, true);
+                        row += 9.0;
+                    }
+                    for s in 0..strength.clamp(0, 5) {
+                        let pip = [g[0] + g[2] - 8.0 - s as f32 * 6.0, g[1] + 4.0, 4.0, 4.0];
+                        pen.fill(pip, m::SCREEN_TEAL);
+                    }
+                }
+                None => pen.text("гена нет", [g[0] + 3.0, g[1] + 13.0], m::SCREEN_TEXT_DIM, false),
+            }
+            pen.fill(p, m::SCREEN_EDGE);
+            pen.fill([p[0] + 1.0, p[1] + 1.0, p[2] - 2.0, p[3] - 2.0], m::SCREEN_GLASS);
+            let fill_x = p[0] + p[2] * progress;
+            let shift = m::anim_frame(working, millis, 120, 4) as usize;
+            let wave = [0.0, 1.0, 2.0, 1.0];
+            let steps = ((p[2] - 2.0) / 4.0) as usize;
+            for k in 0..steps {
+                let x = p[0] + 1.0 + k as f32 * 4.0;
+                let dy = wave[(k + shift) % 4];
+                let lit = x < fill_x;
+                let (a, b) = if lit { (m::SCREEN_TEAL, m::SCREEN_AMBER) } else { (m::SCREEN_TEAL_DIM, m::SCREEN_STEEL_DARK) };
+                pen.fill([x, p[1] + 1.0 + dy, 2.0, 2.0], a);
+                pen.fill([x, p[1] + p[3] - 3.0 - dy, 2.0, 2.0], b);
+            }
+        }
+        // Клонирующий чан: зелёный раствор, силуэт клона растёт снизу вверх,
+        // под чаном — ген; шкала раствора справа.
+        "biolab:cloning_vat" => {
+            let vat = [g[0], g[1], g[2], g[3] - 11.0];
+            pen.glass(vat);
+            pen.fill([vat[0] + 2.0, vat[1] + 5.0, vat[2] - 4.0, vat[3] - 7.0], 0xFF_1E4A36);
+            pen.fill([vat[0] + 2.0, vat[1] + 5.0, vat[2] - 4.0, 1.0], 0xFF_3E8A62);
+            let parts = m::clone_parts(g);
+            for part in parts {
+                pen.fill(part, 0xFF_2A5E46);
+            }
+            let top = parts.iter().map(|r| r[1]).fold(f32::MAX, f32::min);
+            let bottom = parts.iter().map(|r| r[1] + r[3]).fold(f32::MIN, f32::max);
+            let left = parts.iter().map(|r| r[0]).fold(f32::MAX, f32::min);
+            let right = parts.iter().map(|r| r[0] + r[2]).fold(f32::MIN, f32::max);
+            let (cw, ch) = (right - left, bottom - top);
+            let grown = (ch * progress).round();
+            let drawn = grown <= 0.0
+                || pen.sprite(
+                    "biolab:gui/machine/clone",
+                    [0.0, ch - grown, cw, grown],
+                    [left, bottom - grown, cw, grown],
+                );
+            if !drawn {
+                for part in parts {
+                    if let Some(r) = m::clone_grown(part, g, progress) {
+                        pen.fill(r, 0xFF_A8E0B8);
+                    }
+                }
+            }
+            if working {
+                let phase = m::anim_phase(true, millis, 2600);
+                for k in 0..4 {
+                    let at = m::bubble_point(vat, k, phase);
+                    pen.fill([at[0], at[1], 2.0, 2.0], 0xFF_6EC896);
+                }
+            }
+            let label = match m::screen_gene(data) {
+                Some((gene, strength)) => format!("{} {strength}", gene.title),
+                None => "ген не задан".to_string(),
+            };
+            let label = pen.fit(&label, g[2]);
+            let lw = pen.width(&label);
+            pen.text(&label, [g[0] + (g[2] - lw) / 2.0, g[1] + g[3] - 9.0], m::SCREEN_TEXT, true);
+            pen.bar(p, progress, m::SCREEN_GREEN);
+        }
+        // Спектрометр: 18 полос по элементам, символы в два ряда, бегущая
+        // линия скана; стрелка от входа к выходу.
+        "biolab:spectrometer" => {
+            pen.glass(g);
+            let formula = m::spectrum(data);
+            for (i, element) in m::ELEMENTS.iter().enumerate() {
+                let bar = m::spectrum_bar(g, i);
+                pen.fill(bar, 0xFF_18262A);
+                let lh = (bar[3] * m::spectrum_level(&formula, i)).round();
+                let mut single = m::Formula::default();
+                single[i] = 1;
+                let colour = 0xFF00_0000 | m::colour_of(&single);
+                pen.fill([bar[0], bar[1] + bar[3] - lh, bar[2], lh], colour);
+                let at = m::spectrum_label(g, i);
+                let sw = pen.width(element.symbol);
+                let ink = if formula[i] > 0 { m::SCREEN_TEXT } else { 0x5A_6E72 };
+                pen.text(element.symbol, [at[0] - sw / 2.0, at[1]], ink, false);
+            }
+            if working {
+                let first = m::spectrum_bar(g, 0);
+                let last = m::spectrum_bar(g, m::ELEMENTS.len() - 1);
+                let x = (first[0] + (last[0] + last[2] - first[0]) * progress).floor();
+                pen.fill([x, first[1] - 1.0, 1.0, first[3] + 2.0], m::SCREEN_TEAL);
+            }
+            // Стрелка вниз: древко заполняется сверху по прогрессу.
+            let shaft = [p[0] + p[2] / 2.0 - 1.0, p[1], 2.0, p[3] - 3.0];
+            pen.fill(shaft, m::SCREEN_STEEL_DARK);
+            pen.fill([shaft[0], shaft[1], shaft[2], (shaft[3] * progress).floor()], m::SCREEN_TEAL);
+            let head = if progress >= 1.0 || working { m::SCREEN_TEAL } else { m::SCREEN_STEEL_DARK };
+            for k in 0..3 {
+                let k = k as f32;
+                pen.fill([p[0] + 2.0 + 2.0 * k, p[1] + p[3] - 3.0 + k, p[2] - 4.0 - 4.0 * k, 1.0], head);
+            }
+        }
+        _ => {}
+    }
+}

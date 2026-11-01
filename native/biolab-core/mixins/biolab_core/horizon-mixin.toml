@@ -86,6 +86,44 @@ bindings = [
   { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
 ]
 
+# Свои экраны машин поверх их ванильных меню (GDD 4.16). Раскладку спрашивают
+# и клиент, и сервер; рисование и подсказки — только клиент. Стабильные хуки
+# API 19–20.
+[[injection]]
+id = "screen"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen"
+helper = "screen_layout.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "screen", ty = "&mut Option<crate::game::native_hooks::NativeScreen>", value = "&mut *screen" },
+]
+
+[[injection]]
+id = "screen-draw"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_draw"
+helper = "screen_draw.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "origin", ty = "[f32; 2]", value = "origin" },
+]
+
+[[injection]]
+id = "screen-tooltip"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_tooltip"
+helper = "screen_tooltip.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "at", ty = "[f32; 2]", value = "at" },
+  { name = "lines", ty = "&mut Vec<String>", value = "&mut *lines" },
+]
+
 # Препарат: правый клик лечит. Стабильный хук API 13.
 [[injection]]
 id = "use-item"
