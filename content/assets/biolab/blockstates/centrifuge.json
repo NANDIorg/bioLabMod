@@ -1,34 +1,9 @@
-{
- "variants": {
-  "facing=north,lit=false": {
-   "model": "biolab:block/centrifuge"
-  },
-  "facing=north,lit=true": {
-   "model": "biolab:block/centrifuge"
-  },
-  "facing=east,lit=false": {
-   "model": "biolab:block/centrifuge",
-   "y": 90
-  },
-  "facing=east,lit=true": {
-   "model": "biolab:block/centrifuge",
-   "y": 90
-  },
-  "facing=south,lit=false": {
-   "model": "biolab:block/centrifuge",
-   "y": 180
-  },
-  "facing=south,lit=true": {
-   "model": "biolab:block/centrifuge",
-   "y": 180
-  },
-  "facing=west,lit=false": {
-   "model": "biolab:block/centrifuge",
-   "y": 270
-  },
-  "facing=west,lit=true": {
-   "model": "biolab:block/centrifuge",
-   "y": 270
-  }
- }
-}
+{ "variants": {
+  "facing=north,lit=false": {"model": "biolab:block/centrifuge"},
+  "facing=north,lit=true": {"model": "biolab:block/centrifuge_on"},
+  "facing=east,lit=false": {"model": "biolab:block/centrifuge", "y": 90},
+  "facing=east,lit=true": {"model": "biolab:block/centrifuge_on", "y": 90},
+  "facing=south,lit=false": {"model": "biolab:block/centrifuge", "y": 180},
+  "facing=south,lit=true": {"model": "biolab:block/centrifuge_on", "y": 180},
+  "facing=west,lit=false": {"model": "biolab:block/centrifuge", "y": 270},
+  "facing=west,lit=true": {"model": "biolab:block/centrifuge_on", "y": 270} } }
