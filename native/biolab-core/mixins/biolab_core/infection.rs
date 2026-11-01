@@ -116,6 +116,9 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
                 *amplifier,
             ));
         }
+        if pharma.hardened {
+            game.native_chat("Курс прерван: штамм стал устойчивее");
+        }
         if after.infection != state.infection {
             // Лечение пенициллином: записываем новый уровень на диск.
             m::set_infection(&world, uuid, after.infection);

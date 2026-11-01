@@ -1,0 +1,13 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:extract_caffeine",
+  "minecraft:copper_ingot",
+  "biolab:flask"
+ ],
+ "result": {
+  "id": "biolab:spray_stimulant",
+  "count": 1
+ }
+}

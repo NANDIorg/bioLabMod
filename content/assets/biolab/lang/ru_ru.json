@@ -78,5 +78,12 @@
  "block.biolab.mutagen_puddle": "Лужа мутагена",
  "item.biolab.mutagen_bucket": "Ведро мутагена",
  "block.biolab.pen": "Вольер",
- "block.biolab.console": "Пульт наблюдения"
+ "block.biolab.console": "Пульт наблюдения",
+ "item.biolab.spray_analgesic": "Обезболивающее, аэрозоль",
+ "item.biolab.spray_stimulant": "Стимулятор, аэрозоль",
+ "item.biolab.dart_sedative": "Дротик с седативным",
+ "item.biolab.dart_venom": "Дротик с ядом",
+ "item.biolab.bandage": "Бинт",
+ "item.biolab.scalpel": "Зазубренный скальпель",
+ "gene.biolab.rending_claws": "Рвущие когти"
 }

@@ -1,10 +1,20 @@
-// Игрок ударил моба: костяные шипы мутанта ранят в ответ, а его ядовитая
-// кровь брызжет в лицо.
-fn biolab_core_hurt_enemy(game: &mut crate::game::Game<'_>, entity: u32) {
+// Игрок ударил моба: скальпель оставляет кровоточащую рану, а шипы мутанта
+// ранят в ответ и его ядовитая кровь брызжет в лицо.
+fn biolab_core_hurt_enemy(
+    game: &mut crate::game::Game<'_>,
+    stack: &horizon_client::items::ItemStack,
+    entity: u32,
+) {
     use crate::game::biolab_core as m;
     use horizon_client::mobs::finalize::{Attr, has_modifier};
     if !game.native_on(m::ID) {
         return;
+    }
+    // Зазубренный скальпель оставляет рану, которая кровоточит.
+    if &*stack.item == m::SCALPEL_ID
+        && let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == entity)
+    {
+        mob.add_effect(m::BLEEDING, m::BLEEDING_TICKS, 0);
     }
     let Some(mob) = game.mobs.iter().find(|mob| mob.id == entity) else {
         return;

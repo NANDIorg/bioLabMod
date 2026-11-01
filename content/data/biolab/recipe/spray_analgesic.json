@@ -1,0 +1,13 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:extract_salicylate",
+  "minecraft:copper_ingot",
+  "biolab:flask"
+ ],
+ "result": {
+  "id": "biolab:spray_analgesic",
+  "count": 1
+ }
+}

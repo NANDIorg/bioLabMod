@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "minecraft:white_wool",
+  "biolab:agar"
+ ],
+ "result": {
+  "id": "biolab:bandage",
+  "count": 2
+ }
+}

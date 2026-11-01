@@ -209,6 +209,14 @@ pub fn set_infection(world: &std::path::Path, uuid: u128, infection: u32) {
         return;
     };
     let state = table.entry((world.to_path_buf(), uuid)).or_default();
+    // Заражение без явного штамма (команда отладки, случайный источник) —
+    // это дикая линия: иначе болезнь некому «ужесточать» при срыве курса.
+    if state.infection == 0 && infection > 0 && state.strain[0] == 0 {
+        state.strain = WILD.values().map(|v| v as u8);
+    }
+    if infection == 0 {
+        state.strain = [0; 4];
+    }
     state.infection = infection.min(100);
     let path = state_path(world, uuid);
     if let Some(dir) = path.parent() {
@@ -1103,7 +1111,7 @@ pub struct Medicine {
     pub dose: u32,
 }
 
-pub const MEDICINES: [Medicine; 10] = [
+pub const MEDICINES: [Medicine; 12] = [
     Medicine { item: "biolab:pill_penicillin", drug: 0, form: FORM_PILL, dose: 100 },
     Medicine { item: "biolab:syringe_penicillin", drug: 0, form: FORM_INJECTION, dose: 80 },
     Medicine { item: "biolab:pill_analgesic", drug: 1, form: FORM_PILL, dose: 90 },
@@ -1114,7 +1122,29 @@ pub const MEDICINES: [Medicine; 10] = [
     Medicine { item: "biolab:syringe_vaccine", drug: 4, form: FORM_INJECTION, dose: 60 },
     Medicine { item: "biolab:syringe_sedative", drug: 5, form: FORM_INJECTION, dose: 40 },
     Medicine { item: "biolab:syringe_venom", drug: 6, form: FORM_INJECTION, dose: 35 },
+    // Аэрозоль: действует быстрее таблетки, но дозы в баллончике меньше.
+    Medicine { item: "biolab:spray_analgesic", drug: 1, form: FORM_SPRAY, dose: 60 },
+    Medicine { item: "biolab:spray_stimulant", drug: 2, form: FORM_SPRAY, dose: 45 },
 ];
+
+/// Дротики: те же вещества, но вводятся издали, по мобу под прицелом.
+pub const DARTS: [(&str, &str); 2] = [
+    ("biolab:dart_sedative", "biolab:syringe_sedative"),
+    ("biolab:dart_venom", "biolab:syringe_venom"),
+];
+
+/// Дальность, на которой дротик достаёт цель.
+pub const DART_RANGE: f64 = 24.0;
+/// Насколько узкий у дротика прицел: косинус угла между взглядом и целью.
+pub const DART_AIM: f64 = 0.96;
+
+/// Чем снаряжён дротик: шприц с тем же веществом.
+pub fn dart_syringe(item: &str) -> Option<&'static str> {
+    DARTS
+        .iter()
+        .find(|(dart, _)| *dart == item)
+        .map(|(_, syringe)| *syringe)
+}
 
 /// Пустой шприц: остаётся в руке после инъекции.
 pub const SYRINGE_EMPTY: &str = "biolab:syringe";
@@ -1245,6 +1275,8 @@ pub struct Pharma {
     pub cured: u32,
     /// Держится ли иммунитет к болезни.
     pub immune: bool,
+    /// Курс прерван, и штамм только что стал устойчивее.
+    pub hardened: bool,
 }
 
 /// Шаг кинетики: всасывание, выведение, привыкание, иммунитет и ломка.
@@ -1440,13 +1472,29 @@ pub fn take_medicine(world: &std::path::Path, uuid: u128, med: &Medicine) -> Opt
 
 /// Шаг кинетики на состоянии игрока в этом мире: что повесить и что стало с
 /// заражением. На диск не пишем — это делает автосохранение в `player_tick`.
+/// Здесь же ловится сорванный курс: если лекарство вышло из крови, а болезнь
+/// осталась, штамм становится устойчивее.
 pub fn pharma_tick(world: &std::path::Path, uuid: u128) -> Option<(Pharma, PlayerState)> {
     let mut table = states().lock().ok()?;
     let state = table.get_mut(&(world.to_path_buf(), uuid))?;
+    let before = level_of(&DRUGS[COURSE_DRUG], &state.drugs[COURSE_DRUG]);
     let pharma = pharma_step(state);
     if pharma.cured > 0 {
         state.infection = state.infection.saturating_sub(pharma.cured);
     }
+    let after = level_of(&DRUGS[COURSE_DRUG], &state.drugs[COURSE_DRUG]);
+    let mut hardened = false;
+    if course_broken(state, before, after)
+        && let Some(strain) = player_strain(state)
+    {
+        let harder = harden(&strain);
+        if harder != strain {
+            set_player_strain(state, &harder);
+            hardened = true;
+        }
+    }
+    let mut pharma = pharma;
+    pharma.hardened = hardened;
     Some((pharma, *state))
 }
 
@@ -1532,7 +1580,7 @@ pub struct GeneKind {
     pub side: Option<&'static str>,
 }
 
-pub const GENES: [GeneKind; 31] = [
+pub const GENES: [GeneKind; 32] = [
     GeneKind { name: "gigantism", title: "Гигантизм", cost: 2, about: "крупнее, живучее и сильнее", player: Some("health_boost"), side: Some("slowness") },
     GeneKind { name: "dwarfism", title: "Карликовость", cost: 1, about: "мельче и шустрее, но слабее", player: Some("speed"), side: Some("weakness") },
     GeneKind { name: "hypermetabolism", title: "Гиперметаболизм", cost: 2, about: "быстрее и злее, но хрупче", player: Some("speed"), side: Some("hunger") },
@@ -1564,6 +1612,7 @@ pub const GENES: [GeneKind; 31] = [
     GeneKind { name: "predator", title: "Хищник", cost: 2, about: "охотится на мирных животных", player: None, side: None },
     GeneKind { name: "pack_instinct", title: "Стайность", cost: 2, about: "сильнее, когда рядом свои", player: None, side: None },
     GeneKind { name: "loyalty", title: "Лояльность", cost: 2, about: "не нападает на людей", player: None, side: None },
+    GeneKind { name: "rending_claws", title: "Рвущие когти", cost: 3, about: "раны от него кровоточат", player: None, side: None },
 ];
 
 /// Сколько генов уживается в одном организме и какую сумму цен он выдержит.
@@ -1572,7 +1621,7 @@ pub const STABILITY: i32 = 6;
 
 /// Метки генов на мобе: модификатор дальности преследования с нулевой
 /// прибавкой, чьё имя и есть ген. Тот же список, что в `biolab-deep`.
-pub const GENE_MARKERS: [&str; 93] = [
+pub const GENE_MARKERS: [&str; 96] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -1666,6 +1715,9 @@ pub const GENE_MARKERS: [&str; 93] = [
     "biolab:gene/loyalty/1",
     "biolab:gene/loyalty/2",
     "biolab:gene/loyalty/3",
+    "biolab:gene/rending_claws/1",
+    "biolab:gene/rending_claws/2",
+    "biolab:gene/rending_claws/3",
 ];
 
 /// Ген по имени.
@@ -2357,7 +2409,7 @@ pub fn daylight(day_time: i64) -> bool {
 /// Что ген делает, кроме чисел. Та же таблица, что в `biolab-deep`: обе
 /// собираются из одного описания, а тест ниже следит, чтобы в core не
 /// осталось гена без строки поведения.
-pub const GENE_BEHAVIOUR: [&[&str]; 31] = [
+pub const GENE_BEHAVIOUR: [&[&str]; 32] = [
     &[],
     &[],
     &[],
@@ -2389,6 +2441,7 @@ pub const GENE_BEHAVIOUR: [&[&str]; 31] = [
     &["predator"],
     &["pack"],
     &["loyal"],
+    &["rend"],
 ];
 
 /// Сила поведения в наборе генов; 0 — такого гена нет.
@@ -2568,6 +2621,69 @@ pub fn console_lines(
     }
     lines
 }
+
+/// Полное выздоровление: болезнь, штамм, кровь и ломка обнуляются. Нужно для
+/// проверок (`/biolab cure`) и как итог успешного курса.
+pub fn cure_world_player(world: &std::path::Path, uuid: u128) {
+    let Ok(mut table) = states().lock() else {
+        return;
+    };
+    let state = table
+        .entry((world.to_path_buf(), uuid))
+        .or_insert_with(|| {
+            std::fs::read_to_string(state_path(world, uuid))
+                .map(|t| state_from_text(&t))
+                .unwrap_or_default()
+        });
+    state.infection = 0;
+    state.strain = [0; 4];
+    state.withdrawal = 0;
+    state.drugs = [DrugState::default(); DRUG_COUNT];
+    let saved = *state;
+    drop(table);
+    let path = state_path(world, uuid);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, state_to_text(&saved));
+}
+
+/// Прерванный курс: болезнь осталась, а препарат вышел из крови — штамм
+/// привыкает. Так лечиться надо до конца, а не «пока не полегчает».
+pub const COURSE_DRUG: usize = 0;
+
+/// Нужно ли ужесточить штамм: лечение шло, но не довели.
+pub fn course_broken(state: &PlayerState, before: Level, after: Level) -> bool {
+    state.infection > 0
+        && before == Level::Therapeutic
+        && after != Level::Therapeutic
+        && player_strain(state).is_some()
+}
+
+/// Штамм после сорванного курса: стойкость растёт на единицу.
+pub fn harden(strain: &Strain) -> Strain {
+    Strain::of([
+        strain.infectivity,
+        strain.incubation,
+        strain.severity,
+        strain.resistance + 1,
+    ])
+}
+
+// ---- Кровотечение ----
+//
+// Эффект `biolab:bleeding` бьёт понемногу, но долго, и сам не проходит
+// быстро: его снимают бинтом. Ставят его зазубренным скальпелем (мобу) и
+// когти мутанта-хищника (игроку).
+
+pub const BANDAGE_ID: &str = "biolab:bandage";
+pub const SCALPEL_ID: &str = "biolab:scalpel";
+pub const BLEEDING: &str = "biolab:bleeding";
+/// Сколько тиков кровоточит рана от скальпеля или когтей.
+pub const BLEEDING_TICKS: i32 = 200;
+
+/// Что бинт делает: снимает кровотечение и чуть лечит.
+pub const BANDAGE_HEAL: f32 = 2.0;
 
 #[cfg(test)]
 mod tests {
@@ -3397,7 +3513,7 @@ mod tests {
         for flag in [
             "regen", "fireproof", "acid_aura", "volatile", "necrosis", "toxic_blood",
             "thorns", "heal_aura", "chill_aura", "photophobia", "predator", "pack",
-            "loyal", "toxin_proof",
+            "loyal", "toxin_proof", "rend",
         ] {
             assert!(
                 GENE_BEHAVIOUR.iter().any(|flags| flags.contains(&flag)),
@@ -3471,6 +3587,42 @@ mod tests {
         assert_eq!(subject_of(pen), None);
         let centre = pen_centre(pen);
         assert_eq!(centre, [7.5, -59.0, 7.5]);
+    }
+
+    #[test]
+    fn sprays_and_darts_round_out_the_shelf() {
+        let spray = medicine("biolab:spray_analgesic").expect("аэрозоль есть");
+        assert_eq!(spray.form, FORM_SPRAY);
+        assert!(FORMS[spray.form].direct, "аэрозоль идёт сразу в кровь");
+        // Каждая форма хоть кем-то выпускается.
+        for (i, form) in FORMS.iter().enumerate() {
+            assert!(MEDICINES.iter().any(|m| m.form == i), "{} не выпускают", form.id);
+        }
+        // Дротик — это тот же шприц, только издали.
+        for (dart, syringe) in DARTS {
+            assert_eq!(dart_syringe(dart), Some(syringe));
+            assert!(mob_injection(syringe).is_some(), "{syringe} ничего не делает мобу");
+        }
+        assert_eq!(dart_syringe("biolab:syringe_venom"), None);
+    }
+
+    #[test]
+    fn a_broken_course_hardens_the_strain() {
+        let mut state = PlayerState { infection: 40, ..Default::default() };
+        set_player_strain(&mut state, &WILD);
+        // Лечение шло и оборвалось — штамм привыкает.
+        assert!(course_broken(&state, Level::Therapeutic, Level::Subtherapeutic));
+        // Долечили до нуля — претензий нет.
+        let cured = PlayerState { infection: 0, ..state };
+        assert!(!course_broken(&cured, Level::Therapeutic, Level::Absent));
+        // Лечения и не было.
+        assert!(!course_broken(&state, Level::Absent, Level::Absent));
+
+        let harder = harden(&WILD);
+        assert_eq!(harder.resistance, WILD.resistance + 1);
+        assert_eq!(harder.infectivity, WILD.infectivity, "остальное не трогаем");
+        assert_eq!(harden(&Strain::of([1, 1, 1, 5])).resistance, 5, "выше пяти некуда");
+        assert!(strain_relief(&harder) < strain_relief(&WILD), "лечить стало труднее");
     }
 
     #[test]

@@ -185,6 +185,21 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
                 0,
             ));
         }
+        // Рвущие когти: пока мутант рядом, свежие раны игрока кровоточат.
+        // Свежая рана: игрок только что получил урон.
+        let wounded = game.player.as_ref().is_some_and(|p| p.health.hurt.hurt_time > 0);
+        let rending = wounded
+            && mobs.iter().any(|(_, at, _, _, genes)| {
+                m::aura_of(m::behaviour_strength(genes, "rend")) > 0.0
+                    && near(*at, spot, m::aura_of(m::behaviour_strength(genes, "rend")))
+            });
+        if rending {
+            game.add_player_effect(horizon_client::effects::EffectInstance::new(
+                m::BLEEDING,
+                m::BLEEDING_TICKS,
+                0,
+            ));
+        }
         if chill {
             game.add_player_effect(horizon_client::effects::EffectInstance::new(
                 "slowness", 40, 0,

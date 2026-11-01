@@ -1,0 +1,13 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:syringe_venom",
+  "minecraft:feather",
+  "minecraft:stick"
+ ],
+ "result": {
+  "id": "biolab:dart_venom",
+  "count": 1
+ }
+}

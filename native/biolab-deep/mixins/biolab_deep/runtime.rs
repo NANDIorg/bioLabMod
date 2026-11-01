@@ -102,7 +102,7 @@ pub fn sedated(effects: &[(&'static str, i32, i32)]) -> bool {
 // следит, чтобы копии не разошлись.
 
 /// Гены по номерам: тот же порядок, что `mutants::GENE_NAMES`.
-pub const GENE_NAMES: [&str; 31] = [
+pub const GENE_NAMES: [&str; 32] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -134,10 +134,11 @@ pub const GENE_NAMES: [&str; 31] = [
     "predator",
     "pack_instinct",
     "loyalty",
+    "rending_claws",
 ];
 
 /// Цена гена за единицу силы (та же, что в lib).
-pub const GENE_COSTS: [i32; 31] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2];
+pub const GENE_COSTS: [i32; 32] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3];
 
 /// Сколько генов влезает в геном и какую сумму цен он выдерживает.
 pub const MAX_GENES: usize = 3;
@@ -156,7 +157,7 @@ pub const STAT_MODIFIERS: [&str; 5] = [
 
 /// Метки генома: модификатор дальности преследования с нулевой прибавкой,
 /// чьё имя и есть ген. Ванилла пишет его в сейв вместе с остальными.
-pub const GENE_MARKERS: [&str; 93] = [
+pub const GENE_MARKERS: [&str; 96] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -250,6 +251,9 @@ pub const GENE_MARKERS: [&str; 93] = [
     "biolab:gene/loyalty/1",
     "biolab:gene/loyalty/2",
     "biolab:gene/loyalty/3",
+    "biolab:gene/rending_claws/1",
+    "biolab:gene/rending_claws/2",
+    "biolab:gene/rending_claws/3",
 ];
 
 /// Доля мутантов среди зомби, в процентах. Прототип: мутируют все.

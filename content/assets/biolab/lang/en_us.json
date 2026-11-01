@@ -78,5 +78,12 @@
  "block.biolab.mutagen_puddle": "Mutagen Puddle",
  "item.biolab.mutagen_bucket": "Mutagen Bucket",
  "block.biolab.pen": "Pen",
- "block.biolab.console": "Observation Console"
+ "block.biolab.console": "Observation Console",
+ "item.biolab.spray_analgesic": "Analgesic Spray",
+ "item.biolab.spray_stimulant": "Stimulant Spray",
+ "item.biolab.dart_sedative": "Sedative Dart",
+ "item.biolab.dart_venom": "Venom Dart",
+ "item.biolab.bandage": "Bandage",
+ "item.biolab.scalpel": "Serrated Scalpel",
+ "gene.biolab.rending_claws": "Rending Claws"
 }
