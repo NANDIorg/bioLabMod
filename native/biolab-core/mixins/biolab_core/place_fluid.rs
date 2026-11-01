@@ -54,18 +54,47 @@ fn biolab_core_use_item_on(
             game.native_chat("Носилки пусты: ПКМ по усыплённому мобу — погрузить");
             return;
         };
-        if !m::is_air(&game.native_block([pos[0], pos[1] + 1, pos[2]])) {
+        // Стол — весь ряд секций, в который входит та, по которой кликнули.
+        let row = m::table_row(pos, |at| game.native_block(at) == m::OPERATING_TABLE);
+        // Стороны секций — по соседям: ванилла гриба не открывает сторону
+        // обратно, когда соседа сломали (основную работу делает хук
+        // `table_shape.rs`, здесь — страховка). Запись без изменения
+        // `native_set_block_property` пропускает сама.
+        for section in row.sections() {
+            let sides = m::table_sides(section, |at| game.native_block(at) == m::OPERATING_TABLE);
+            for (key, value) in sides {
+                game.native_set_block_property(section, key, value);
+            }
+        }
+        // Длина пациента — по хитбоксу вида, как его знает Horizon
+        // (`MobType` из `entity-types.json`), и по генам. Незнакомый вид не
+        // появился бы и сам (`native_spawn_mob`), стол его не меряет.
+        let need = game
+            .res
+            .mob_types()
+            .get(&patient.kind)
+            .map_or(1, |t| m::table_sections(&patient.kind, t.width, t.height, &patient.genes));
+        if row.len < need {
+            // Носилки остаются занятыми: можно доставить секции и повторить.
+            game.native_chat(&m::table_too_short(need, row.len));
+            return;
+        }
+        if row
+            .sections()
+            .into_iter()
+            .any(|s| !m::is_air(&game.native_block([s[0], s[1] + 1, s[2]])))
+        {
             game.native_chat("Над столом нет места");
             return;
         }
-        let spot = m::table_spot(pos);
-        // Один стол — один пациент.
+        // Пациент ложится по центру ряда, вдоль него, головой к изголовью.
+        let spot = row.center();
+        let yaw = row.yaw();
+        // Один стол — один пациент: на любой секции ряда.
         let busy = game.mobs.iter().any(|mob| {
             mob.alive()
                 && has_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE)
-                && (mob.position.x - spot[0]).abs() < 1.0
-                && (mob.position.y - spot[1]).abs() < 1.0
-                && (mob.position.z - spot[2]).abs() < 1.0
+                && row.covers([mob.position.x, mob.position.y, mob.position.z])
         });
         if busy {
             game.native_chat("Стол занят: сначала снимите пациента");
@@ -113,6 +142,16 @@ fn biolab_core_use_item_on(
             // Пристёгнут и спит с первого тика: иначе зомби успел бы ударить.
             mob.add_effect(m::SEDATION_EFFECT, m::TABLE_SEDATION_TICKS, 0);
             mob.ai.target = None;
+            // Вдоль ряда: отрисовка «лёжа» кладёт моба по направлению взгляда
+            // (тело — по `body_yaw`, голова — по `head_yaw`), а клиенту поворот
+            // уходит пакетами сущности. Прошлые значения — те же, чтобы с
+            // первого кадра не было разворота.
+            mob.yaw = yaw;
+            mob.previous_yaw = yaw;
+            mob.body_yaw = yaw;
+            mob.previous_body_yaw = yaw;
+            mob.head_yaw = yaw;
+            mob.previous_head_yaw = yaw;
         }
         // Максимум здоровья по генам вырастет в тике моба, и `biolab-deep`
         // дольёт прибавку: пару тиков держим здоровье тем, что было.

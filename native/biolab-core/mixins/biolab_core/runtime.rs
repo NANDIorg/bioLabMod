@@ -158,7 +158,7 @@ pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
     ("biolab:scalpel", &["ПКМ по мутанту на операционном столе", "Срезает плоть, удар — кровоточащая рана"]),
     // Генетика.
     ("biolab:stretcher", &["ПКМ по усыплённому мобу — погрузить", "С пациентом — ПКМ по операционному столу"]),
-    ("biolab:operating_table", &["ПКМ носилками — уложить пациента", "Держит его на месте и не даёт проснуться"]),
+    ("biolab:operating_table", &["Стол из секций в ряд: зомби — 2, гигант — 3+", "ПКМ носилками — уложить пациента"]),
     ("biolab:mutant_tissue", &["Срезают скальпелем с мутанта на столе", "Экстрактор достанет из неё ген"]),
     ("biolab:dna_fragment", &["ПКМ по мобу — вживить ген, по себе — генотерапия", "Сажается в грядку, в чане растит клона"]),
     ("biolab:microscope", &["ПКМ по мобу — прочитать геном"]),
@@ -1436,6 +1436,247 @@ pub fn off_table(at: [f64; 3], spot: [f64; 3]) -> bool {
 /// Блок, в котором можно лежать: над столом должно быть пусто.
 pub fn is_air(block: &str) -> bool {
     matches!(block, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
+}
+
+// ---- Стол из секций ----
+//
+// Один блок стола — секция. Секции, поставленные в прямой ряд вдоль X или Z,
+// — один стол: зомби в два блока ростом на одной секции лежал бы, свесившись
+// с обеих сторон. Сколько секций нужно, решает пациент: его длина лёжа,
+// умноженная на масштаб генома (гигантизм, карликовость), с округлением вверх.
+//
+// Соединение секций видно по модели. Шаблон блока — `minecraft:mushroom_stem`
+// (`HugeMushroomBlock`): шесть булевых свойств сторон, `false` — там соседняя
+// секция, `true` — сторона открыта. Ванилла ставит `false`, когда сосед — тот
+// же блок, но обратно в `true` не возвращает: это делают хук `table_shape.rs`
+// (на каждое обновление формы) и, для верности, укладка и удержание
+// (`table_side_value` по соседям ряда).
+
+/// Длиннее ряд не ищем: стол на 16 секций уложит и гиганта с гигантизмом.
+pub const TABLE_MAX_SECTIONS: i32 = 16;
+
+/// Длина тела лёжа в блоках для видов, у которых модель длиннее, чем выше:
+/// корова, паук, лошадь. Хитбокс у них квадратный в плане, и его ширина
+/// длины тела не знает. Числа сняты с ванильных моделей — от морды до
+/// хвоста, без ног паука вбок. Остальные виды («высокие»: зомби, скелет,
+/// игрокоподобные, курица) лежат на спине, и длина лёжа — их рост.
+pub const LONG_BODIES: [(&str, f64); 30] = [
+    ("cow", 1.5),
+    ("mooshroom", 1.5),
+    ("sheep", 1.5),
+    ("pig", 1.45),
+    ("spider", 1.6),
+    ("cave_spider", 1.15),
+    ("wolf", 1.25),
+    ("fox", 1.3),
+    ("cat", 1.3),
+    ("ocelot", 1.3),
+    ("horse", 2.0),
+    ("donkey", 1.9),
+    ("mule", 1.9),
+    ("skeleton_horse", 2.0),
+    ("zombie_horse", 2.0),
+    ("camel", 2.4),
+    ("camel_husk", 2.4),
+    ("hoglin", 2.2),
+    ("zoglin", 2.2),
+    ("ravager", 2.6),
+    ("sniffer", 2.4),
+    ("polar_bear", 1.6),
+    ("panda", 1.9),
+    ("turtle", 1.3),
+    ("armadillo", 0.8),
+    ("axolotl", 0.9),
+    ("dolphin", 1.6),
+    ("salmon", 1.0),
+    ("goat", 1.2),
+    ("phantom", 1.3),
+];
+
+/// Прибавка к размеру от гена за единицу силы — та же, что рисует
+/// `biolab-deep` (`mutants.rs`, `scale`): по таблице стол должен вместить
+/// ровно ту модель, которую видит игрок. Сверяется тестом с исходником deep.
+pub const GENE_SCALE: [(&str, f64); 12] = [
+    ("gigantism", 0.22),
+    ("dwarfism", -0.18),
+    ("hypermetabolism", -0.04),
+    ("chitin", 0.05),
+    ("dense_bone", 0.04),
+    ("brute_force", 0.06),
+    ("thin_skin", -0.05),
+    ("thorns", 0.06),
+    ("predator", 0.08),
+    ("rending_claws", 0.04),
+    ("polymelia", 0.02),
+    ("tumor", 0.04),
+];
+
+/// Во сколько раз мутант крупнее обычного моба: размеры генов перемножаются,
+/// как в `biolab-deep`.
+pub fn body_scale(genes: &[(&str, i32)]) -> f64 {
+    genes.iter().fold(1.0, |acc, (name, strength)| {
+        let step = GENE_SCALE.iter().find(|(g, _)| g == name).map_or(0.0, |(_, s)| *s);
+        acc * (1.0 + step * f64::from(*strength))
+    })
+}
+
+/// Длина моба лёжа в блоках. `width`, `height` — хитбокс вида, как его знает
+/// Horizon (`MobType`, из `entity-types.json`). Длинным видам — длина тела по
+/// таблице, остальным — рост; плоскому и широкому (черепаха, гаст) — ширина,
+/// если она больше роста.
+pub fn lying_length(kind: &str, width: f64, height: f64) -> f64 {
+    let short = short_kind(kind);
+    match LONG_BODIES.iter().find(|(k, _)| *k == short) {
+        Some((_, length)) => *length,
+        None => height.max(width),
+    }
+}
+
+/// Сколько секций нужно, чтобы уложить моба длиной `length` с масштабом
+/// `scale`: с округлением вверх, но не меньше одной. Сотая блока — допуск на
+/// округление чисел хитбоксов (скелет в 1,99 — две секции, а не три).
+pub fn sections_for_length(length: f64, scale: f64) -> i32 {
+    let need = length * scale;
+    if !need.is_finite() || need <= 0.0 {
+        return 1;
+    }
+    ((need - 0.01).ceil() as i32).max(1)
+}
+
+/// Сколько секций нужно пациенту вида `kind` с хитбоксом вида и генами.
+pub fn table_sections(kind: &str, width: f64, height: f64, genes: &[(&str, i32)]) -> i32 {
+    sections_for_length(lying_length(kind, width, height), body_scale(genes))
+}
+
+/// Что сказать, когда ряд короче нужного.
+pub fn table_too_short(need: i32, have: i32) -> String {
+    format!("Пациент не помещается: нужен стол из {need} секций, здесь {have}")
+}
+
+/// Ряд секций стола: прямая линия вдоль X или Z.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableRow {
+    /// Секция с наименьшей координатой по оси ряда — изголовье.
+    pub start: [i32; 3],
+    /// Шаг вдоль ряда: `[1, 0, 0]` — вдоль X, `[0, 0, 1]` — вдоль Z.
+    pub step: [i32; 3],
+    /// Сколько секций.
+    pub len: i32,
+}
+
+impl TableRow {
+    /// Вдоль X ли ряд.
+    pub fn along_x(&self) -> bool {
+        self.step[0] != 0
+    }
+
+    /// Секции по порядку от изголовья.
+    pub fn sections(&self) -> Vec<[i32; 3]> {
+        (0..self.len)
+            .map(|i| [self.start[0] + self.step[0] * i, self.start[1], self.start[2] + self.step[2] * i])
+            .collect()
+    }
+
+    /// Точка, где лежит пациент: середина ряда на верхней грани (стол —
+    /// полный блок). У ряда из двух секций это стык между ними.
+    pub fn center(&self) -> [f64; 3] {
+        let half = f64::from(self.len) / 2.0;
+        let along = |start: i32, step: i32| {
+            if step == 0 {
+                f64::from(start) + 0.5
+            } else {
+                f64::from(start) + half
+            }
+        };
+        [
+            along(self.start[0], self.step[0]),
+            f64::from(self.start[1]) + 1.0,
+            along(self.start[2], self.step[2]),
+        ]
+    }
+
+    /// Куда пациент смотрит лёжа (градусы, 0 — на юг, −90 — на восток).
+    /// Отрисовка (`lying` в biolab-deep) кладёт голову назад, против взгляда:
+    /// смотрит к дальнему концу — голова у изголовья (`start`), на западе у
+    /// ряда вдоль X и на севере у ряда вдоль Z. Там же модель ставит лампу.
+    pub fn yaw(&self) -> f32 {
+        if self.along_x() { -90.0 } else { 0.0 }
+    }
+
+    /// Стоит ли точка `at` над этим рядом (пациент на нём).
+    pub fn covers(&self, at: [f64; 3]) -> bool {
+        let end = [
+            self.start[0] + self.step[0] * (self.len - 1),
+            self.start[1],
+            self.start[2] + self.step[2] * (self.len - 1),
+        ];
+        let inside = |v: f64, lo: i32, hi: i32| v >= f64::from(lo) - 0.25 && v <= f64::from(hi) + 1.25;
+        inside(at[0], self.start[0], end[0])
+            && inside(at[2], self.start[2], end[2])
+            && at[1] >= f64::from(self.start[1]) + 0.5
+            && at[1] <= f64::from(self.start[1]) + 2.5
+    }
+}
+
+/// Ряд, в который входит секция `pos`: по обе стороны вдоль X и вдоль Z
+/// считаются секции подряд, ряд — по оси, где их больше. Поровну (одна
+/// секция или крест) — вдоль X. `is_table(блок)` — стоит ли там секция.
+pub fn table_row(pos: [i32; 3], is_table: impl Fn([i32; 3]) -> bool) -> TableRow {
+    let run = |step: [i32; 3], sign: i32| {
+        (1..TABLE_MAX_SECTIONS)
+            .take_while(|i| is_table([pos[0] + step[0] * sign * i, pos[1], pos[2] + step[2] * sign * i]))
+            .count() as i32
+    };
+    let row = |step: [i32; 3]| {
+        let back = run(step, -1);
+        let ahead = run(step, 1);
+        let len = (back + 1 + ahead).min(TABLE_MAX_SECTIONS);
+        TableRow { start: [pos[0] - step[0] * back, pos[1], pos[2] - step[2] * back], step, len }
+    };
+    let x = row([1, 0, 0]);
+    let z = row([0, 0, 1]);
+    if z.len > x.len { z } else { x }
+}
+
+/// Свойство шаблона-гриба для стороны с нормалью `normal`.
+pub fn table_side_key(normal: [i32; 3]) -> Option<&'static str> {
+    match normal {
+        [0, 0, -1] => Some("north"),
+        [0, 0, 1] => Some("south"),
+        [-1, 0, 0] => Some("west"),
+        [1, 0, 0] => Some("east"),
+        [0, 1, 0] => Some("up"),
+        [0, -1, 0] => Some("down"),
+        _ => None,
+    }
+}
+
+/// Стороны секции: свойство и нормаль, все шесть, как у гриба.
+pub const TABLE_SIDES: [[i32; 3]; 6] =
+    [[0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0], [0, 1, 0], [0, -1, 0]];
+
+/// Значение свойства стороны: к соседней секции — `false` (соединено, как
+/// ставит ванилла гриба), иначе `true` — сторона открыта.
+pub fn table_side_value(joined: bool) -> &'static str {
+    if joined { "false" } else { "true" }
+}
+
+/// Какими должны быть стороны секции `pos` по её соседям: свойство и
+/// значение на каждую из шести сторон. `is_table(блок)` — секция ли там.
+pub fn table_sides(pos: [i32; 3], is_table: impl Fn([i32; 3]) -> bool) -> Vec<(&'static str, &'static str)> {
+    TABLE_SIDES
+        .iter()
+        .filter_map(|n| {
+            let key = table_side_key(*n)?;
+            Some((key, table_side_value(is_table([pos[0] + n[0], pos[1] + n[1], pos[2] + n[2]]))))
+        })
+        .collect()
+}
+
+/// Пора ли пересчитать стороны ряда на тике удержания: раз в секунду —
+/// хука `table_shape.rs` хватает, это страховка.
+pub fn table_sides_due(ticks: u64) -> bool {
+    ticks % 20 == 0
 }
 
 /// Хук операционной висит на тике игрока, а игроков бывает несколько: тик
@@ -6788,6 +7029,167 @@ mod tests {
         assert!(!off_table([0.55, 65.0, 0.5], spot));
         assert!(off_table([1.0, 65.0, 0.5], spot));
         assert!(is_air("minecraft:air") && !is_air("minecraft:stone"));
+    }
+
+    /// Хитбоксы ванильных видов (ширина, рост) — как в `entity-types.json`,
+    /// откуда их берёт `MobType` Horizon.
+    const HITBOXES: [(&str, f64, f64); 9] = [
+        ("minecraft:chicken", 0.4, 0.7),
+        ("minecraft:zombie", 0.6, 1.95),
+        ("minecraft:skeleton", 0.6, 1.99),
+        ("minecraft:cow", 0.9, 1.4),
+        ("minecraft:spider", 1.4, 0.9),
+        ("minecraft:ravager", 1.95, 2.2),
+        ("minecraft:giant", 3.6, 12.0),
+        ("minecraft:enderman", 0.6, 2.9),
+        ("minecraft:turtle", 1.2, 0.4),
+    ];
+
+    fn sections(kind: &str, genes: &[(&str, i32)]) -> i32 {
+        let (_, w, h) = HITBOXES.iter().find(|(k, _, _)| *k == kind).expect(kind);
+        table_sections(kind, *w, *h, genes)
+    }
+
+    #[test]
+    fn the_table_is_as_long_as_the_patient() {
+        // Ориентиры GDD 4.17: курица — одна секция, зомби, скелет, корова и
+        // паук — две, разоритель и гигант с гигантизмом — три и больше.
+        assert_eq!(sections("minecraft:chicken", &[]), 1);
+        assert_eq!(sections("minecraft:zombie", &[]), 2);
+        assert_eq!(sections("minecraft:skeleton", &[]), 2, "1,99 — не повод для третьей секции");
+        assert_eq!(sections("minecraft:cow", &[]), 2, "длинная: длина тела, а не рост");
+        assert_eq!(sections("minecraft:spider", &[]), 2, "в высоту 0,9, в длину 1,6");
+        assert_eq!(sections("minecraft:ravager", &[]), 3);
+        assert_eq!(sections("minecraft:enderman", &[]), 3);
+        assert_eq!(sections("minecraft:giant", &[]), 12);
+        assert_eq!(sections("minecraft:turtle", &[]), 2, "плоский: длина по ширине");
+        // Гигантизм растягивает, карликовость сжимает.
+        assert!(sections("minecraft:zombie", &[("gigantism", 3)]) >= 3);
+        assert_eq!(sections("minecraft:zombie", &[("gigantism", 1)]), 3, "1,95 × 1,22 = 2,38");
+        assert_eq!(sections("minecraft:zombie", &[("dwarfism", 3)]), 1, "1,95 × 0,46 < 1");
+        assert_eq!(sections("minecraft:chicken", &[("gigantism", 3)]), 2);
+        // Гены без размера стол не меняют.
+        assert_eq!(sections("minecraft:zombie", &[("bioluminescence", 3), ("regen", 2)]), 2);
+        // Ровно в блок — одна секция, чуть больше — две; ноль и мусор — одна.
+        assert_eq!(sections_for_length(1.0, 1.0), 1);
+        assert_eq!(sections_for_length(1.05, 1.0), 2);
+        assert_eq!(sections_for_length(0.0, 1.0), 1);
+        assert_eq!(sections_for_length(f64::NAN, 1.0), 1);
+        assert_eq!(
+            table_too_short(3, 2),
+            "Пациент не помещается: нужен стол из 3 секций, здесь 2"
+        );
+        let mut seen = std::collections::HashSet::new();
+        for (kind, length) in &LONG_BODIES {
+            assert!(seen.insert(*kind), "{kind} в таблице дважды");
+            assert!(!kind.contains(':'), "{kind}: вид без пространства имён");
+            assert!(*length > 0.3 && *length < 4.0, "{kind}: {length}");
+        }
+        // Подсказка и журнал называют те же числа, что считает стол.
+        let zombie = format!("зомби — {}", sections("minecraft:zombie", &[]));
+        assert!(item_hint(OPERATING_TABLE).join(" ").contains(&zombie), "{:?}", item_hint(OPERATING_TABLE));
+        let journal = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/research/ru.txt"),
+        )
+        .unwrap();
+        assert!(journal.contains(&format!("{zombie} секции")), "в журнале нет «{zombie} секции»");
+    }
+
+    /// Масштаб генома — тот же, что рисует `biolab-deep`: читаем его таблицу
+    /// `STEPS` и имена генов прямо из исходника `mutants.rs`.
+    #[test]
+    fn the_body_scale_matches_the_renderer() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../biolab-deep/mixins/biolab_deep/mutants.rs");
+        let source = std::fs::read_to_string(&path).expect("исходник biolab-deep");
+        let names: Vec<&str> = {
+            let start = source.find("pub const GENE_NAMES").expect("GENE_NAMES");
+            let body = &source[start..];
+            let body = &body[body.find('[').unwrap() + 1..];
+            let body = &body[body.find('[').unwrap() + 1..body.find("];").unwrap()];
+            body.split(',').map(|s| s.trim().trim_matches('"')).filter(|s| !s.is_empty()).collect()
+        };
+        let steps: Vec<f64> = {
+            let start = source.find("const STEPS").expect("STEPS");
+            let body = &source[start..];
+            let body = &body[body.find("= [").unwrap() + 3..];
+            let body = &body[..body.find("];").unwrap()];
+            body.split(',').map(|s| s.trim().parse().unwrap()).collect()
+        };
+        assert_eq!(names.len(), steps.len(), "{names:?}");
+        for (name, step) in names.iter().zip(&steps) {
+            let ours = GENE_SCALE.iter().find(|(g, _)| g == name).map_or(0.0, |(_, s)| *s);
+            assert!((ours - step).abs() < 1e-9, "{name}: у нас {ours}, в отрисовке {step}");
+        }
+        for (name, _) in &GENE_SCALE {
+            assert!(names.contains(name), "{name}: такого гена нет в biolab-deep");
+        }
+        assert!((body_scale(&[("gigantism", 3)]) - 1.66).abs() < 1e-9);
+        assert!((body_scale(&[("gigantism", 1), ("dwarfism", 1)]) - 1.22 * 0.82).abs() < 1e-9);
+        assert_eq!(body_scale(&[]), 1.0);
+    }
+
+    #[test]
+    fn sections_in_a_line_make_one_table() {
+        // Три секции вдоль X и одна отдельная.
+        let tables = [[0, 64, 0], [1, 64, 0], [2, 64, 0], [10, 64, 10]];
+        let is_table = |p: [i32; 3]| tables.contains(&p);
+        let row = table_row([1, 64, 0], is_table);
+        assert_eq!(row, TableRow { start: [0, 64, 0], step: [1, 0, 0], len: 3 });
+        // С какой секции ни кликни — тот же стол.
+        assert_eq!(table_row([2, 64, 0], is_table), row);
+        assert_eq!(row.sections(), vec![[0, 64, 0], [1, 64, 0], [2, 64, 0]]);
+        // Пациент — по центру ряда, а не той секции, по которой кликнули.
+        assert_eq!(row.center(), [1.5, 65.0, 0.5]);
+        assert!(row.along_x());
+        assert_eq!(row.yaw(), -90.0, "вдоль X смотрит на восток, голова на западе");
+        // Две секции — стык между ними.
+        let pair = [[5, 70, 5], [5, 70, 6]];
+        let row = table_row([5, 70, 6], |p| pair.contains(&p));
+        assert_eq!(row, TableRow { start: [5, 70, 5], step: [0, 0, 1], len: 2 });
+        assert_eq!(row.center(), [5.5, 71.0, 6.0]);
+        assert_eq!(row.yaw(), 0.0, "вдоль Z смотрит на юг, голова на севере");
+        // Одинокая секция — ряд из одной, вдоль X.
+        let one = table_row([10, 64, 10], is_table);
+        assert_eq!(one, TableRow { start: [10, 64, 10], step: [1, 0, 0], len: 1 });
+        assert_eq!(one.center(), [10.5, 65.0, 10.5]);
+        // Крест: ось, где секций больше.
+        let cross = [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, 2], [0, 0, -1], [0, 0, -2]];
+        let row = table_row([0, 0, 0], |p| cross.contains(&p));
+        assert_eq!((row.step, row.len, row.start), ([0, 0, 1], 5, [0, 0, -2]));
+        // Бесконечный ряд обрезается.
+        let long = table_row([0, 0, 0], |p| p[1] == 0 && p[2] == 0);
+        assert!(long.len <= TABLE_MAX_SECTIONS);
+        // Пациент над рядом — на нём; рядом с рядом — нет.
+        let row = table_row([1, 64, 0], is_table);
+        assert!(row.covers(row.center()));
+        assert!(row.covers([0.1, 65.0, 0.5]) && row.covers([2.9, 65.0, 0.5]));
+        assert!(!row.covers([4.0, 65.0, 0.5]));
+        assert!(!row.covers([1.5, 65.0, 2.5]));
+        assert!(!row.covers([1.5, 70.0, 0.5]));
+    }
+
+    #[test]
+    fn sides_open_where_the_neighbour_is_gone() {
+        assert_eq!(table_side_key([0, 0, -1]), Some("north"));
+        assert_eq!(table_side_key([1, 0, 0]), Some("east"));
+        assert_eq!(table_side_key([0, -1, 0]), Some("down"));
+        assert_eq!(table_side_key([1, 1, 0]), None);
+        // Свойства — ровно шесть сторон гриба.
+        let keys: std::collections::BTreeSet<_> =
+            TABLE_SIDES.iter().filter_map(|n| table_side_key(*n)).collect();
+        assert_eq!(keys.len(), 6);
+        // Секция в середине ряда вдоль X: запад и восток соединены, остальное открыто.
+        let tables = [[0, 0, 0], [1, 0, 0], [2, 0, 0]];
+        let sides = table_sides([1, 0, 0], |p| tables.contains(&p));
+        assert!(sides.contains(&("west", "false")) && sides.contains(&("east", "false")));
+        assert!(sides.contains(&("north", "true")) && sides.contains(&("up", "true")));
+        // Соседа сломали — сторона снова открыта (ванилла сама её не вернёт).
+        let broken = [[1, 0, 0], [2, 0, 0]];
+        let sides = table_sides([1, 0, 0], |p| broken.contains(&p));
+        assert!(sides.contains(&("west", "true")) && sides.contains(&("east", "false")));
+        assert_eq!(sides.len(), 6);
+        assert!(table_sides_due(40) && !table_sides_due(41));
     }
 
     #[test]

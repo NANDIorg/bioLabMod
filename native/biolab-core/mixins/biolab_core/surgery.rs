@@ -66,13 +66,35 @@ fn biolab_core_surgery_tick(game: &mut crate::game::Game<'_>) {
             match m::nearest_table(at, |spot| game.native_block(spot) == m::OPERATING_TABLE) {
                 Some(table) => {
                     held = true;
-                    let spot = m::table_spot(table);
+                    // Свой стол — весь ряд секций под пациентом: держим над его
+                    // центром. Ряд мог измениться (секцию добавили или
+                    // сломали) — тогда центр сдвинулся, и пациент переедет.
+                    let row = m::table_row(table, |at| game.native_block(at) == m::OPERATING_TABLE);
+                    let spot = row.center();
                     if m::off_table(at, spot) {
                         game.native_teleport_mob(&dimension, id, spot);
                     }
+                    // Раз в секунду — стороны секций по соседям (страховка к
+                    // хуку `table_shape.rs`: ванилла гриба сама сторону не
+                    // откроет, когда соседа сломали).
+                    if m::table_sides_due(ticks) {
+                        for section in row.sections() {
+                            let sides = m::table_sides(section, |at| game.native_block(at) == m::OPERATING_TABLE);
+                            for (key, value) in sides {
+                                game.native_set_block_property(section, key, value);
+                            }
+                        }
+                    }
+                    let yaw = row.yaw();
                     if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
                         mob.add_effect(m::SEDATION_EFFECT, m::TABLE_SEDATION_TICKS, 0);
                         mob.ai.target = None;
+                        // Лежит вдоль ряда, головой к изголовью: взгляд, тело и
+                        // голова — по ряду каждый тик, иначе цели «посмотреть
+                        // на игрока» развернули бы его поперёк стола.
+                        mob.yaw = yaw;
+                        mob.body_yaw = yaw;
+                        mob.head_yaw = yaw;
                     }
                 }
                 None => {

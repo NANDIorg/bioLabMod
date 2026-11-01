@@ -8,7 +8,9 @@
 - все JSON в content/assets/*/{blockstates,models,items} читаются;
 - blockstates: у каждого состояния блока есть вариант (свойства — из ванильного
   blockstate шаблона блока, content/data/<ns>/horizon/block/<id>.json), ссылки на
-  модели существуют, поворот `x`/`y` кратен 90;
+  модели существуют, поворот `x`/`y` кратен 90; у multipart условия `when`
+  (с `OR`/`AND`, `a|b`, `!a`) — только по свойствам шаблона, и у каждого
+  состояния рисуется хоть одна часть (секции стола на шаблоне `mushroom_stem`);
 - модели: родители находятся, у каждой `#текстуры` грани есть значение, файлы
   текстур есть (PNG, сторона кратна 16); элементы: `from`/`to` в −16…32 и
   from ≤ to, поворот по одной оси с углом из −45, −22.5, 0, 22.5, 45, `uv` в 0…16,
@@ -45,6 +47,8 @@ KNOWN_STATES = {
     "minecraft:furnace": {"facing": ["east", "north", "south", "west"], "lit": ["false", "true"]},
     "minecraft:iron_block": {},
     "minecraft:snow": {"layers": [str(i) for i in range(1, 9)]},
+    # Секции операционного стола: стороны гриба, `false` — соседняя секция.
+    "minecraft:mushroom_stem": {side: ["false", "true"] for side in DIRS},
 }
 
 errors = []
@@ -362,6 +366,41 @@ def variant_matches(key, state):
     return True
 
 
+def when_matches(cond, state):
+    """Условие части multipart: `OR`/`AND` списком или свойства с `a|b` и
+    `!a` — как его читает Horizon (`horizon-assets`, `Condition::decode`)."""
+    if cond is None:
+        return True
+    if isinstance(cond, dict) and len(cond) == 1 and isinstance(cond.get("OR"), list):
+        return any(when_matches(c, state) for c in cond["OR"])
+    if isinstance(cond, dict) and len(cond) == 1 and isinstance(cond.get("AND"), list):
+        return all(when_matches(c, state) for c in cond["AND"])
+    for k, v in cond.items():
+        value = str(v).lower() if isinstance(v, bool) else str(v)
+        have = state.get(k)
+        hit = False
+        for term in value.split("|"):
+            neg = term.startswith("!")
+            hit = hit or ((have != term[1:]) if neg else (have == term))
+        if not hit:
+            return False
+    return True
+
+
+def when_terms(cond):
+    """Все пары (свойство, значение) условия — для сверки со свойствами шаблона."""
+    if not isinstance(cond, dict):
+        return
+    if len(cond) == 1 and any(isinstance(cond.get(k), list) for k in ("OR", "AND")):
+        for c in cond.get("OR") or cond.get("AND"):
+            yield from when_terms(c)
+        return
+    for k, v in cond.items():
+        value = str(v).lower() if isinstance(v, bool) else str(v)
+        for term in value.split("|"):
+            yield k, term.lstrip("!")
+
+
 def check_blockstate(assets, ns, block, path, template, checked_tex, checked_models):
     where = rel(path)
     data = load(path)
@@ -394,10 +433,29 @@ def check_blockstate(assets, ns, block, path, template, checked_tex, checked_mod
                     if k not in space or v not in space[k]:
                         err(where, f"вариант «{key}»: у {template} нет {k}={v}")
     elif "multipart" in data:
-        for part in data["multipart"]:
+        parts = data["multipart"] if isinstance(data["multipart"], list) else []
+        for i, part in enumerate(parts):
             for v in part.get("apply", []) if isinstance(part.get("apply"), list) else [part.get("apply")]:
-                if isinstance(v, dict) and "model" in v:
-                    models.append(("multipart", v["model"]))
+                if not isinstance(v, dict) or "model" not in v:
+                    err(where, f"часть {i} без model")
+                    continue
+                for axis in ("x", "y"):
+                    if v.get(axis, 0) % 90:
+                        err(where, f"часть {i}: {axis} = {v[axis]} не кратен 90")
+                models.append((f"часть {i}", v["model"]))
+        # Условия — по свойствам шаблона, и у каждого состояния что-то рисуется.
+        space = state_space(assets, template) if template else None
+        if space is not None:
+            for i, part in enumerate(parts):
+                for k, v in when_terms(part.get("when")):
+                    if k not in space or v not in space[k]:
+                        err(where, f"часть {i}: у {template} нет {k}={v}")
+            names = sorted(space)
+            for combo in itertools.product(*(space[n] for n in names)):
+                state = dict(zip(names, combo))
+                if not any(when_matches(p.get("when"), state) for p in parts):
+                    label = ",".join(f"{k}={v}" for k, v in state.items()) or "(без свойств)"
+                    err(where, f"у состояния {label} нет ни одной части")
     else:
         err(where, "нет variants и multipart")
     # Своя модель из элементов у кубического шаблона — это машина: строгие правила.

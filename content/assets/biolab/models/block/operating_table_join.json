@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {"particle": "biolab:block/operating_table_side", "pad": "biolab:block/operating_table_pad", "side": "biolab:block/operating_table_side"},
+  "elements": [
+    {"from": [1, 1, 0], "to": [15, 12, 1], "faces": {"west": {"uv": [0, 4, 1, 15], "texture": "#side"}, "east": {"uv": [15, 4, 16, 15], "texture": "#side"}}},
+    {"from": [1, 14, 0], "to": [15, 16, 1], "faces": {"up": {"uv": [1, 0, 15, 1], "texture": "#pad"}, "west": {"uv": [0, 0, 1, 2], "texture": "#pad"}, "east": {"uv": [15, 0, 16, 2], "texture": "#pad"}}}
+  ]
+}
