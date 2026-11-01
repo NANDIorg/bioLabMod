@@ -81,9 +81,11 @@ fn biolab_core_right_click_block(
     }
 
     // Урожай несёт геном растения: его можно съесть или посадить снова.
+    // Стопка урожая — один плод (меню сливает стопки по id, и разные геномы
+    // слиплись бы), поэтому каждый плод ложится в своё свободное место.
     let mut crop = horizon_client::items::ItemStack {
         item: m::GM_CROP.into(),
-        count: m::PLOT_YIELD,
+        count: 1,
         damage: 0,
         extra: None,
     };
@@ -97,7 +99,21 @@ fn biolab_core_right_click_block(
     ));
     data.custom_name = Some(Tag::String(m::crop_label(&genes).as_str().into()));
 
-    let mut left = crop.count;
+    // Мест меньше, чем плодов, — не собираем вовсе: иначе часть урожая пропала бы.
+    let free = (0..36)
+        .filter(|&slot| {
+            game.native_carried_slot(slot)
+                .is_some_and(|place| place.is_none())
+        })
+        .count();
+    if free < m::PLOT_YIELD as usize {
+        game.native_chat(&format!(
+            "Урожай некуда положить: нужно свободных мест — {}",
+            m::PLOT_YIELD
+        ));
+        return;
+    }
+    let mut left = m::PLOT_YIELD;
     for slot in 0..36 {
         if left == 0 {
             break;
@@ -106,15 +122,9 @@ fn biolab_core_right_click_block(
             continue;
         };
         if place.is_none() {
-            let mut one = crop.clone();
-            one.count = left;
-            *place = Some(one);
-            left = 0;
+            *place = Some(crop.clone());
+            left -= 1;
         }
-    }
-    if left == crop.count {
-        game.native_chat("Урожай некуда положить: рюкзак полон");
-        return;
     }
 
     game.native_with_mod_block_entity(pos, |entity| {

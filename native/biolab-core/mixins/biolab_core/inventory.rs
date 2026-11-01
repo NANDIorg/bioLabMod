@@ -1,7 +1,10 @@
-// Колба в инвентаре: данные о веществе лежат в `minecraft:custom_data`, а
-// подпись предмета всегда выводится из них. Пустая колба получает содержимое
-// по умолчанию. Хук срабатывает для каждого стека каждый тик, поэтому сначала
-// дешёвая проверка id, а запись — только когда что-то поменялось.
+// Предметы с данными в инвентаре: данные лежат в `minecraft:custom_data`, а
+// подпись предмета всегда выводится из них — у колбы вещество и объём, у
+// фрагмента ген, у культуры штамм, у урожая геном (`item_label`). Так и старые
+// предметы получают подпись по нынешней схеме. Пустая колба получает
+// содержимое по умолчанию. Хук срабатывает для каждого стека каждый тик,
+// поэтому сначала дешёвая проверка id, а запись — только когда что-то
+// поменялось.
 fn biolab_core_inventory_tick(game: &mut crate::game::Game<'_>, slot: i32) {
     use crate::game::biolab_core as m;
     use horizon_world::nbt::Tag;
@@ -12,6 +15,32 @@ fn biolab_core_inventory_tick(game: &mut crate::game::Game<'_>, slot: i32) {
         return;
     };
     if &*stack.item != m::FLASK_ID {
+        let item: &str = &stack.item;
+        if item != m::FRAGMENT_ID && item != m::CULTURE_ID && item != m::GM_CROP {
+            return;
+        }
+        let Some(data) = stack.extra.as_mut() else {
+            return;
+        };
+        let custom = data
+            .other
+            .iter()
+            .find(|(key, _)| key == "minecraft:custom_data")
+            .map(|(_, tag)| tag);
+        let label = m::item_label(item, |key| match custom?.get(key) {
+            Some(Tag::String(s)) => Some(s.to_string_lossy()),
+            _ => None,
+        });
+        let Some(label) = label else {
+            return;
+        };
+        let current = match &data.custom_name {
+            Some(Tag::String(s)) => Some(s.to_string_lossy()),
+            _ => None,
+        };
+        if current.as_deref() != Some(label.as_str()) {
+            data.custom_name = Some(Tag::String(label.as_str().into()));
+        }
         return;
     }
     let data = stack.extra.get_or_insert_with(Default::default);

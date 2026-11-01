@@ -68,9 +68,136 @@ pub fn compound_name(id: &str) -> &str {
     }
 }
 
-/// Подпись колбы: «Колба: вода, 250 мл».
+/// Подпись колбы: «Колба: вода, 250 мл». Вещество — каноническим именем из
+/// `KNOWN`, незнакомое — формулой. Имя из журнала мира сюда не идёт (его
+/// показывает подсказка): подпись обновляет тик инвентаря, и читать файл
+/// журнала на каждый стек каждый тик — дорого.
 pub fn flask_label(contents: &str, ml: i32) -> String {
-    format!("Колба: {}, {ml} мл", compound_name(contents))
+    let name = match formula_from_text(contents) {
+        Some(formula) => compound_name_of(&formula),
+        // Старая колба со словом вместо формулы.
+        None => compound_name(contents).to_string(),
+    };
+    format!("Колба: {name}, {ml} мл")
+}
+
+// ---- Имена и подсказки предметов (GDD 4.12, ревизия предметов) ----
+//
+// Имена — в языковых файлах, по одной схеме: препарат — «<вещество>, <форма>»
+// («Пенициллин, таблетка», «Яд, дротик»), экстракт — «Экстракт <чего>»,
+// элемент — названием элемента, машина и инструмент — существительным.
+// Предмет со своими данными подписывается «<имя предмета>: <данные>»
+// («Колба: вода, 250 мл», «Фрагмент ДНК: Хитин ++», «Культура: З2 И3 Т2 С1»),
+// и подпись всегда выводится из данных.
+//
+// Подсказка — одна-две строки под строками данных: что предмет делает и как
+// его применить. Применение пишется «ПКМ — …», «ПКМ по мобу — …», «ПКМ по
+// блоку — …», машина — «вход → выход». С заглавной, без точки в конце.
+
+/// Цвет строк-подсказок: серо-голубой, тусклее строк данных (`0xAAAAAA`),
+/// чтобы не спорить с ними. Упакован, как строки подсказки ждёт Horizon
+/// (`rgba` в `hud.rs`): `0xAABBGGRR`, то есть R 7F, G 8F, B 96, непрозрачный.
+pub const HINT_INK: u32 = 0xFF96_8F7F;
+
+/// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
+/// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
+pub const ITEM_HINTS: [(&str, &[&str]); 58] = [
+    // Машины и блоки.
+    ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
+    ("biolab:still", &["Неживое сырьё → элементы и агар"]),
+    ("biolab:incubator", &["Мазок → культура, хлеб → плесень", "Культура на входе — селекция штамма"]),
+    ("biolab:fermenter", &["Живое → экстракты и питательный раствор"]),
+    ("biolab:centrifuge", &["Разделяет на основной и побочный выход", "Колбу раскладывает на элементы"]),
+    ("biolab:synthesizer", &["Элементы в сетке → колба с веществом", "Чертёж в сетке задаёт нужный состав"]),
+    ("biolab:reactor", &["Греется снизу: костёр, магма, огонь, лава", "Выше 900° — содержимое сгорит"]),
+    ("biolab:press", &["Экстракт → таблетки, уголь → антидот"]),
+    ("biolab:extractor", &["Достаёт ген: ткань, урожай, части животных"]),
+    ("biolab:cloning_vat", &["Фрагмент ДНК + раствор → клон с геном"]),
+    ("biolab:spectrometer", &["Опознаёт вещество в колбе, печатает чертёж", "Колба не тратится"]),
+    ("biolab:pen", &["Держит подопытного моба на месте"]),
+    ("biolab:console", &["ПКМ — отчёт о подопытных и опытах"]),
+    ("biolab:gm_plot", &["ПКМ фрагментом ДНК или урожаем — посадить", "Спелую — ПКМ: собрать урожай"]),
+    // Химия.
+    ("biolab:flask", &["Центрифуга разложит, спектрометр опознает"]),
+    ("biolab:blueprint", &["В синтезаторе задаёт состав, не тратится"]),
+    ("biolab:acid_puddle_bucket", &["ПКМ по блоку — разлить: кислота жжёт"]),
+    ("biolab:sludge_bucket", &["ПКМ по блоку — разлить: шлам травит"]),
+    ("biolab:slime_bucket", &["ПКМ по блоку — разлить: слизь заражает"]),
+    // Болезни и штаммы.
+    ("biolab:agar", &["Основа бинта, раствора и ГМ-грядки"]),
+    ("biolab:swab", &["В инкубаторе вырастает в культуру"]),
+    ("biolab:culture", &["ПКМ — заразить себя этим штаммом", "Инкубатор — селекция, реактор — ослабить"]),
+    ("biolab:culture_weakened", &["Со шприцем на столе — вакцина"]),
+    ("biolab:extract_raw", &["Центрифуга сделает из него сыворотку"]),
+    ("biolab:remedy", &["ПКМ — снижает заражение"]),
+    ("biolab:analyzer", &["В руке: заражение и кровь в углу экрана"]),
+    // Экстракты.
+    ("biolab:mold", &["Ферментер сделает экстракт пенициллина"]),
+    ("biolab:extract_penicillin", &["Пресс — таблетки, со шприцем — инъекция"]),
+    ("biolab:extract_salicylate", &["Пресс — таблетки; стол — мазь, аэрозоль"]),
+    ("biolab:extract_caffeine", &["Пресс — таблетки; стол — шприц, аэрозоль"]),
+    ("biolab:extract_venom", &["Со шприцем на столе — инъекция яда"]),
+    ("biolab:extract_sedative", &["Со шприцем на столе — инъекция"]),
+    // Препараты: первая строка — действие вещества, вторая — как принять.
+    ("biolab:pill_penicillin", &["Лечит заражение, пока в крови", "ПКМ — принять"]),
+    ("biolab:syringe_penicillin", &["Лечит заражение, пока в крови", "ПКМ — себе, по мобу — регенерация"]),
+    ("biolab:pill_analgesic", &["Сопротивление урону", "ПКМ — принять"]),
+    ("biolab:ointment_analgesic", &["Сопротивление урону", "ПКМ — нанести"]),
+    ("biolab:spray_analgesic", &["Сопротивление урону, действует быстро", "ПКМ — вдохнуть"]),
+    ("biolab:pill_stimulant", &["Скорость и спешка, потом ломка", "ПКМ — принять"]),
+    ("biolab:syringe_stimulant", &["Скорость и спешка, потом ломка", "ПКМ — ввести себе"]),
+    ("biolab:spray_stimulant", &["Скорость и спешка, потом ломка", "ПКМ — вдохнуть"]),
+    ("biolab:pill_antidote", &["Выводит из крови остальные вещества", "ПКМ — принять"]),
+    ("biolab:syringe_vaccine", &["Иммунитет к заражению", "ПКМ — ввести себе"]),
+    ("biolab:syringe_sedative", &["Седация и замедление", "ПКМ — себе, по мобу — усыпить"]),
+    ("biolab:syringe_venom", &["Токсикоз", "ПКМ — себе, по мобу — отравить"]),
+    ("biolab:syringe", &["Наполняется экстрактом на столе"]),
+    ("biolab:dart_sedative", &["ПКМ — выстрел в моба под прицелом", "Усыпляет и замедляет, до 24 блоков"]),
+    ("biolab:dart_venom", &["ПКМ — выстрел в моба под прицелом", "Отравляет, до 24 блоков"]),
+    ("biolab:bandage", &["ПКМ — остановить кровотечение"]),
+    ("biolab:scalpel", &["Удар оставляет кровоточащую рану"]),
+    // Генетика.
+    ("biolab:mutant_tissue", &["Экстрактор достанет из неё ген"]),
+    ("biolab:dna_fragment", &["ПКМ по мобу — вживить ген, по себе — генотерапия", "Сажается в грядку, в чане растит клона"]),
+    ("biolab:microscope", &["ПКМ по мобу — прочитать геном"]),
+    ("biolab:nutrient_broth", &["Корм клонирующего чана"]),
+    ("biolab:gm_crop", &["ПКМ — съесть: действует по геному", "Сажается в грядку, экстрактор даст ген"]),
+    ("biolab:mutagen", &["Со шприцем — инъекция, два в ведре — лужа"]),
+    ("biolab:syringe_mutagen", &["ПКМ по мобу — копит мутацию генома"]),
+    ("biolab:mutagen_bucket", &["ПКМ по блоку — разлить лужу мутагена"]),
+    // Книга.
+    ("biolab:lab_manual", &["ПКМ — открыть карту исследований"]),
+];
+
+/// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
+/// нашлось что сказать. Предмет из `content/assets/biolab/items/` без
+/// подсказки должен попасть сюда, иначе тест упадёт.
+pub const HINTS_SKIPPED: [&str; 0] = [];
+
+/// Строки подсказки предмета: что делает и как применить. Пусто — у
+/// предмета подсказки нет.
+pub fn item_hint(item: &str) -> Vec<String> {
+    if let Some(e) = element(item) {
+        return vec![format!("Символ {}: сырьё для синтезатора", e.symbol)];
+    }
+    ITEM_HINTS
+        .iter()
+        .find(|(id, _)| *id == item)
+        .map_or_else(Vec::new, |(_, lines)| lines.iter().map(|l| (*l).to_string()).collect())
+}
+
+/// Подпись предмета со своими данными по его `custom_data`: `text(ключ)` —
+/// строка под ключом. None — у предмета нет своей подписи или данных нет,
+/// тогда остаётся имя из языкового файла. Колба подписывается отдельно
+/// (`flask_label`: у неё ещё объём), чертёж — при печати (ему нужно имя из
+/// журнала мира).
+pub fn item_label(item: &str, text: impl Fn(&str) -> Option<String>) -> Option<String> {
+    match item {
+        FRAGMENT_ID => Some(fragment_label(&text(GENE_KEY)?)),
+        CULTURE_ID => Some(culture_label(&strain_from_text(&text(STRAIN_KEY)?)?)),
+        GM_CROP => Some(crop_label(&genome_from_text(&text(PLOT_GENOME_KEY)?))),
+        _ => None,
+    }
 }
 
 /// Состояние игрока в мире: болезни, кровь, прогресс лаборатории. Пока это
@@ -591,14 +718,14 @@ pub const BENCH_RESULTS: [(&str, &str); 19] = [
     ("biolab:syringe_venom", "Яд, инъекция"),
     ("biolab:syringe_vaccine", "Вакцина, инъекция"),
     ("biolab:syringe_mutagen", "Мутаген, инъекция"),
-    ("biolab:dart_sedative", "Дротик с седативным"),
-    ("biolab:dart_venom", "Дротик с ядом"),
+    ("biolab:dart_sedative", "Седативное, дротик"),
+    ("biolab:dart_venom", "Яд, дротик"),
     ("biolab:spray_analgesic", "Обезболивающее, аэрозоль"),
     ("biolab:spray_stimulant", "Стимулятор, аэрозоль"),
-    ("biolab:ointment_analgesic", "Обезболивающая мазь"),
+    ("biolab:ointment_analgesic", "Обезболивающее, мазь"),
     ("biolab:analyzer", "Анализатор крови"),
     ("biolab:microscope", "Микроскоп"),
-    ("biolab:scalpel", "Зазубренный скальпель"),
+    ("biolab:scalpel", "Скальпель"),
     ("biolab:swab", "Ватная палочка"),
     ("biolab:bandage", "Бинт"),
     ("biolab:mutagen", "Мутаген"),
@@ -2855,16 +2982,16 @@ pub fn crop_effects(genes: &[(&'static str, i32)]) -> Vec<(&'static str, i32, i3
         .collect()
 }
 
-/// Подпись урожая и грядки.
+/// Подпись урожая: «ГМ-урожай: <гены>», по схеме «<предмет>: <данные>».
 pub fn crop_label(genes: &[(&'static str, i32)]) -> String {
     if genes.is_empty() {
-        return "Урожай: без генома".to_string();
+        return "ГМ-урожай: без генома".to_string();
     }
     let names: Vec<&str> = genes
         .iter()
         .filter_map(|(name, _)| Some(gene(name)?.title))
         .collect();
-    format!("Урожай: {}", names.join(", "))
+    format!("ГМ-урожай: {}", names.join(", "))
 }
 
 /// Строки подсказки на урожае.
@@ -2968,6 +3095,17 @@ pub fn strain_lines(strain: &Strain) -> Vec<String> {
         lines.push(format!("  {name}: {value} из 5"));
     }
     lines
+}
+
+/// Подпись культуры: «Культура: З2 И3 Т2 С1» — первые буквы характеристик и
+/// их значения, чтобы две линии различались прямо в инвентаре.
+pub fn culture_label(strain: &Strain) -> String {
+    let parts: Vec<String> = STRAIN_NAMES
+        .iter()
+        .zip(strain.values())
+        .map(|(name, value)| format!("{}{value}", name.chars().next().unwrap_or('?')))
+        .collect();
+    format!("Культура: {}", parts.join(" "))
 }
 
 /// Селекция: прогон через инкубатор сдвигает одну характеристику на единицу.
@@ -3391,6 +3529,223 @@ mod tests {
     fn flask_label_names_the_contents() {
         assert_eq!(flask_label("water", 250), "Колба: вода, 250 мл");
         assert_eq!(flask_label("unknown_x", 10), "Колба: unknown_x, 10 мл");
+        // Колба хранит формулу: знакомое вещество — по имени, незнакомое — формулой.
+        assert_eq!(flask_label("H2O", 250), "Колба: вода, 250 мл");
+        assert_eq!(flask_label("CFe2", 10), "Колба: CFe2, 10 мл");
+    }
+
+    /// Папка `content/` мода.
+    fn content_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content")
+    }
+
+    /// Предметы мода — по определениям в `assets/biolab/items/`.
+    fn item_ids() -> Vec<String> {
+        let mut ids: Vec<String> = std::fs::read_dir(content_dir().join("assets/biolab/items"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .map(|path| format!("biolab:{}", path.file_stem().unwrap().to_string_lossy()))
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    fn lang(name: &str) -> Json {
+        let path = content_dir().join(format!("assets/biolab/lang/{name}.json"));
+        Json::parse(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    /// Имя предмета: у предмета-блока — имя блока.
+    fn item_name(lang: &Json, id: &str) -> Option<String> {
+        let short = id.trim_start_matches("biolab:");
+        lang.get(&format!("item.biolab.{short}"))
+            .or_else(|| lang.get(&format!("block.biolab.{short}")))
+            .and_then(Json::str)
+            .map(str::to_string)
+    }
+
+    #[test]
+    fn every_item_has_a_hint_or_is_skipped_on_purpose() {
+        let items = item_ids();
+        assert!(items.len() > 50, "предметы не нашлись: {items:?}");
+        for id in &items {
+            let hinted = !item_hint(id).is_empty();
+            let skipped = HINTS_SKIPPED.contains(&id.as_str());
+            assert!(hinted != skipped, "{id}: подсказка должна быть либо в таблице, либо в HINTS_SKIPPED");
+        }
+        let mut table: Vec<&str> = ITEM_HINTS.iter().map(|(id, _)| *id).collect();
+        for id in &table {
+            assert!(items.iter().any(|item| item == id), "{id}: подсказка есть, а предмета нет");
+            assert!(element(id).is_none(), "{id}: элементам подсказку собирает item_hint");
+        }
+        let before = table.len();
+        table.sort();
+        table.dedup();
+        assert_eq!(table.len(), before, "предмет в таблице подсказок дважды");
+        assert!(item_hint("minecraft:stick").is_empty());
+    }
+
+    #[test]
+    fn hints_are_written_in_one_style() {
+        for id in item_ids() {
+            let lines = item_hint(&id);
+            if lines.is_empty() {
+                continue;
+            }
+            assert!(lines.len() <= 2, "{id}: подсказка длиннее двух строк");
+            for line in &lines {
+                let first = line.chars().next().expect("пустая строка подсказки");
+                assert!(first.is_uppercase() || first.is_ascii_digit(), "{id}: «{line}» — с заглавной");
+                assert!(!line.ends_with('.'), "{id}: «{line}» — без точки в конце");
+                assert!(line.chars().count() <= 48, "{id}: «{line}» не влезет в подсказку");
+                assert_eq!(line.trim(), line, "{id}: лишние пробелы");
+            }
+        }
+        assert_eq!(item_hint("biolab:element_iron"), vec!["Символ Fe: сырьё для синтезатора"]);
+    }
+
+    #[test]
+    fn hints_tell_what_the_code_does() {
+        let hint = |id: &str| item_hint(id).join(" / ");
+        // Препарат принимают правым кликом (`remedy.rs`).
+        for med in &MEDICINES {
+            assert!(hint(med.item).contains("ПКМ"), "{}: {}", med.item, hint(med.item));
+        }
+        // Шприц, который действует на моба (`inject.rs`), говорит об этом, остальные — нет.
+        for item in item_ids() {
+            if !item.starts_with("biolab:syringe_") {
+                continue;
+            }
+            let on_mob = mob_injection(&item).is_some();
+            assert_eq!(hint(&item).contains("по мобу"), on_mob, "{item}: {}", hint(&item));
+        }
+        // Дротик бьёт по мобу под прицелом на свою дальность.
+        for (dart, _) in &DARTS {
+            assert!(hint(dart).contains("прицел"), "{dart}");
+            assert!(hint(dart).contains(&format!("до {} блоков", DART_RANGE as i32)), "{dart}");
+        }
+        // Ведро разливает лужу по блоку (`place_fluid.rs`).
+        for fluid in &FLUIDS {
+            assert!(hint(fluid.bucket).contains("ПКМ по блоку"), "{}", fluid.bucket);
+        }
+        // Фрагмент: по мобу (`inject.rs`) и по себе (`remedy.rs`).
+        assert!(hint(FRAGMENT_ID).contains("по мобу") && hint(FRAGMENT_ID).contains("по себе"));
+        assert!(hint(MICROSCOPE_ID).contains("по мобу"));
+        assert!(hint(REACTOR).contains(&format!("{OVERHEAT}°")));
+        // Экстракт: «Пресс» в подсказке — ровно когда пресс его принимает.
+        let mut pressed = Vec::new();
+        for entry in std::fs::read_dir(content_dir().join("data/biolab/recipe")).unwrap() {
+            let json = Json::parse(&std::fs::read_to_string(entry.unwrap().path()).unwrap()).unwrap();
+            if json.get("type").and_then(Json::str) == Some("biolab:press")
+                && let Some(input) = json.get("ingredient").and_then(Json::str)
+            {
+                pressed.push(input.to_string());
+            }
+        }
+        for item in item_ids().iter().filter(|i| i.starts_with("biolab:extract_")) {
+            assert_eq!(hint(item).contains("Пресс"), pressed.contains(item), "{item}: {}", hint(item));
+        }
+    }
+
+    #[test]
+    fn every_item_is_named_in_both_languages() {
+        let (ru, en) = (lang("ru_ru"), lang("en_us"));
+        for id in item_ids() {
+            for (name, lang) in [("ru_ru", &ru), ("en_us", &en)] {
+                let named = item_name(lang, &id).is_some_and(|n| !n.trim().is_empty());
+                assert!(named, "{id}: нет имени в {name}");
+            }
+        }
+        let keys = |lang: &Json| -> Vec<String> {
+            match lang {
+                Json::Obj(fields) => {
+                    let mut keys: Vec<String> = fields.iter().map(|(k, _)| k.clone()).collect();
+                    keys.sort();
+                    keys
+                }
+                _ => panic!("языковой файл — не объект"),
+            }
+        };
+        assert_eq!(keys(&ru), keys(&en), "русский и английский разошлись по ключам");
+    }
+
+    #[test]
+    fn names_follow_the_scheme() {
+        let ru = lang("ru_ru");
+        let name = |id: &str| item_name(&ru, id).unwrap_or_default();
+        // Препарат — «<вещество>, <форма>».
+        for med in &MEDICINES {
+            let want = format!("{}, {}", DRUGS[med.drug].name, FORMS[med.form].name);
+            assert_eq!(name(med.item), want, "{}", med.item);
+        }
+        for (dart, syringe) in &DARTS {
+            let drug = DRUGS[medicine(syringe).expect("дротик снаряжён препаратом").drug].name;
+            assert_eq!(name(dart), format!("{drug}, дротик"));
+        }
+        // Экстракт — «Экстракт <чего>».
+        for item in item_ids().iter().filter(|i| i.starts_with("biolab:extract_")) {
+            assert!(name(item).starts_with("Экстракт "), "{item}: {}", name(item));
+        }
+        // Подпись предмета с данными начинается с его имени.
+        let gene = gene_text(GENES[0].name, 2);
+        let labelled = [
+            (FLASK_ID, flask_label("H2O", 250)),
+            (FRAGMENT_ID, fragment_label(&gene)),
+            (CULTURE_ID, culture_label(&WILD)),
+            (GM_CROP, crop_label(&[(GENES[0].name, 1)])),
+            (BLUEPRINT_ID, blueprint_label("H2O", Some("вода"))),
+        ];
+        for (id, label) in labelled {
+            assert!(label.starts_with(&format!("{}: ", name(id))), "{id}: «{label}»");
+        }
+    }
+
+    #[test]
+    fn data_items_are_labelled_from_their_data() {
+        let gene = gene_text(GENES[0].name, 2);
+        let fragment = item_label(FRAGMENT_ID, |key| (key == GENE_KEY).then(|| gene.clone()));
+        assert_eq!(fragment, Some(fragment_label(&gene)));
+        let culture = item_label(CULTURE_ID, |key| (key == STRAIN_KEY).then(|| "2,3,2,1".to_string()));
+        assert_eq!(culture.as_deref(), Some("Культура: З2 И3 Т2 С1"));
+        // Битый штамм и нет данных — подписи нет, остаётся имя предмета.
+        assert_eq!(item_label(CULTURE_ID, |_| Some("9,9".to_string())), None);
+        assert_eq!(item_label(GM_CROP, |_| None), None);
+        assert_eq!(
+            item_label(GM_CROP, |key| (key == PLOT_GENOME_KEY).then(|| "thermal:1".to_string())),
+            Some(crop_label(&[("thermal", 1)]))
+        );
+        assert_eq!(item_label(FLASK_ID, |_| Some("H2O".to_string())), None);
+    }
+
+    #[test]
+    fn stack_sizes_follow_the_rules() {
+        let dir = content_dir().join("data/biolab/horizon/item");
+        let single = [
+            // Свои данные в стеке: меню сливает стопки по id, разные гены слиплись бы.
+            FLASK_ID, FRAGMENT_ID, CULTURE_ID, BLUEPRINT_ID, GM_CROP,
+            // Инструменты.
+            SCALPEL_ID, ANALYZER_ID, MICROSCOPE_ID, MANUAL_ID,
+        ];
+        let mut checked = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let id = format!("biolab:{}", path.file_stem().unwrap().to_string_lossy());
+            let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let size = json.get("max_stack_size").and_then(Json::num).expect(&id) as u32;
+            let want = if single.contains(&id.as_str()) || fluid_of_bucket(&id).is_some() {
+                1
+            } else if element(&id).is_some() || id == TISSUE_ID || id == "biolab:mold" {
+                // Сырьё.
+                64
+            } else {
+                // Препараты, экстракты, шприцы, дротики и расходники лаборатории.
+                16
+            };
+            assert_eq!(size, want, "{id}");
+            checked += 1;
+        }
+        assert!(checked > 50);
     }
 
     #[test]
@@ -4069,7 +4424,7 @@ mod tests {
         assert!(crop_effects(&[]).is_empty());
 
         assert!(crop_label(&[("thermal", 1)]).contains("Термостойкость"));
-        assert_eq!(crop_label(&[]), "Урожай: без генома");
+        assert_eq!(crop_label(&[]), "ГМ-урожай: без генома");
         let lines = crop_tooltip("volatile:1");
         assert!(lines[0].contains("не действует"), "{lines:?}");
         assert_eq!(crop_tooltip(""), ["Без генома: обычная еда"]);
