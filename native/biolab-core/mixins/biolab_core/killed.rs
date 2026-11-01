@@ -3,6 +3,28 @@
 fn biolab_core_mob_killed(game: &mut crate::game::Game<'_>, entity: u32) {
     use crate::game::biolab_core as m;
     use horizon_client::mobs::finalize::{Attr, has_modifier};
+    /// Звук события мода в точке `at` всем игрокам рядом. Звук встаёт в
+    /// очередь уровня (`native_play_sound`, API 25), и сервер рассылает его
+    /// пакетом — в одиночной игре тоже: окно подключено к своему серверу как
+    /// игрок. Без своего сервера (клиент) `native_play_sound` звук не берёт,
+    /// поэтому там выходим сразу. `with_level` — внутренний API игры, не
+    /// хук-поинт: при обновлении Horizon проверить.
+    fn play_at(
+        game: &mut crate::game::Game<'_>,
+        cue: crate::game::biolab_core::Cue,
+        at: [f64; 3],
+    ) {
+        let Some(sound) = crate::game::biolab_core::sound(cue) else {
+            return;
+        };
+        if game.serving.is_none() && game.options.dedicated.is_none() {
+            return;
+        }
+        let _ = game.with_level(|_, level, _| {
+            level.native_play_sound(sound.event, at, sound.source, sound.volume, sound.pitch)
+        });
+    }
+
     if !game.native_on(m::ID) {
         return;
     }
@@ -56,6 +78,15 @@ fn biolab_core_mob_killed(game: &mut crate::game::Game<'_>, entity: u32) {
         }
     }
     game.native_chat(&m::tissue_message(count - left, &genes));
+    // Срезанная ткань слышна там, где лежит мутант.
+    if count > left {
+        let at = [
+            f64::from(spot[0]) + 0.5,
+            f64::from(spot[1]) + 0.5,
+            f64::from(spot[2]) + 0.5,
+        ];
+        play_at(game, m::Cue::Tissue, at);
+    }
 
     // Нестабильный геном оставляет кислоту, некроз — заразную слизь.
     if volatile || necrosis {

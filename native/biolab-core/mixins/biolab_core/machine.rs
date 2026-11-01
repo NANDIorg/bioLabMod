@@ -216,6 +216,53 @@ fn biolab_core_machine_tick(
         gene
     }
 
+    /// Ванильный звук из таблицы мода всем игрокам рядом с `at`. Звук встаёт
+    /// в очередь уровня (`native_play_sound`, API 25), и сервер рассылает его
+    /// пакетом — в одиночной игре тоже: окно подключено к своему серверу как
+    /// игрок. Без своего сервера (клиент) `native_play_sound` звук не берёт,
+    /// поэтому там выходим сразу и не собираем уровень впустую.
+    fn play(
+        game: &mut crate::game::Game<'_>,
+        sound: Option<crate::game::biolab_core::Sound>,
+        at: [f64; 3],
+    ) {
+        let Some(sound) = sound else {
+            return;
+        };
+        if game.serving.is_none() && game.options.dedicated.is_none() {
+            return;
+        }
+        let _ = game.with_level(|_, level, _| {
+            level.native_play_sound(sound.event, at, sound.source, sound.volume, sound.pitch)
+        });
+    }
+    /// Звук машины по итогу тика: старт из простоя, редкий фон, готово.
+    /// Решает `machine_beat` в модуле мода; здесь только отметка «занята» в
+    /// сейве блока — пишем её, лишь когда она меняется.
+    fn machine_sound(
+        game: &mut crate::game::Game<'_>,
+        pos: [i32; 3],
+        entity: &mut horizon_client::chunk::block_entity::ModBlockEntity,
+        step: crate::game::biolab_core::Step,
+    ) {
+        use crate::game::biolab_core as m;
+        use horizon_world::nbt::Tag;
+        let busy = matches!(entity.nbt.get(&m::BUSY_KEY.into()), Some(Tag::Int(1)));
+        let (phase, now) = m::machine_beat(busy, step);
+        if now != busy {
+            entity.nbt.insert(m::BUSY_KEY.into(), Tag::Int(i32::from(now)));
+        }
+        let Some(phase) = phase else {
+            return;
+        };
+        let at = [
+            f64::from(pos[0]) + 0.5,
+            f64::from(pos[1]) + 0.5,
+            f64::from(pos[2]) + 0.5,
+        ];
+        play(game, m::machine_sound(&entity.id, phase), at);
+    }
+
     if !game.native_on(m::ID) {
         return;
     }
@@ -294,6 +341,15 @@ fn biolab_core_machine_tick(
     if entity.id == m::SYNTHESIZER {
         let mut journal = Vec::new();
         synthesize(entity, output_slot, &mut journal);
+        // Колба собрана — готово; горит пламя — работа; иначе простой.
+        let step = if !journal.is_empty() {
+            m::Step::Finish
+        } else if entity.data.get(m::DATA_LIT) == Some(&1) {
+            m::Step::Working(entity.data[m::DATA_PROGRESS])
+        } else {
+            m::Step::Idle
+        };
+        machine_sound(game, pos, entity, step);
         let world = game.world_root.clone();
         for text in journal {
             m::remember_compound(&world, &text);
@@ -374,7 +430,8 @@ fn biolab_core_machine_tick(
         entity.data[m::DATA_BENCH_RESULT] = shown;
         let progress = entity.data[m::DATA_PROGRESS];
         let time = found.as_ref().map(|(time, _, _)| *time);
-        match m::step(time, progress) {
+        let step = m::step(time, progress);
+        match step {
             m::Step::Idle => {
                 entity.data[m::DATA_PROGRESS] = 0;
                 entity.data[m::DATA_TOTAL] = 0;
@@ -415,6 +472,7 @@ fn biolab_core_machine_tick(
                 entity.data[m::DATA_LIT_TOTAL] = 0;
             }
         }
+        machine_sound(game, pos, entity, step);
         return;
     }
     // Спектрометр: разбирает колбу на состав, закрывает запись в журнале и
@@ -455,6 +513,7 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_PROGRESS] = 0;
             entity.data[m::DATA_TOTAL] = 0;
             entity.data[m::DATA_LIT] = 0;
+            machine_sound(game, pos, entity, m::Step::Idle);
             return;
         };
         entity.data[m::DATA_TOTAL] = m::ANALYSIS_TIME;
@@ -463,6 +522,7 @@ fn biolab_core_machine_tick(
         let progress = entity.data[m::DATA_PROGRESS] + 1;
         if progress < m::ANALYSIS_TIME {
             entity.data[m::DATA_PROGRESS] = progress;
+            machine_sound(game, pos, entity, m::Step::Working(progress));
             return;
         }
         entity.data[m::DATA_PROGRESS] = 0;
@@ -488,6 +548,8 @@ fn biolab_core_machine_tick(
         if let Some(slot) = entity.items.get_mut(output_slot) {
             *slot = Some(blueprint);
         }
+        // Звон: анализ закончен, чертёж напечатан.
+        machine_sound(game, pos, entity, m::Step::Finish);
         if let Some(name) = name {
             game.native_chat(&format!("Спектрометр: {contents} — {name}"));
         }
@@ -496,8 +558,17 @@ fn biolab_core_machine_tick(
 
     if entity.id == m::CLONING_VAT {
         let Some(text) = grow_clone(entity) else {
+            // Работа или простой — по пламени, которое чан выставил себе сам.
+            let step = if entity.data.get(m::DATA_LIT) == Some(&1) {
+                m::Step::Working(entity.data[m::DATA_PROGRESS])
+            } else {
+                m::Step::Idle
+            };
+            machine_sound(game, pos, entity, step);
             return;
         };
+        // Клон готов: звук рождения.
+        machine_sound(game, pos, entity, m::Step::Finish);
         let Some((name, strength)) = m::gene_from_text(&text) else {
             return;
         };
@@ -648,7 +719,8 @@ fn biolab_core_machine_tick(
             .as_ref()
             .filter(|_| plan.is_some())
             .map(|(time, _)| *time);
-        match m::step(time, progress) {
+        let step = m::step(time, progress);
+        match step {
             m::Step::Idle => {
                 entity.data[m::DATA_PROGRESS] = 0;
                 entity.data[m::DATA_TOTAL] = 0;
@@ -687,6 +759,7 @@ fn biolab_core_machine_tick(
                 entity.data[m::DATA_LIT_TOTAL] = 0;
             }
         }
+        machine_sound(game, pos, entity, step);
         return;
     }
 
@@ -744,6 +817,13 @@ fn biolab_core_machine_tick(
             );
             entity.data[m::DATA_PROGRESS] = 0;
             entity.data[m::DATA_TEMPERATURE] = m::ROOM_TEMPERATURE;
+            let at = [
+                f64::from(pos[0]) + 0.5,
+                f64::from(pos[1]) + 0.5,
+                f64::from(pos[2]) + 0.5,
+            ];
+            play(game, m::sound(m::Cue::Overheat), at);
+            machine_sound(game, pos, entity, m::Step::Idle);
             return;
         }
     }
@@ -842,7 +922,8 @@ fn biolab_core_machine_tick(
 
     let progress = entity.data[m::DATA_PROGRESS];
     let time = found.as_ref().map(|(time, _, _)| *time);
-    match m::step(time, progress) {
+    let step = m::step(time, progress);
+    match step {
         m::Step::Idle => {
             entity.data[m::DATA_PROGRESS] = 0;
             entity.data[m::DATA_TOTAL] = 0;
@@ -950,4 +1031,5 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_LIT_TOTAL] = 0;
         }
     }
+    machine_sound(game, pos, entity, step);
 }
