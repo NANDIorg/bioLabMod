@@ -133,8 +133,8 @@
 
 | Было записано у нас | В `main` | Чем закрывается |
 |---|---|---|
-| «Своих сущностей нет» (3.4) | **есть** | `data/<id>/horizon/entity_type/<name>.json` копирует ванильный тип; `/summon <id>:<name>`, сохраняется с чанком, работает в одиночной игре и по локальной сети (`docs/mods.md`, раздел про entity types) |
-| «Свой снаряд не выпустить» (4.20) | **можно** | `projectile_launch`, `projectile_impact`, `player_launch_projectile`, `entity_shoot_bow`, `arrow_loose`, `player_ready_arrow`; плюс публичный `projectiles.rs` (`Projectile::new`, `shoot_from_rotation`) |
+| «Своих сущностей нет» (3.4) | **почти нет** | `entity_type/<name>.json` копирует пока **только `minecraft:snowball`**: метательный снаряд с моделью своего предмета. Своего AI и своей модели по-прежнему нет. Свой моб остаётся ванильным мобом, но рисовать его теперь можно стабильным `mob_submit` (прячет ванильную модель целиком) вместо миксинов |
+| «Свой снаряд не выпустить» (4.20) | **можно**, и двумя путями | `projectile_launch`, `projectile_impact`, `player_launch_projectile`, `entity_shoot_bow`, `arrow_loose`, `player_ready_arrow`; плюс публичный `projectiles.rs` (`Projectile::new`, `shoot_from_rotation`) |
 | «Шейдеров и постобработки нет» (3.2) | **есть** | `render_fog` и `compute_fog_color` (цвет и плотность тумана), `shader_params`, `gui_layer_pre`/`gui_layer_post`, `screen_render_post` (свой полноэкранный слой), `camera_shake` |
 | «Энергосистемы нет» | **есть** | `block_entity_energy` (= `Capabilities.Energy.BLOCK`, то есть Forge Energy), `item_energy_buffer`, `block_entity_fluids`, `item_fluid_tank` |
 | «Данных на чанк нет» | **есть** | `chunk_load`, `chunk_unload`, `level_load`, `level_unload`, `entities_load`, `entities_unload`, `world_saved` |
@@ -143,6 +143,14 @@
 | «Моб из сейва не оживить» (3.8, `restore.rs`) | **чинится** | `entity_join_level`, `entity_leave_level`, `entity_tick_pre`/`entity_tick_post`, `player_load_from_file`/`player_save_to_file` |
 | Окраска мира только своими блоками | **дешевле** | `biome_colors` — перекрасить траву и листву без новых блоков; `block_form`, `block_fade`, `moisture_change`, `entity_change_block` |
 | Рендер мобов и игрока — только миксинами `deep` | **стабильнее** | `mob_layer`, `mob_submit`, `player_render_listened`, `player_submit`, `visuals`, `emissive`, `standalone_models` |
+
+**Свои частицы — есть** (API 103). Спрайт-сет объявляется файлом `assets/biolab/particles/<имя>.json`, а поведение пишется **прямо в нём**, без кода: скорость и её разброс, гравитация, трение, время жизни, кривые размера и прозрачности, смена кадров. Споры, пар над чаном, кислотный дым — данными.
+
+**Свои растения в ванильные биомы — есть, и это чистые данные.** Мод кладёт свою фичу в `worldgen/configured_feature/` и `placed_feature/`, а попадает она в ванильные биомы через файл `data/biolab/neoforge/biome_modifier/`: «добавить фичу `biolab:valerian_patch` в биомы `#minecraft:is_overworld` на шаге растительности». Свой **биом** завести по-прежнему нельзя, но для зарослей валерианы, белладонны и мандрагоры (4.20) этого хватает, и структуры-заглушки не нужны. Осторожно: битый файл модификатора валит загрузку **всех** контентных модов разом, поэтому проверять по одному.
+
+**Автоматизация машин — есть.** `has_analog_output`/`analog_output` дают компаратору читать прогресс машины. Воронки подавали предметы и раньше, а теперь есть и наблюдение с отменой: `inventory_move_item`, `hopper_pickup_item`, `prepare_hopper_transfer`. `menu_slot_rules` задаёт, что слот принимает, а `menu_quick_move` — куда шифт-клик кладёт предмет (топливо в топливный слот, сырьё во входной).
+
+**Костная мука на свои растения — есть** (три вопроса: годится ли цель, удался ли бросок, что вырастить). Варка в печи, варка зелий, костёр и компостер — **только наблюдение**: подменить рецепт нельзя, можно навесить побочный эффект. Котёл слышит дождь и тушение, но **не** ведро и не бутылку — значит, отвар в котле (4.20) придётся делать своим блоком, а не ванильным котлом.
 
 Ещё к месту: `music`/`music_layers`/`note_play` (своя звуковая подача), `camera_distance`/`compute_fov` (приближение прицела, 4.20), `tooltip_component`/`tooltip_component_draw` (свои подсказки), `menu_slot_rules`/`menu_quick_move` (поведение слотов машин), `block_break_progress_update`, `block_highlight`.
 
