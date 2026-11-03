@@ -32,6 +32,8 @@ fn biolab_deep_creative_tabs(creative: &mut crate::creative::Creative, value: ()
         search: false,
         inventory: false,
         hotbar: false,
+        // Страница вкладок: ванильные на нулевой, туда же встаём и мы.
+        page: 0,
     });
     creative.forget_items();
     value

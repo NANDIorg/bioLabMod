@@ -211,9 +211,9 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     // броня, кадры неуязвимости и толчок от источника — как у обычного удара.
     // Откуда бьют (моб стоит там), урон, добавочный толчок прочь. Кто ударил,
     // игра сама находит по точке: ближайший к ней моб.
-    let mut strikes: Vec<([f64; 3], f32, f64)> = Vec::new();
+    let mut strikes: Vec<(u32, [f64; 3], f32, f64)> = Vec::new();
     // Откуда тянут и с какой силой.
-    let mut pulls: Vec<([f64; 3], f64)> = Vec::new();
+    let mut pulls: Vec<(u32, [f64; 3], f64)> = Vec::new();
     // Кто разгоняется (сила рогов) и кто заметил игрока.
     let mut runs: Vec<(u32, i32)> = Vec::new();
     let mut spotted: Vec<u32> = Vec::new();
@@ -256,14 +256,14 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
                 && flat < m::MELEE_REACH
                 && game.ticks % m::extra_arm_period(arm) == 0
             {
-                strikes.push((*at, m::extra_arm_damage(mob.attrs.attack_damage), 0.0));
+                strikes.push((*id, *at, m::extra_arm_damage(mob.attrs.attack_damage), 0.0));
             }
             let horns = m::behaviour_strength(genes, "ram");
             if horns > 0 && hunting {
                 if flat > m::RAM_RUN.0 && flat < m::RAM_RUN.1 {
                     runs.push((*id, horns));
                 } else if level && flat < m::MELEE_REACH && game.ticks % m::RAM_EVERY == 0 {
-                    strikes.push((*at, m::ram_damage(horns), m::ram_push(horns)));
+                    strikes.push((*id, *at, m::ram_damage(horns), m::ram_push(horns)));
                 }
             }
             // Хвост бьёт и не глядя: игрок за спиной враждебного моба или
@@ -276,7 +276,7 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
                 && m::behind(mob.body_yaw, [at[0], at[2]], [spot[0], spot[2]])
                 && game.ticks % m::TAIL_EVERY == 0
             {
-                strikes.push((*at, m::tail_damage(tail), m::tail_push(tail)));
+                strikes.push((*id, *at, m::tail_damage(tail), m::tail_push(tail)));
             }
             let grab = m::behaviour_strength(genes, "grab");
             if grab > 0
@@ -285,7 +285,7 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
                 && full < m::grab_reach(grab)
                 && game.ticks % m::GRAB_EVERY == 0
             {
-                pulls.push((*at, m::grab_pull(grab)));
+                pulls.push((*id, *at, m::grab_pull(grab)));
             }
         }
     }
@@ -295,17 +295,36 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
         }
     }
     if let Some(spot) = player {
-        for (from, amount, push) in strikes {
+        for (id, from, amount, push) in strikes {
             let hurt = game.mob_hits_player(amount, from, "minecraft:mob_attack");
             // Толчок прочь от моба: `knock_back_player` толкает против
             // направления (`xd`, `zd`), а оно — от игрока к мобу.
             if hurt && push > 0.0 {
-                game.knock_back_player(push, from[0] - spot[0], from[2] - spot[2]);
+                game.knock_back_player(
+                    push,
+                    from[0] - spot[0],
+                    from[2] - spot[2],
+                    // Источник удара: толкает моб, бьющий в ближнем бою.
+                    crate::health::HurtSource {
+                        damage_type: "minecraft:mob_attack",
+                        causing: id as i32,
+                        direct: id as i32,
+                    },
+                );
             }
         }
-        for (from, power) in pulls {
+        for (id, from, power) in pulls {
             // Направление от моба к игроку: толчок против него — к мобу.
-            game.knock_back_player(power, spot[0] - from[0], spot[2] - from[2]);
+            game.knock_back_player(
+                power,
+                spot[0] - from[0],
+                spot[2] - from[2],
+                crate::health::HurtSource {
+                    damage_type: "minecraft:mob_attack",
+                    causing: id as i32,
+                    direct: id as i32,
+                },
+            );
         }
     }
 

@@ -7,7 +7,7 @@ priority = 100
 # хук-поинтам, поэтому он привязан к коммиту и после обновления Horizon
 # его цели нужно перепроверять.
 [compatibility]
-horizon_revision = "d91cab68ded29bd2b004f7050c468fb98c41a00b"
+horizon_revision = "31f83499b6c2cff7a8e7bf45f8173a7a95c2767c"
 
 [[module]]
 id = "runtime"
@@ -28,31 +28,8 @@ bindings = [
 
 # Модуль в крейте отрисовки: там живёт атлас HUD.
 [[module]]
-id = "icons"
-file = "crates/horizon-client-render/src/lib.rs"
-name = "biolab_icons"
-source = "atlas.rs"
-
-# Иконки эффектов модов: псевдоним в атласе под ключом, который ищет движок.
-# RETURN здесь не встаёт: функция объявлена как `-> Result<Self>`, а инструменту
-# нужен конкретный тип. Поэтому правим значение самого выражения — его тип
-# объявляем сами.
-[[injection]]
-id = "atlas-icons"
-kind = "MODIFY_EXPRESSION_VALUE"
-target = "horizon_client_render::hud::HudAtlas::build_over"
-selector = 'Self::pack(root, defaults, &["gui", "item", "block", "font", "environment", "misc", "painting", "entity", "particle", "mob_effect", "map",], true,)'
-require = 1
-ordinal = 0
-helper = "icons.rs"
-bindings = [
-  { name = "value", ty = "crate::Result<crate::hud::HudAtlas>", value = "$value" },
-]
-
-# Модуль мутантов: в lib-крейте horizon-client, где живёт `mobs`.
-[[module]]
 id = "mutants"
-file = "crates/horizon-client/src/lib.rs"
+file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_mutants"
 source = "mutants.rs"
 
@@ -60,7 +37,7 @@ source = "mutants.rs"
 [[injection]]
 id = "mutate-on-spawn"
 kind = "HEAD"
-target = "horizon_client::mobs::ai::base_tick"
+target = "horizon_client_lib::mobs::ai::base_tick"
 helper = "spawn.rs"
 bindings = [
   { name = "m", ty = "&mut crate::mobs::Mob", value = "&mut *m" },
@@ -70,7 +47,7 @@ bindings = [
 [[injection]]
 id = "mutant-tint"
 kind = "RETURN"
-target = "horizon_client::mobs::render::body_color"
+target = "horizon_client_lib::mobs::render::body_color"
 helper = "color.rs"
 bindings = [
   { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
@@ -81,7 +58,7 @@ bindings = [
 [[injection]]
 id = "mutant-scale"
 kind = "RETURN"
-target = "horizon_client::mobs::render::species_scale"
+target = "horizon_client_lib::mobs::render::species_scale"
 helper = "scale.rs"
 bindings = [
   { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
@@ -93,7 +70,7 @@ bindings = [
 # (`biolab:surgery/table`, `biolab:surgery/flayed/N`) ставит `biolab_core`.
 [[module]]
 id = "surgery"
-file = "crates/horizon-client/src/lib.rs"
+file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_surgery"
 source = "surgery.rs"
 
@@ -104,7 +81,7 @@ source = "surgery.rs"
 [[injection]]
 id = "surgery-hide-flayed"
 kind = "HEAD"
-target = "horizon_client::mobs::anim::setup"
+target = "horizon_client_lib::mobs::anim::setup"
 helper = "flay_hide.rs"
 bindings = [
   { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
@@ -117,29 +94,9 @@ bindings = [
 # замыкания, ни вызова под ссылкой. `$value` — первым: аргументы помощника
 # вычисляются по порядку, а хвост сам берёт `out` (`draw_body(out)`), так что
 # `&mut *out` должен заимствоваться уже после него.
-[[injection]]
-id = "surgery-bones"
-kind = "RETURN"
-target = "horizon_client::mobs::render::render_visible"
-helper = "flayed_bones.rs"
-bindings = [
-  { name = "value", ty = "()", value = "$value" },
-  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
-  { name = "alpha", ty = "f32", value = "alpha" },
-  { name = "base", ty = "glam::Mat4", value = "base" },
-  { name = "atlas", ty = "crate::mobs::render::Atlas<'_>", value = "atlas" },
-  { name = "light", ty = "u32", value = "light" },
-  { name = "data", ty = "&crate::mobs::MobData", value = "data" },
-  { name = "body_visible", ty = "bool", value = "body_visible" },
-  { name = "out", ty = "&mut Vec<crate::mesher::Vertex>", value = "&mut *out" },
-]
-
-# Наросты мутантов (GDD 4.19): рога, хвост, щупальца, третья рука, вторая
-# голова, шипы, глаза и т. д. Модуль — в lib-крейте, где живут `mobs` и
-# отрисовка мобов; геном берётся из общей памяти `biolab_mutants` по id моба.
 [[module]]
 id = "growths"
-file = "crates/horizon-client/src/lib.rs"
+file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_growths"
 source = "growths.rs"
 
@@ -147,32 +104,9 @@ source = "growths.rs"
 # RETURN-модификаторы одной функции складываются цепочкой (`$value` —
 # результат предыдущего), так что оба прохода работают независимо. Те же
 # привязки и тот же порядок: `$value` первым, `&mut *out` — последним.
-[[injection]]
-id = "mutant-growths"
-kind = "RETURN"
-target = "horizon_client::mobs::render::render_visible"
-helper = "growths_draw.rs"
-bindings = [
-  { name = "value", ty = "()", value = "$value" },
-  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
-  { name = "alpha", ty = "f32", value = "alpha" },
-  { name = "base", ty = "glam::Mat4", value = "base" },
-  { name = "atlas", ty = "crate::mobs::render::Atlas<'_>", value = "atlas" },
-  { name = "light", ty = "u32", value = "light" },
-  { name = "data", ty = "&crate::mobs::MobData", value = "data" },
-  { name = "body_visible", ty = "bool", value = "body_visible" },
-  { name = "out", ty = "&mut Vec<crate::mesher::Vertex>", value = "&mut *out" },
-]
-
-# Наросты на игроке (GDD 4.19, этап «игрок»). Гены игрока живут на сервере
-# (`biolab-core`, `PlayerState.genes`) и приходят пакетом `biolab_core:genes`;
-# здесь они хранятся для отрисовки и раскладываются по моделям игроков.
-# Открытый модуль (`pub`): его зовут перехваты в бинарнике — приём пакета и
-# рука в кадре; модель игрока в третьем лице читает его изнутри lib
-# (`biolab_growths::draw_growths`, тот же RETURN на `render_visible`).
 [[module]]
 id = "players"
-file = "crates/horizon-client/src/lib.rs"
+file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_players"
 source = "players.rs"
 visibility = "pub"
@@ -224,7 +158,7 @@ bindings = [
 # Модуль эффектов мобов: в lib-крейте, где живёт `mobs`.
 [[module]]
 id = "mob-effects"
-file = "crates/horizon-client/src/lib.rs"
+file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_effects"
 source = "effects.rs"
 
@@ -232,7 +166,7 @@ source = "effects.rs"
 [[injection]]
 id = "mob-effect-tick"
 kind = "HEAD"
-target = "horizon_client::mobs::ai::tick_effects"
+target = "horizon_client_lib::mobs::ai::tick_effects"
 helper = "mob_tick.rs"
 bindings = [
   { name = "m", ty = "&mut crate::mobs::Mob", value = "&mut *m" },
@@ -265,7 +199,7 @@ bindings = [
 # Модуль своей вкладки: в lib-крейте, где живёт `creative`.
 [[module]]
 id = "tab"
-file = "crates/horizon-client/src/lib.rs"
+file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_tab"
 source = "tab.rs"
 
@@ -273,7 +207,7 @@ source = "tab.rs"
 [[injection]]
 id = "creative-tab"
 kind = "RETURN"
-target = "horizon_client::creative::Creative::rebuild"
+target = "horizon_client_lib::creative::Creative::rebuild"
 helper = "creative.rs"
 bindings = [
   { name = "creative", ty = "&mut crate::creative::Creative", value = "&mut *self" },
@@ -336,4 +270,79 @@ helper = "research_key.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "key", ty = "Option<winit::keyboard::KeyCode>", value = "key" },
+]
+
+# Кости срезанных конечностей и наросты мутантов рисуются вторым проходом
+# поверх модели. Раньше оба прохода висели RETURN'ом на `render_visible`, но
+# с ноября 2026 в ней появился `?`, а RETURN его не допускает (plan.rs,
+# `try_outside_value`). Поэтому цепляемся к двум обёрткам без `?`, через
+# которые моб и рисуется: `render_with` (обычный путь) и `render_skinned`
+# (позирование на GPU). `base` в обёртках не готов — считаем его тем же
+# `base_transform`, что и сама функция; `body_visible` там всегда `true`.
+# Кости: обычный путь отрисовки.
+[[injection]]
+id = "surgery-bones"
+kind = "RETURN"
+target = "horizon_client_lib::mobs::render::render_with"
+helper = "flayed_bones.rs"
+bindings = [
+  { name = "value", ty = "()", value = "$value" },
+  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
+  { name = "alpha", ty = "f32", value = "alpha" },
+  { name = "camera", ty = "glam::DVec3", value = "camera" },
+  { name = "atlas", ty = "crate::mobs::render::Atlas<'_>", value = "atlas" },
+  { name = "light", ty = "u32", value = "light" },
+  { name = "data", ty = "&crate::mobs::MobData", value = "data" },
+  { name = "out", ty = "&mut Vec<crate::mesher::Vertex>", value = "&mut *out" },
+]
+
+# Кости: путь с позированием на GPU.
+[[injection]]
+id = "surgery-bones-skinned"
+kind = "RETURN"
+target = "horizon_client_lib::mobs::render::render_skinned"
+helper = "flayed_bones.rs"
+bindings = [
+  { name = "value", ty = "()", value = "$value" },
+  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
+  { name = "alpha", ty = "f32", value = "alpha" },
+  { name = "camera", ty = "glam::DVec3", value = "camera" },
+  { name = "atlas", ty = "crate::mobs::render::Atlas<'_>", value = "atlas" },
+  { name = "light", ty = "u32", value = "light" },
+  { name = "data", ty = "&crate::mobs::MobData", value = "data" },
+  { name = "out", ty = "&mut Vec<crate::mesher::Vertex>", value = "&mut *out" },
+]
+
+# Наросты: обычный путь отрисовки.
+[[injection]]
+id = "mutant-growths"
+kind = "RETURN"
+target = "horizon_client_lib::mobs::render::render_with"
+helper = "growths_draw.rs"
+bindings = [
+  { name = "value", ty = "()", value = "$value" },
+  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
+  { name = "alpha", ty = "f32", value = "alpha" },
+  { name = "camera", ty = "glam::DVec3", value = "camera" },
+  { name = "atlas", ty = "crate::mobs::render::Atlas<'_>", value = "atlas" },
+  { name = "light", ty = "u32", value = "light" },
+  { name = "data", ty = "&crate::mobs::MobData", value = "data" },
+  { name = "out", ty = "&mut Vec<crate::mesher::Vertex>", value = "&mut *out" },
+]
+
+# Наросты: путь с позированием на GPU.
+[[injection]]
+id = "mutant-growths-skinned"
+kind = "RETURN"
+target = "horizon_client_lib::mobs::render::render_skinned"
+helper = "growths_draw.rs"
+bindings = [
+  { name = "value", ty = "()", value = "$value" },
+  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
+  { name = "alpha", ty = "f32", value = "alpha" },
+  { name = "camera", ty = "glam::DVec3", value = "camera" },
+  { name = "atlas", ty = "crate::mobs::render::Atlas<'_>", value = "atlas" },
+  { name = "light", ty = "u32", value = "light" },
+  { name = "data", ty = "&crate::mobs::MobData", value = "data" },
+  { name = "out", ty = "&mut Vec<crate::mesher::Vertex>", value = "&mut *out" },
 ]

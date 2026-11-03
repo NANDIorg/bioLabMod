@@ -32,7 +32,10 @@ fn biolab_core_machine_tick(
         use crate::game::biolab_core as m;
 
         use horizon_world::nbt::Tag;
-        entity.data.resize(m::machine_data_slots(&entity.id), 0);
+        // Число слотов считаем заранее: `resize` берёт `entity.data`
+                    // изменяемо, и читать `entity.id` внутри вызова уже нельзя.
+                    let slots = m::machine_data_slots(&entity.id);
+                    entity.data.resize(slots, 0);
 
         // Чертёж в слоте задаёт цель: синтезатор собирает ровно его состав,
         // а сам чертёж не тратится — по нему можно повторять сколько угодно.
@@ -168,7 +171,10 @@ fn biolab_core_machine_tick(
     ) -> Option<String> {
         use crate::game::biolab_core as m;
         use horizon_world::nbt::Tag;
-        entity.data.resize(m::machine_data_slots(&entity.id), 0);
+        // Число слотов считаем заранее: `resize` берёт `entity.data`
+                    // изменяемо, и читать `entity.id` внутри вызова уже нельзя.
+                    let slots = m::machine_data_slots(&entity.id);
+                    entity.data.resize(slots, 0);
 
         // Фрагмент ДНК на входе и питательный раствор в слоте топлива.
         let gene = entity
@@ -373,7 +379,10 @@ fn biolab_core_machine_tick(
     // слот какой записи — решает `bench_match` в модуле мода, здесь только
     // предметы. Экрану — что соберётся (номер в `BENCH_RESULTS`).
     if entity.id == m::LAB_BENCH {
-        entity.data.resize(m::machine_data_slots(&entity.id), 0);
+        // Число слотов считаем заранее: `resize` берёт `entity.data`
+                    // изменяемо, и читать `entity.id` внутри вызова уже нельзя.
+                    let slots = m::machine_data_slots(&entity.id);
+                    entity.data.resize(slots, 0);
         let filled: Vec<bool> = (0..output_slot)
             .map(|slot| entity.items.get(slot).is_some_and(|s| s.is_some()))
             .collect();
@@ -491,7 +500,10 @@ fn biolab_core_machine_tick(
     // печатает чертёж. Колбу не тратит — анализ не разрушающий.
     if entity.id == m::SPECTROMETER {
         use horizon_world::nbt::Tag;
-        entity.data.resize(m::machine_data_slots(&entity.id), 0);
+        // Число слотов считаем заранее: `resize` берёт `entity.data`
+                    // изменяемо, и читать `entity.id` внутри вызова уже нельзя.
+                    let slots = m::machine_data_slots(&entity.id);
+                    entity.data.resize(slots, 0);
         let contents = entity
             .items
             .get(m::SLOT_INPUT)
@@ -624,7 +636,10 @@ fn biolab_core_machine_tick(
     // целиком — иначе она ждёт, а не теряет добычу.
     if entity.id == m::CENTRIFUGE {
         use horizon_world::nbt::Tag;
-        entity.data.resize(m::machine_data_slots(&entity.id), 0);
+        // Число слотов считаем заранее: `resize` берёт `entity.data`
+                    // изменяемо, и читать `entity.id` внутри вызова уже нельзя.
+                    let slots = m::machine_data_slots(&entity.id);
+                    entity.data.resize(slots, 0);
         let outputs = m::machine_outputs(machine);
         let input = entity.items.get(m::SLOT_INPUT).and_then(|s| s.clone());
 
@@ -775,7 +790,10 @@ fn biolab_core_machine_tick(
         return;
     }
 
-    entity.data.resize(m::machine_data_slots(&entity.id), 0);
+    // Число слотов считаем заранее: `resize` берёт `entity.data`
+                    // изменяемо, и читать `entity.id` внутри вызова уже нельзя.
+                    let slots = m::machine_data_slots(&entity.id);
+                    entity.data.resize(slots, 0);
 
     // Экрану экстрактора — последний выданный ген, инкубатора — штамм
     // культуры во входе. Пишем каждый тик: числа меню не сохраняются.

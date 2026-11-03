@@ -361,7 +361,7 @@ fn body_model(m: &crate::mobs::Mob) -> (String, std::sync::Arc<crate::mobs::Part
         .layer(&key)
         .cloned()
         .unwrap_or_else(|| m.kind.model.clone());
-    (key, model, texture)
+    (key.to_string(), model, texture.to_string())
 }
 
 /// Имена частей в порядке модели (обход в глубину).

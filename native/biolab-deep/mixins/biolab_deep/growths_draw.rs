@@ -1,3 +1,7 @@
+// С ноября 2026 цепляемся не к `render_visible` (в ней появился `?`, а RETURN
+// его не допускает), а к обёрткам `render_with` и `render_skinned`. Матрицу
+// `base` они ещё не считали, и вызывать функции прямо в привязке нельзя —
+// поэтому берём `camera` и считаем ту же `base_transform`, что и сама игра.
 // Проход наростов (GDD 4.19): после всего тела моба дорисовываем наросты его
 // генома — рога, хвост, щупальца, третью руку, вторую голову и т. д.
 // RETURN, как у прохода костей (`flayed_bones.rs`): в `render_visible` есть
@@ -9,21 +13,19 @@
 // Модель игрока (своя, чужие, превью в инвентаре) рисуется этой же функцией,
 // поэтому и её наросты — здесь; гены игрока `draw_growths` берёт не из генома
 // мобов, а из пакета сервера (`biolab_players`).
-// Невидимое тело (`body_visible = false`: рисуются одни слои) наростов не даёт.
 // Атрибутов у помощника быть не может (так требует инструмент миксинов).
 fn biolab_deep_growths(
     value: (),
     m: &crate::mobs::Mob,
     alpha: f32,
-    base: glam::Mat4,
+    camera: glam::DVec3,
     atlas: crate::mobs::render::Atlas<'_>,
     light: u32,
     data: &crate::mobs::MobData,
-    body_visible: bool,
     out: &mut Vec<crate::mesher::Vertex>,
 ) {
-    if body_visible {
-        crate::biolab_growths::draw_growths(m, alpha, base, atlas, light, data, out);
-    }
+    let base = crate::mobs::render::base_transform(m, alpha, camera);
+    // Обёртки зовут отрисовку тела всегда: отдельной проверки не нужно.
+    crate::biolab_growths::draw_growths(m, alpha, base, atlas, light, data, out);
     value
 }

@@ -26,7 +26,9 @@ fn biolab_core_hurt_enemy(
         && let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == entity && mob.alive())
     {
         let (xd, zd) = (player.x - mob.position.x, player.z - mob.position.z);
-        mob.knockback(m::player_ram_push(horns), xd, zd);
+        // Рогами бьёт сам игрок: источником идёт его удар.
+        let source = crate::mobs::Damage::player([player.x, player.y, player.z]);
+        mob.knockback(m::player_ram_push(horns), xd, zd, &source);
     }
     let Some(mob) = game.mobs.iter().find(|mob| mob.id == entity) else {
         return;

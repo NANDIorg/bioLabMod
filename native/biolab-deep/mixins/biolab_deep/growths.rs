@@ -1293,6 +1293,9 @@ fn to_part(quads: &[Quad]) -> crate::mobs::Part {
                 vertices: std::array::from_fn(|i| {
                     [q.pos[i][0], q.pos[i][1], q.pos[i][2], q.uv[i][0], q.uv[i][1]]
                 }),
+                // Наросты видны с обеих сторон: щупальце или перепонку
+                // игрок обходит кругом, отсекать задние грани нельзя.
+                cull_back: false,
             })
             .collect(),
         children: Vec::new(),

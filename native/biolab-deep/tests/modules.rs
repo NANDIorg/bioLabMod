@@ -3,8 +3,6 @@
 // Здесь они подключаются как обычные модули; функции, которым нужна сама игра,
 // отгорожены `#[cfg(not(test))]`, а их внутренние тесты прогоняются тут.
 
-#[path = "../mixins/biolab_deep/atlas.rs"]
-mod atlas;
 #[path = "../mixins/biolab_deep/effects.rs"]
 mod effects;
 #[path = "../mixins/biolab_deep/mutants.rs"]
@@ -117,13 +115,6 @@ fn player_and_mob_damage_agree() {
     assert_eq!(biolab_deep::SEDATION, effects::SEDATION);
 }
 
-#[test]
-fn icon_alias_matches_the_engine_key() {
-    assert_eq!(
-        atlas::alias_for("biolab:gui/mob_effect/acid_burn").as_deref(),
-        Some("mob_effect/biolab:acid_burn")
-    );
-}
 
 /// Геном выдаёт бинарник (`runtime.rs`), а читает по меткам lib
 /// (`mutants.rs`): имена генов, их цена и метки в обеих копиях должны

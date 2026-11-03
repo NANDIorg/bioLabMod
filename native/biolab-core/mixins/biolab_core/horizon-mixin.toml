@@ -7,7 +7,7 @@ priority = 100
 # (hooks 1 в compatibility.json), поэтому лаунчер собирает его на любой версии
 # Horizon, где они есть.
 [compatibility]
-horizon_revision = "d91cab68ded29bd2b004f7050c468fb98c41a00b"
+horizon_revision = "31f83499b6c2cff7a8e7bf45f8173a7a95c2767c"
 
 [[module]]
 id = "runtime"

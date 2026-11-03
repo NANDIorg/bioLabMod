@@ -17,5 +17,7 @@ fn biolab_core_screen(
         inventory_y: layout.inventory[1],
         inventory_x: layout.inventory[0],
         own_labels: true,
+        // Фон и рамки слотов рисуем сами (`native_screen_draw`).
+        own_background: true,
     });
 }
