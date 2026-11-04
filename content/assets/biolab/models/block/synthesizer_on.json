@@ -1,6 +1,6 @@
 {
   "parent": "biolab:block/synthesizer",
-  "textures": {"particle": "biolab:block/synthesizer_side", "lamp": "biolab:block/synthesizer_lamp_on"},
+  "textures": {"particle": "biolab:block/synthesizer_side", "lamp": "biolab:block/synthesizer_lamp_on", "front": "biolab:block/synthesizer_front_on"},
   "elements": [
     {"from": [0, 0, 0], "to": [16, 3, 16], "faces": {"down": {"uv": [0, 0, 16, 16], "texture": "#side", "cullface": "down"}, "up": {"uv": [0, 0, 16, 16], "texture": "#frame"}, "north": {"uv": [0, 13, 16, 16], "texture": "#front"}, "south": {"uv": [0, 13, 16, 16], "texture": "#side"}, "west": {"uv": [0, 13, 16, 16], "texture": "#side"}, "east": {"uv": [0, 13, 16, 16], "texture": "#side"}}},
     {"from": [14, 3, 0], "to": [16, 13, 16], "faces": {"north": {"uv": [0, 3, 2, 13], "texture": "#front"}, "south": {"uv": [14, 3, 16, 13], "texture": "#side"}, "west": {"uv": [0, 3, 16, 13], "texture": "#frame"}, "east": {"uv": [0, 3, 16, 13], "texture": "#side"}}},

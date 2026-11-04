@@ -9,7 +9,12 @@
 - textures/block/machine_*.png — общие материалы (сталь, медь, стекло, растворы,
   решётка, экран), <машина>_{side,top,front,accent,lamp,lamp_on}.png — свои;
 - models/block/<машина>.json и <машина>_on.json (горящая, `lit=true`);
-- blockstates/<машина>.json — `facing` поворачивает модель, `lit` выбирает _on.
+- blockstates/<машина>.json — `facing` поворачивает модель, `lit` выбирает _on;
+- свечение (OptiFine-формат, Horizon его понимает): `<текстура>_e.png` рядом с
+  текстурой — её пиксели рисуются полной яркостью. Светятся ядра горящих ламп,
+  волна на экране и индикаторы (кисть `glow`). Индикатор работы горит только у
+  горящей машины: её модель берёт копию `<машина>_<текстура>_on.png`;
+- optifine/ctm/lab_bench_top/ — сшивка столешниц лабораторных столов в ряд.
 
 Правила геометрии (блоки по шаблону печки — для игры сплошной куб, соседи не
 рисуют прилегающие грани, поэтому дыры в модели показали бы пустоту):
@@ -182,9 +187,83 @@ def dial(img, cx, cy, face=(226, 230, 220), needle=(200, 40, 40), angle=-40):
     put(img, cx + 1 + round(math.cos(a)), cy + 2 + round(math.sin(a)), needle)
 
 
-def led(img, x, y, c):
-    put(img, x, y, c)
+# ---------------------------------------------------------------- свечение
+#
+# Horizon понимает OptiFine-свечение блоков: `<текстура>_e.png` рядом с
+# текстурой рисуется поверх неё полной яркостью (непрозрачные пиксели, cutout).
+# `light_emission` элемента светит гранью целиком и не ярче своего уровня, а
+# индикатор — это один-два пикселя на корпусе, их так не зажечь. Поэтому
+# индикаторы отмечаются кистью `glow`, а файлы `_e` пишет `write_glowing`.
+#
+# Индикатор питания горит всегда. Индикатор работы (`lit=True`) в обычной
+# текстуре тусклый, а горит в её копии `<текстура>_on`, которую берёт модель
+# горящей машины. Копия обязана отличаться от оригинала хоть пикселем: блоки с
+# одинаковыми пикселями делят слой атласа, и тогда свечения нет ни у одного.
+
+GLOW = {}  # id(картинки) -> (картинка, [(x, y, яркий цвет, только в работе)])
+# В лампах и на экране светится всё, что ярче порога (по самому яркому каналу):
+# рамка, решётка и тёмный фон остаются тёмными.
+BRIGHT = 210
+
+
+def dim(c):
+    """Погасший индикатор работы."""
+    return mix(c, (20, 24, 28), 0.6)
+
+
+def glow(img, x, y, c, lit=False):
+    put(img, x, y, dim(c) if lit else c)
+    GLOW.setdefault(id(img), (img, []))[1].append((x, y, c, lit))
+
+
+def led(img, x, y, c, lit=False):
+    glow(img, x, y, c, lit)
     put(img, x + 1, y, shade(c, -50))
+
+
+def bright_pixels(img, limit=BRIGHT):
+    return [(x, y) for y in range(16) for x in range(16)
+            if img[y][x][3] == 255 and max(img[y][x][:3]) >= limit]
+
+
+def emissive(img, pts):
+    """Слой `_e`: пиксели `pts` из картинки, остальное прозрачное."""
+    out = canvas((0, 0, 0), 0)
+    for x, y in pts:
+        out[y][x] = img[y][x]
+    return out
+
+
+def write_e(name, img, pts, folder=TEX):
+    """`<name>_e.png` со светящимися пикселями; без них — убрать старый файл,
+    иначе после правки росписи текстура светилась бы по прежней разметке."""
+    path = os.path.join(folder, name + "_e.png")
+    if pts:
+        write_png(name + "_e", emissive(img, pts), folder)
+    elif os.path.exists(path):
+        os.remove(path)
+
+
+def write_glowing(name, img):
+    """Текстура с индикаторами `glow`: сама, `_e` и, если есть индикаторы
+    работы, `_on` с `_on_e`. Возвращает True, если `_on` есть."""
+    marks = GLOW.get(id(img), (img, []))[1]
+    write_png(name, img)
+    always = [(x, y) for x, y, _, lit in marks if not lit]
+    write_e(name, img, always)
+    lit = [(x, y, c) for x, y, c, on in marks if on]
+    on_path = os.path.join(TEX, name + "_on.png")
+    if not lit:
+        if os.path.exists(on_path):
+            os.remove(on_path)
+        write_e(name + "_on", img, [])
+        return False
+    on = [row[:] for row in img]
+    for x, y, c in lit:
+        put(on, x, y, c)
+    write_png(name + "_on", on)
+    write_e(name + "_on", on, always + [(x, y) for x, y, _ in lit])
+    return True
 
 
 def vents(img, x0, y0, x1, y1):
@@ -282,6 +361,8 @@ def shared_textures():
             put(on, x, y, (140, 255, 220) if x % 3 else TEAL_DIM)
     put(on, 13, 2, (255, 220, 120))
     write_png("machine_screen_on", on)
+    # Включённый экран: волна и строки светятся, фон и развёртка — нет.
+    write_e("machine_screen_on", on, bright_pixels(on))
 
     # Пробирки экстрактора (и стола): столбцы по 2 пикселя, снизу раствор, сверху стекло.
     img = canvas((0, 0, 0), 0)
@@ -357,10 +438,22 @@ def machine_textures(m, paint, keep):
         "lamp": lamp_tex(lamp, False),
         "lamp_on": lamp_tex(lamp, True),
     }
+    GLOW.clear()
     paint(tex, acc, lamp)
+    with_on = set()
     for k, img in tex.items():
-        if k in keep:
+        if k not in keep:
+            continue
+        if k == "lamp_on":
+            # Горящая лампа: ядро и спираль — полной яркостью, поверх
+            # `light_emission` элемента, который светит лишь своим уровнем.
             write_png(f"{m}_{k}", img)
+            write_e(f"{m}_{k}", img, bright_pixels(img))
+        elif k != "lamp" and write_glowing(f"{m}_{k}", img):
+            with_on.add(k)
+        elif k == "lamp":
+            write_png(f"{m}_{k}", img)
+    return with_on
 
 
 # Росписи: координаты в текстуре. Грань элемента [x1..x2, y1..y2] спереди
@@ -394,10 +487,10 @@ def paint_incubator(t, acc, lamp):
     f = t["front"]
     rect(f, 2, 13, 14, 16, STEEL_DARK)  # пульт под дверцей
     rect(f, 3, 14, 7, 15, (40, 24, 12))  # табло температуры
-    for x in (3, 5):
-        put(f, x, 14, (255, 190, 90))
-    led(f, 8, 14, TEAL)
-    led(f, 11, 14, lamp)
+    for x in (3, 5):  # цифры табло горят, пока идёт инкубация
+        glow(f, x, 14, (255, 190, 90), lit=True)
+    led(f, 8, 14, TEAL)  # питание
+    led(f, 11, 14, lamp, lit=True)  # работа
     label(f, 3, 0, 13, 3, acc)  # табличка над дверцей
     for y in (4, 11):  # петли справа (x 0..2 — правая стенка, u 14..16)
         rect(f, 14, y, 15, y + 2, STEEL_DARK)
@@ -436,7 +529,7 @@ def paint_centrifuge(t, acc, lamp):
     rect(f, 0, 8, 16, 9, acc)
     dial(f, 3, 10, angle=-120)
     vents(f, 9, 11, 14, 15)
-    led(f, 3, 15, TEAL)
+    led(f, 3, 15, TEAL)  # питание
     tp = t["top"]  # крышка барабана с лучами (центр 8,8)
     for y in range(3, 13):
         for x in range(3, 13):
@@ -450,13 +543,14 @@ def paint_synthesizer(t, acc, lamp):
     f = t["front"]
     rect(f, 0, 13, 16, 16, STEEL_DARK)  # основание: v 13..16
     rect(f, 0, 13, 16, 14, TEAL_DIM)
-    for x in (3, 6, 9):
-        led(f, x, 14, TEAL if x == 3 else acc)
-    rect(f, 12, 14, 14, 15, (230, 80, 60))
+    for x in (3, 6, 9):  # питание и два индикатора работы
+        led(f, x, 14, TEAL if x == 3 else acc, lit=x != 3)
+    for x in (12, 13):  # красная кнопка «идёт синтез»
+        glow(f, x, 14, (230, 80, 60), lit=True)
     label(f, 4, 1, 12, 3, acc)  # крышка камеры: v 1..3
     for u in (0, 14):  # стойки камеры: v 3..13
         rect(f, u, 3, u + 2, 13, FRAME)
-        put(f, u + 1 if u == 0 else u, 4, TEAL)
+        glow(f, u + 1 if u == 0 else u, 4, TEAL)  # огни на стойках камеры
     s = t["side"]
     rect(s, 3, 6, 13, 11, (40, 60, 66))  # иллюминатор сбоку
     outline(s, 3, 6, 13, 11, EDGE)
@@ -499,7 +593,7 @@ def paint_extractor(t, acc, lamp):
     f = t["front"]
     rect(f, 0, 13, 16, 16, FRAME)
     rect(f, 0, 13, 16, 14, TEAL_DIM)
-    led(f, 2, 14, TEAL)
+    led(f, 2, 14, TEAL)  # питание
     label(f, 6, 14, 14, 16, acc)
     a = t["accent"]  # колонна: тёмные кольца
     for y in (3, 8, 13):
@@ -509,7 +603,7 @@ def paint_extractor(t, acc, lamp):
 def paint_cloning_vat(t, acc, lamp):
     f = t["front"]
     rect(f, 0, 13, 16, 16, STEEL_DARK)
-    for x in (2, 5):
+    for x in (2, 5):  # питание
         led(f, x, 14, TEAL)
     label(f, 8, 13, 14, 16, acc)
     label(f, 1, 0, 15, 3, acc)  # крышка: v 0..3
@@ -540,7 +634,8 @@ def paint_spectrometer(t, acc, lamp):
                (60, 160, 220), (70, 80, 200), (150, 70, 200)]
     for x in range(1, 15):
         c = rainbow[min(6, (x - 1) * 7 // 14)]
-        rect(f, x, 5, x + 1, 8, c)
+        for y in range(5, 8):  # спектр на шкале виден, пока идёт анализ
+            glow(f, x, y, c, lit=True)
         if x % 3 == 1:
             put(f, x, 4, STEEL_LIGHT)
     rect(f, 0, 2, 16, 3, STEEL_DARK)
@@ -550,7 +645,8 @@ def paint_spectrometer(t, acc, lamp):
     grain(f, 3, 5, 0, 10, 16, 16)
     rect(f, 0, 10, 16, 11, TEAL_DIM)
     rect(f, 5, 12, 11, 14, EDGE)
-    rect(f, 6, 13, 10, 14, (80, 190, 80))
+    for x in range(6, 10):  # зелёная щель «анализ»
+        glow(f, x, 13, (80, 190, 80), lit=True)
     for x in (2, 13):
         rect(f, x, 12, x + 2, 14, STEEL_DARK)
         put(f, x, 12, STEEL_LIGHT)
@@ -599,12 +695,11 @@ def paint_console(t, acc, lamp):
     for x in range(2, 14, 2):
         put(tp, x, 7, STEEL_LIGHT)
         put(tp, x, 8, STEEL_LIGHT)
-    for x in (3, 7, 11):
-        put(tp, x, 4, acc)
+    for x in (3, 7, 11):  # кнопки пульта подсвечены, пока консоль работает
+        glow(tp, x, 4, acc, lit=True)
 
 
 def lab_bench_textures():
-    acc = (124, 230, 110)
     s = plate(STEEL, 90)  # тумба: ящик и дверца
     rect(s, 1, 5, 15, 16, STEEL)
     grain(s, 3, 91, 1, 5, 15, 16)
@@ -616,12 +711,56 @@ def lab_bench_textures():
     put(s, 9, 13, STEEL_LIGHT)
     rect(s, 1, 5, 15, 6, TEAL_DIM)
     write_png("lab_bench", s)
-    tp = canvas((44, 50, 56))  # столешница: тёмный пластик с бирюзовой кромкой
+    write_png("lab_bench_top", bench_top("lrtb"))
+    bench_top_ctm()
+
+
+def bench_top(edges, corners=False):
+    """Столешница: тёмный пластик с бирюзовой кромкой по краям `edges`
+    (l, r, t, b — лево, право, верх, низ текстуры); `corners` — только угловые
+    пиксели кромки (внутренний угол стыка)."""
+    acc = (124, 230, 110)
+    tp = canvas((44, 50, 56))
     grain(tp, 3, 92)
-    outline(tp, 0, 0, 16, 16, TEAL_DIM)
+    for e, (x0, y0, x1, y1) in {"l": (0, 0, 1, 16), "r": (15, 0, 16, 16),
+                                "t": (0, 0, 16, 1), "b": (0, 15, 16, 16)}.items():
+        if e in edges:
+            rect(tp, x0, y0, x1, y1, TEAL_DIM)
+    if corners:
+        for x, y in ((0, 0), (15, 0), (0, 15), (15, 15)):
+            put(tp, x, y, TEAL_DIM)
     for x, y in ((4, 9), (5, 9), (11, 4)):
         put(tp, x, y, shade(acc, -90))
-    write_png("lab_bench_top", tp)
+    return tp
+
+
+CTM = os.path.join(ASSETS, "optifine", "ctm")
+
+
+def bench_top_ctm():
+    """Сшивка столешниц (OptiFine CTM, `ctm_compact`): столы в ряд — одна
+    столешница, кромка только по внешнему краю. Пять плиток в порядке шаблона
+    OptiFine: 0 — кромка кругом (как сама текстура), 1 — без кромки, 2 — кромка
+    слева и справа (соседи сверху и снизу), 3 — сверху и снизу, 4 — только
+    углы. Движок режет грань на четверти и каждой берёт свою плитку.
+
+    Соединяемся по блоку (`connect=block`), а не по плитке: соседняя плитка
+    ищется по первой грани модели, смотрящей вверх, а у стола это низ рамы, не
+    столешница. `matchTiles`, а не `matchBlocks`: иначе плитки легли бы на все
+    верхние грани стола — колбы и штатив тоже."""
+    folder = os.path.join(CTM, "lab_bench_top")
+    os.makedirs(folder, exist_ok=True)
+    tiles = [bench_top("lrtb"), bench_top(""), bench_top("lr"), bench_top("tb"),
+             bench_top("", corners=True)]
+    for i, img in enumerate(tiles):
+        write_png(str(i), img, folder)
+    with open(os.path.join(folder, "lab_bench_top.properties"), "w") as f:
+        f.write("# Пишет tools/mkblock_machines.py: столешницы столов в ряд сшиваются.\n"
+                "matchTiles=biolab:block/lab_bench_top\n"
+                "method=ctm_compact\n"
+                "tiles=0-4\n"
+                "connect=block\n"
+                "faces=top\n")
 
 
 # Операционная (GDD 4.17): стол и кость для срезанных конечностей.
@@ -661,7 +800,9 @@ def operating_table_textures():
     # Абажур лампы и её стекло (светится всегда: лампа над изголовьем).
     shade_img = accent_tex("operating_table", (214, 222, 226))
     write_png("operating_table_accent", shade_img)
-    write_png("operating_table_lamp", lamp_tex((255, 246, 214), True))
+    lamp = lamp_tex((255, 246, 214), True)
+    write_png("operating_table_lamp", lamp)
+    write_e("operating_table_lamp", lamp, bright_pixels(lamp))
 
 
 def bone_texture():
@@ -1227,7 +1368,8 @@ def texture_map(name, keys, own=OWN, extra=None):
     return tex
 
 
-def write_machine(name, build):
+def write_machine(name, build, with_on=()):
+    """`with_on` — свои текстуры с индикаторами работы: горящая модель берёт их `_on`."""
     elements = build()
     base = [e for e in elements if not e["lit_only"]]
     extra = {"floor": f"biolab:block/{name}_floor"}
@@ -1242,6 +1384,9 @@ def write_machine(name, build):
         lit_tex["lamp"] = f"biolab:block/{name}_lamp_on"
     if "screen" in tex:
         lit_tex["screen"] = "biolab:block/machine_screen_on"
+    for k in sorted(with_on):
+        if k in tex:
+            lit_tex[k] = f"biolab:block/{name}_{k}_on"
     dump_model(os.path.join(MODELS, name + "_on.json"), {
         "parent": f"biolab:block/{name}",
         "textures": lit_tex,
@@ -1269,8 +1414,8 @@ def main():
         keys = used_keys(build()) | {"side"}
         if "lamp" in keys:
             keys.add("lamp_on")
-        machine_textures(name, PAINTERS[name], keys)
-        n, n_on = write_machine(name, build)
+        with_on = machine_textures(name, PAINTERS[name], keys)
+        n, n_on = write_machine(name, build, with_on)
         print(f"{name:13s} элементов {n:2d} (горящая {n_on:2d})")
     elements = lab_bench()
     tex = texture_map("lab_bench", used_keys(elements), own=(),
