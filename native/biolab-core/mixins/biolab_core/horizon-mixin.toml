@@ -15,6 +15,15 @@ file = "crates/horizon-client/src/game.rs"
 name = "biolab_core"
 source = "runtime.rs"
 
+# Свои частицы (GDD 3.9): таблица «что, где и как часто» без типов игры —
+# её тесты идут обычным `cargo test` (`tests/particles.rs`). В игре —
+# `crate::game::biolab_particles`. Тип частицы мода — API 103.
+[[module]]
+id = "particles"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_particles"
+source = "particles.rs"
+
 [[injection]]
 id = "list"
 kind = "HEAD"
@@ -255,6 +264,18 @@ id = "surgery-tick"
 kind = "HEAD"
 target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
 helper = "surgery.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Фон из своих частиц: лужи, работающие машины, усыплённые и раненые мобы.
+# Тоже на тике игрока, по той же причине, что вольеры. Шлёт сервер
+# (`native_send_particles` с `ParticleOptions::named`, API 103).
+[[injection]]
+id = "ambient-particles"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "ambient.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]

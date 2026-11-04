@@ -7,14 +7,31 @@ fn biolab_core_hurt_enemy(
 ) {
     use crate::game::biolab_core as m;
     use horizon_client::mobs::finalize::{Attr, has_modifier};
+    use crate::game::biolab_particles as fx;
     if !game.native_on(m::ID) {
         return;
     }
-    // Скальпель оставляет рану, которая кровоточит.
+    // Скальпель оставляет рану, которая кровоточит, и кровь брызжет сразу
+    // (`native_send_particles`, API 103; шлёт сервер, как и звук). Дальше
+    // капает кровотечение (`ambient.rs`).
+    let mut wound = None;
     if &*stack.item == m::SCALPEL_ID
         && let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == entity)
     {
         mob.add_effect(m::BLEEDING, m::BLEEDING_TICKS, 0);
+        let feet = [mob.position.x, mob.position.y, mob.position.z];
+        wound = Some(fx::over_body(&fx::CUT, feet, f64::from(mob.height())));
+    }
+    if let Some(at) = wound
+        && (game.serving.is_some() || game.options.dedicated.is_some())
+    {
+        let seed = u64::from(entity) ^ game.ticks;
+        let options = horizon_client::particles::ParticleOptions::named(fx::CUT.name);
+        let _ = game.with_level(|_, level, _| {
+            for s in fx::sends(&fx::CUT, at, seed) {
+                let _ = level.native_send_particles(&options, None, s.at, s.spread, s.speed, s.count);
+            }
+        });
     }
     // Рогатость у игрока (GDD 4.19): удар отбрасывает моба сильнее. Толчок
     // поверх ванильного: `knockback` толкает против направления (`xd`, `zd`),
