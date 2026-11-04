@@ -56,6 +56,8 @@ KNOWN_STATES = {
     "minecraft:furnace": {"facing": ["east", "north", "south", "west"], "lit": ["false", "true"]},
     "minecraft:iron_block": {},
     "minecraft:snow": {"layers": [str(i) for i in range(1, 9)]},
+    # Свои растения (GDD 4.20): четыре стадии свёклы.
+    "minecraft:beetroots": {"age": ["0", "1", "2", "3"]},
     # Секции операционного стола: стороны гриба, `false` — соседняя секция.
     "minecraft:mushroom_stem": {side: ["false", "true"] for side in DIRS},
 }

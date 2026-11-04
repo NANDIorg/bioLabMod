@@ -8,6 +8,8 @@
   * у каждого блока с предметом (`"item": true` в horizon/block) есть
     таблица `loot_table/blocks/<имя>.json`, и она роняет сам этот блок;
   * у блоков без предмета (лужи) таблицы нет: ронять им нечего;
+  * исключение — культуры (шаблон `minecraft:beetroots`, GDD 4.20): своего
+    предмета нет, а таблица есть и роняет семена `<блок>_seeds`;
   * таблицы написаны в формате 26.3, который читает движок Horizon
     (`horizon-items/src/items.rs`, `LootContext::condition`): условие —
     строка или объект с ключом `type`. Старый вид `{"condition": "..."}`
@@ -50,7 +52,12 @@ TEMPLATE_REQUIRES_TOOL = {
     "minecraft:snow": True,
     "minecraft:crafting_table": False,
     "minecraft:mushroom_stem": False,
+    "minecraft:beetroots": False,
 }
+
+# Шаблоны культур (GDD 4.20): у блока нет своего предмета — семена отдельный
+# предмет `<блок>_seeds`, — но таблица у него есть и роняет семена.
+CROP_TEMPLATES = {"minecraft:beetroots"}
 
 # Виды условий и записей, которые знает движок Horizon (items.rs).
 CONDITIONS = {
@@ -216,6 +223,18 @@ def main(argv):
         where = f"horizon/block/{short}.json"
         table = f"blocks/{short}.json"
         has_item = decl.get("item", True)
+        template = decl.get("template", "")
+        if template in CROP_TEMPLATES:
+            seeds = f"{name}_seeds"
+            if has_item:
+                err(where, "у культуры не должно быть своего предмета: семена — отдельный предмет")
+            elif table not in tables:
+                err(where, f"культура без таблицы loot_table/{table} — ничего не уронит")
+            elif seeds not in tables[table]:
+                err(where, f"loot_table/{table} не роняет семена {seeds}")
+            else:
+                drops.append(short)
+            continue
         if has_item:
             if table not in tables:
                 err(where, f"блок с предметом, а таблицы loot_table/{table} нет — ломается в никуда")
@@ -226,7 +245,6 @@ def main(argv):
         elif table in tables:
             err(where, f"у блока без предмета есть loot_table/{table}")
 
-        template = decl.get("template", "")
         props = decl.get("properties", {})
         if "requires_tool" in props:
             requires = bool(props["requires_tool"])

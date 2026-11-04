@@ -604,3 +604,69 @@ id = "data"
 file = "crates/horizon-client/src/game.rs"
 name = "biolab_core_data"
 source = "data.rs"
+
+# Свои растения (GDD 4.20): валериана, белладонна, мандрагора. Таблица без
+# типов игры — её тесты идут обычным `cargo test` (`tests/plants.rs`). В игре —
+# `crate::game::biolab_plants`. Рост, костную муку и вытаптывание даёт шаблон
+# культуры (`minecraft:beetroots`), здесь — только то, чего шаблон не умеет.
+[[module]]
+id = "plants"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_plants"
+source = "plants.rs"
+
+# Семена на пашню: игра сама их не сажает (у культуры нет своего предмета,
+# см. `SEEDS_TEMPLATE`). Второй перехват клика по блоку рядом с
+# `place_fluid.rs`. Стабильный хук API 13, на сервере.
+[[injection]]
+id = "plant-seed"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_use_item_on"
+helper = "plant_seed.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "[i32; 3]", value = "face" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
+]
+
+# Дикие заросли стоят на траве, подзоле и иле, а не только на пашне.
+# Стабильный хук API 70, уровень сервера, только для чтения.
+[[injection]]
+id = "plant-ground"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::GameLevel<'_>::native_may_place_on"
+helper = "plant_ground.rs"
+bindings = [
+  { name = "level", ty = "&crate::game::GameLevel<'_>", value = "self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "ground", ty = "horizon_world::registry::BlockStateId", value = "ground" },
+  { name = "may", ty = "&mut Option<bool>", value = "&mut *may" },
+]
+
+# Крик мандрагоры: игрок срывает спелую без шлема — тошнота. Хук ломания
+# блока игроком, до самого ломания. Стабильный хук API 14, на сервере.
+[[injection]]
+id = "mandrake-scream"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_destroy_block"
+helper = "mandrake.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+]
+
+# Семена с мобов (запасной путь GDD): ведьма, лиса, зомби-житель. Хук
+# выпадения (API 75), на сервере: добавляем стопку к выкатившемуся луту.
+[[injection]]
+id = "plant-drops"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_loot_drops"
+helper = "plant_drops.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "context", ty = "&horizon_client::mod_api::NativeLootDrops<'_>", value = "&*context" },
+  { name = "drops", ty = "&mut Vec<horizon_client::items::ItemStack>", value = "&mut *drops" },
+]

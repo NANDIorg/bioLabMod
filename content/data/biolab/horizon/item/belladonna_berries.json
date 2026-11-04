@@ -1,0 +1,24 @@
+{
+ "template": "minecraft:spider_eye",
+ "max_stack_size": 64,
+ "components": {
+  "minecraft:food": {
+   "nutrition": 2,
+   "saturation": 0.4
+  },
+  "minecraft:consumable": {
+   "on_consume_effects": [
+    {
+     "type": "minecraft:apply_effects",
+     "effects": [
+      {
+       "id": "minecraft:poison",
+       "duration": 200,
+       "show_icon": true
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

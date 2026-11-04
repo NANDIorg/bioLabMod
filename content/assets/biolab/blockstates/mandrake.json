@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "age=0": {
+      "model": "biolab:block/mandrake_stage0"
+    },
+    "age=1": {
+      "model": "biolab:block/mandrake_stage1"
+    },
+    "age=2": {
+      "model": "biolab:block/mandrake_stage2"
+    },
+    "age=3": {
+      "model": "biolab:block/mandrake_stage3"
+    }
+  }
+}

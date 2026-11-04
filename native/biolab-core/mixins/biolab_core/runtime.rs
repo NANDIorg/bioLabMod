@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 66] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -169,6 +169,14 @@ pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
     ("biolab:mutagen_bucket", &["ПКМ по блоку — разлить лужу мутагена", "Ведро остаётся пустым"]),
     // Книга.
     ("biolab:lab_manual", &["ПКМ — открыть карту исследований"]),
+    // Свои растения (GDD 4.20, `plants.rs`): семена сажает `plant_seed.rs`,
+    // крик мандрагоры — `mandrake.rs`.
+    ("biolab:valerian_seeds", &["ПКМ по пашне — посадить", "Дико: луга, равнины, цветочный лес"]),
+    ("biolab:belladonna_seeds", &["ПКМ по пашне — посадить", "Дико: леса и тёмный лес"]),
+    ("biolab:mandrake_seeds", &["ПКМ по пашне — посадить", "Дико: болота и мангровые болота"]),
+    ("biolab:valerian_root", &["Сырьё успокоительного отвара"]),
+    ("biolab:belladonna_berries", &["Похожи на сладкие, но ядовиты", "Добавка к мандрагоровой настойке"]),
+    ("biolab:mandrake_root", &["Сырьё мандрагоровой настойки", "Спелую рвите в шлеме: она кричит"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -5823,8 +5831,14 @@ mod tests {
             let size = json.get("max_stack_size").and_then(Json::num).expect(&id) as u32;
             let want = if single.contains(&id.as_str()) || fluid_of_bucket(&id).is_some() {
                 1
-            } else if element(&id).is_some() || id == TISSUE_ID || id == "biolab:mold" {
-                // Сырьё.
+            } else if element(&id).is_some()
+                || id == TISSUE_ID
+                || id == "biolab:mold"
+                || id.ends_with("_seeds")
+                || ["biolab:valerian_root", "biolab:belladonna_berries", "biolab:mandrake_root"]
+                    .contains(&id.as_str())
+            {
+                // Сырьё: и семена с урожаем своих растений, как ванильные.
                 64
             } else {
                 // Препараты, экстракты, шприцы, дротики и расходники лаборатории.
@@ -8142,7 +8156,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 50] = [
+pub const RESEARCH: [Research; 53] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -8151,6 +8165,11 @@ pub const RESEARCH: [Research; 50] = [
     node("swab", 0, (2, 2), "biolab:swab", "Ватная палочка", &["bench"], Unlock::Item(&["biolab:swab"]), "Соберите ватную палочку на столе."),
     node("agar", 0, (3, 2), "biolab:agar", "Агар", &["swab"], Unlock::Item(&["biolab:agar"]), "Сушёную ламинарию — в перегонный куб."),
     node("bandage", 0, (4, 2), "biolab:bandage", "Бинт", &["agar"], Unlock::Item(&["biolab:bandage"]), "Соберите бинт на столе: шерсть и агар."),
+    // Свои растения (GDD 4.20): нижний ряд Основ, каждое — само по себе. Сырьё
+    // для снотворных, но ищут их в мире, ещё до лаборатории.
+    node("valerian", 0, (0, 3), "biolab:valerian_root", "Валериана", &[], Unlock::Item(&["biolab:valerian_seeds", "biolab:valerian_root"]), "Сорвите валериану на лугу или равнине."),
+    node("belladonna", 0, (1, 3), "biolab:belladonna_berries", "Белладонна", &[], Unlock::Item(&["biolab:belladonna_seeds", "biolab:belladonna_berries"]), "Сорвите белладонну в лесу."),
+    node("mandrake", 0, (2, 3), "biolab:mandrake_root", "Мандрагора", &[], Unlock::Item(&["biolab:mandrake_seeds", "biolab:mandrake_root"]), "Сорвите мандрагору на болоте."),
     // Химия
     node("still", 1, (0, 1), "biolab:still", "Перегонный куб", &[], Unlock::Item(&["biolab:still"]), "Сделайте перегонный куб: медь и печь."),
     node("elements", 1, (1, 1), "biolab:element_carbon", "Элементы", &["still"], Unlock::Item(ELEMENT_ITEMS), "Положите песок или древесный уголь в куб."),
@@ -10752,9 +10771,16 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 19, "блоков стало больше — решите, выпадают ли новые");
-        for (name, item, _) in &blocks {
+        assert_eq!(blocks.len(), 22, "блоков стало больше — решите, выпадают ли новые");
+        for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
+            // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,
+            // — но роняют семена и урожай: их проверяет `tests/plants.rs`.
+            if template == "minecraft:beetroots" {
+                assert!(!item, "{name}: у культуры свой предмет — семена");
+                assert!(table.exists(), "{name}: культура без таблицы ничего не уронит");
+                continue;
+            }
             if !item {
                 assert!(!table.exists(), "{name}: у блока без предмета (лужа) не должно быть таблицы");
                 continue;

@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/crop",
+  "textures": {
+    "crop": "biolab:block/mandrake_stage1"
+  }
+}

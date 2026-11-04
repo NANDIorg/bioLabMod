@@ -1,0 +1,985 @@
+{
+  "textures": {
+    "plant_root": "biolab:item/3d/plant_root",
+    "plant_stem": "biolab:item/3d/plant_stem",
+    "particle": "biolab:item/3d/plant_root"
+  },
+  "elements": [
+    {
+      "from": [
+        5.0,
+        8.5,
+        6.5
+      ],
+      "to": [
+        11.0,
+        10.5,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            11,
+            5,
+            5,
+            7
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            5,
+            5,
+            11,
+            7
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            6.5,
+            5,
+            9.5,
+            7
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            5,
+            6.5,
+            7
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            5,
+            6.5,
+            11,
+            9.5
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            5,
+            9.5,
+            11,
+            6.5
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        5.25,
+        1.5,
+        7.25
+      ],
+      "to": [
+        6.0,
+        8.5,
+        8.0
+      ],
+      "rotation": {
+        "angle": -22.5,
+        "axis": "z",
+        "origin": [
+          5.625,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            6.0,
+            7,
+            5.25,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            5.25,
+            7,
+            6.0,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            7.25,
+            7,
+            8,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            8,
+            7,
+            7.25,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            5.25,
+            7.25,
+            6.0,
+            8
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            5.25,
+            8,
+            6.0,
+            7.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        5.0,
+        3.0,
+        8.25
+      ],
+      "to": [
+        5.75,
+        8.5,
+        9.0
+      ],
+      "rotation": {
+        "angle": -22.5,
+        "axis": "z",
+        "origin": [
+          5.625,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            5.75,
+            7,
+            5.0,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            5.0,
+            7,
+            5.75,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            8.25,
+            7,
+            9,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            9,
+            7,
+            8.25,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            5.0,
+            8.25,
+            5.75,
+            9
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            5.0,
+            9,
+            5.75,
+            8.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        7.0,
+        2.5,
+        7.25
+      ],
+      "to": [
+        7.75,
+        8.5,
+        8.0
+      ],
+      "rotation": {
+        "angle": 0,
+        "axis": "z",
+        "origin": [
+          7.375,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            7.75,
+            7,
+            7,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            7,
+            7,
+            7.75,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            7.25,
+            7,
+            8,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            8,
+            7,
+            7.25,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            7,
+            7.25,
+            7.75,
+            8
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            7,
+            8,
+            7.75,
+            7.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        6.75,
+        3.0,
+        8.25
+      ],
+      "to": [
+        7.5,
+        8.5,
+        9.0
+      ],
+      "rotation": {
+        "angle": 0,
+        "axis": "z",
+        "origin": [
+          7.375,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            7.5,
+            7,
+            6.75,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            6.75,
+            7,
+            7.5,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            8.25,
+            7,
+            9,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            9,
+            7,
+            8.25,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            6.75,
+            8.25,
+            7.5,
+            9
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            6.75,
+            9,
+            7.5,
+            8.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        8.75,
+        1.5,
+        7.25
+      ],
+      "to": [
+        9.5,
+        8.5,
+        8.0
+      ],
+      "rotation": {
+        "angle": 0,
+        "axis": "z",
+        "origin": [
+          9.125,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            9.5,
+            7,
+            8.75,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            8.75,
+            7,
+            9.5,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            7.25,
+            7,
+            8,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            8,
+            7,
+            7.25,
+            14
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            8.75,
+            7.25,
+            9.5,
+            8
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            8.75,
+            8,
+            9.5,
+            7.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        8.5,
+        3.0,
+        8.25
+      ],
+      "to": [
+        9.25,
+        8.5,
+        9.0
+      ],
+      "rotation": {
+        "angle": 0,
+        "axis": "z",
+        "origin": [
+          9.125,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            9.25,
+            7,
+            8.5,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            8.5,
+            7,
+            9.25,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            8.25,
+            7,
+            9,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            9,
+            7,
+            8.25,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            8.5,
+            8.25,
+            9.25,
+            9
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            8.5,
+            9,
+            9.25,
+            8.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        10.0,
+        2.5,
+        7.25
+      ],
+      "to": [
+        10.75,
+        8.5,
+        8.0
+      ],
+      "rotation": {
+        "angle": 22.5,
+        "axis": "z",
+        "origin": [
+          10.375,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            10.75,
+            7,
+            10,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            10,
+            7,
+            10.75,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            7.25,
+            7,
+            8,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            8,
+            7,
+            7.25,
+            13
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            10,
+            7.25,
+            10.75,
+            8
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            10,
+            8,
+            10.75,
+            7.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        9.75,
+        3.0,
+        8.25
+      ],
+      "to": [
+        10.5,
+        8.5,
+        9.0
+      ],
+      "rotation": {
+        "angle": 22.5,
+        "axis": "z",
+        "origin": [
+          10.375,
+          8.5,
+          8.0
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            10.5,
+            7,
+            9.75,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "south": {
+          "uv": [
+            9.75,
+            7,
+            10.5,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "west": {
+          "uv": [
+            8.25,
+            7,
+            9,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "east": {
+          "uv": [
+            9,
+            7,
+            8.25,
+            12.5
+          ],
+          "texture": "#plant_root"
+        },
+        "up": {
+          "uv": [
+            9.75,
+            8.25,
+            10.5,
+            9
+          ],
+          "texture": "#plant_root"
+        },
+        "down": {
+          "uv": [
+            9.75,
+            9,
+            10.5,
+            8.25
+          ],
+          "texture": "#plant_root"
+        }
+      }
+    },
+    {
+      "from": [
+        6.5,
+        10.5,
+        7.5
+      ],
+      "to": [
+        7.5,
+        13.5,
+        8.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7.5,
+            2,
+            6.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "south": {
+          "uv": [
+            6.5,
+            2,
+            7.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "west": {
+          "uv": [
+            7.5,
+            2,
+            8.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "east": {
+          "uv": [
+            8.5,
+            2,
+            7.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "up": {
+          "uv": [
+            6.5,
+            7.5,
+            7.5,
+            8.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "down": {
+          "uv": [
+            6.5,
+            8.5,
+            7.5,
+            7.5
+          ],
+          "texture": "#plant_stem"
+        }
+      }
+    },
+    {
+      "from": [
+        8.5,
+        10.5,
+        7.5
+      ],
+      "to": [
+        9.5,
+        13.5,
+        8.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            9.5,
+            2,
+            8.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "south": {
+          "uv": [
+            8.5,
+            2,
+            9.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "west": {
+          "uv": [
+            7.5,
+            2,
+            8.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "east": {
+          "uv": [
+            8.5,
+            2,
+            7.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "up": {
+          "uv": [
+            8.5,
+            7.5,
+            9.5,
+            8.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "down": {
+          "uv": [
+            8.5,
+            8.5,
+            9.5,
+            7.5
+          ],
+          "texture": "#plant_stem"
+        }
+      }
+    },
+    {
+      "from": [
+        7.5,
+        10.5,
+        7.5
+      ],
+      "to": [
+        8.5,
+        14.5,
+        8.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            8.5,
+            1,
+            7.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "south": {
+          "uv": [
+            7.5,
+            1,
+            8.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "west": {
+          "uv": [
+            7.5,
+            1,
+            8.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "east": {
+          "uv": [
+            8.5,
+            1,
+            7.5,
+            5
+          ],
+          "texture": "#plant_stem"
+        },
+        "up": {
+          "uv": [
+            7.5,
+            7.5,
+            8.5,
+            8.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "down": {
+          "uv": [
+            7.5,
+            8.5,
+            8.5,
+            7.5
+          ],
+          "texture": "#plant_stem"
+        }
+      }
+    }
+  ],
+  "gui_light": "side",
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [
+        75,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        2.5,
+        0
+      ],
+      "scale": [
+        0.45,
+        0.45,
+        0.45
+      ]
+    },
+    "firstperson_righthand": {
+      "rotation": [
+        0,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        3.5,
+        0
+      ],
+      "scale": [
+        0.32,
+        0.32,
+        0.32
+      ]
+    },
+    "gui": {
+      "rotation": [
+        20,
+        -35,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.95,
+        0.95,
+        0.95
+      ]
+    },
+    "ground": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        0.35,
+        0.35,
+        0.35
+      ]
+    },
+    "fixed": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.75,
+        0.75,
+        0.75
+      ]
+    }
+  }
+}

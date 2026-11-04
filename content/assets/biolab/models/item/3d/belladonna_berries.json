@@ -1,0 +1,805 @@
+{
+  "textures": {
+    "plant_berry": "biolab:item/3d/plant_berry",
+    "plant_leaf": "biolab:item/3d/plant_leaf",
+    "plant_stem": "biolab:item/3d/plant_stem",
+    "particle": "biolab:item/3d/plant_berry"
+  },
+  "elements": [
+    {
+      "from": [
+        4.0,
+        2.5,
+        6.0
+      ],
+      "to": [
+        7.0,
+        5.5,
+        9.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7.5,
+            10,
+            4.5,
+            13
+          ],
+          "texture": "#plant_berry"
+        },
+        "south": {
+          "uv": [
+            4.5,
+            10,
+            7.5,
+            13
+          ],
+          "texture": "#plant_berry"
+        },
+        "west": {
+          "uv": [
+            6.5,
+            10,
+            9.5,
+            13
+          ],
+          "texture": "#plant_berry"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            10,
+            6.5,
+            13
+          ],
+          "texture": "#plant_berry"
+        },
+        "up": {
+          "uv": [
+            4.5,
+            6.5,
+            7.5,
+            9.5
+          ],
+          "texture": "#plant_berry"
+        },
+        "down": {
+          "uv": [
+            4.5,
+            9.5,
+            7.5,
+            6.5
+          ],
+          "texture": "#plant_berry"
+        }
+      }
+    },
+    {
+      "from": [
+        4.5,
+        5.5,
+        6.5
+      ],
+      "to": [
+        6.5,
+        6.0,
+        8.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7.0,
+            9.5,
+            5.0,
+            10
+          ],
+          "texture": "#plant_leaf"
+        },
+        "south": {
+          "uv": [
+            5.0,
+            9.5,
+            7.0,
+            10
+          ],
+          "texture": "#plant_leaf"
+        },
+        "west": {
+          "uv": [
+            7.0,
+            9.5,
+            9.0,
+            10
+          ],
+          "texture": "#plant_leaf"
+        },
+        "east": {
+          "uv": [
+            9.0,
+            9.5,
+            7.0,
+            10
+          ],
+          "texture": "#plant_leaf"
+        },
+        "up": {
+          "uv": [
+            5.0,
+            7.0,
+            7.0,
+            9.0
+          ],
+          "texture": "#plant_leaf"
+        },
+        "down": {
+          "uv": [
+            5.0,
+            9.0,
+            7.0,
+            7.0
+          ],
+          "texture": "#plant_leaf"
+        }
+      }
+    },
+    {
+      "from": [
+        8.5,
+        3.5,
+        6.5
+      ],
+      "to": [
+        11.5,
+        6.5,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            9,
+            9,
+            12
+          ],
+          "texture": "#plant_berry"
+        },
+        "south": {
+          "uv": [
+            9,
+            9,
+            12,
+            12
+          ],
+          "texture": "#plant_berry"
+        },
+        "west": {
+          "uv": [
+            7,
+            9,
+            10,
+            12
+          ],
+          "texture": "#plant_berry"
+        },
+        "east": {
+          "uv": [
+            10,
+            9,
+            7,
+            12
+          ],
+          "texture": "#plant_berry"
+        },
+        "up": {
+          "uv": [
+            9,
+            7,
+            12,
+            10
+          ],
+          "texture": "#plant_berry"
+        },
+        "down": {
+          "uv": [
+            9,
+            10,
+            12,
+            7
+          ],
+          "texture": "#plant_berry"
+        }
+      }
+    },
+    {
+      "from": [
+        9.0,
+        6.5,
+        7.0
+      ],
+      "to": [
+        11.0,
+        7.0,
+        9.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            11.5,
+            8.5,
+            9.5,
+            9
+          ],
+          "texture": "#plant_leaf"
+        },
+        "south": {
+          "uv": [
+            9.5,
+            8.5,
+            11.5,
+            9
+          ],
+          "texture": "#plant_leaf"
+        },
+        "west": {
+          "uv": [
+            7.5,
+            8.5,
+            9.5,
+            9
+          ],
+          "texture": "#plant_leaf"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            8.5,
+            7.5,
+            9
+          ],
+          "texture": "#plant_leaf"
+        },
+        "up": {
+          "uv": [
+            9.5,
+            7.5,
+            11.5,
+            9.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "down": {
+          "uv": [
+            9.5,
+            9.5,
+            11.5,
+            7.5
+          ],
+          "texture": "#plant_leaf"
+        }
+      }
+    },
+    {
+      "from": [
+        6.0,
+        7.0,
+        7.0
+      ],
+      "to": [
+        9.0,
+        10.0,
+        10.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            9.5,
+            5.5,
+            6.5,
+            8.5
+          ],
+          "texture": "#plant_berry"
+        },
+        "south": {
+          "uv": [
+            6.5,
+            5.5,
+            9.5,
+            8.5
+          ],
+          "texture": "#plant_berry"
+        },
+        "west": {
+          "uv": [
+            7.5,
+            5.5,
+            10.5,
+            8.5
+          ],
+          "texture": "#plant_berry"
+        },
+        "east": {
+          "uv": [
+            10.5,
+            5.5,
+            7.5,
+            8.5
+          ],
+          "texture": "#plant_berry"
+        },
+        "up": {
+          "uv": [
+            6.5,
+            7.5,
+            9.5,
+            10.5
+          ],
+          "texture": "#plant_berry"
+        },
+        "down": {
+          "uv": [
+            6.5,
+            10.5,
+            9.5,
+            7.5
+          ],
+          "texture": "#plant_berry"
+        }
+      }
+    },
+    {
+      "from": [
+        6.5,
+        10.0,
+        7.5
+      ],
+      "to": [
+        8.5,
+        10.5,
+        9.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            9.0,
+            5.0,
+            7.0,
+            5.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "south": {
+          "uv": [
+            7.0,
+            5.0,
+            9.0,
+            5.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "west": {
+          "uv": [
+            8.0,
+            5.0,
+            10.0,
+            5.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "east": {
+          "uv": [
+            10.0,
+            5.0,
+            8.0,
+            5.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "up": {
+          "uv": [
+            7.0,
+            8.0,
+            9.0,
+            10.0
+          ],
+          "texture": "#plant_leaf"
+        },
+        "down": {
+          "uv": [
+            7.0,
+            10.0,
+            9.0,
+            8.0
+          ],
+          "texture": "#plant_leaf"
+        }
+      }
+    },
+    {
+      "from": [
+        7.0,
+        10.0,
+        8.0
+      ],
+      "to": [
+        8.0,
+        13.5,
+        9.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            8.5,
+            2,
+            7.5,
+            5.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "south": {
+          "uv": [
+            7.5,
+            2,
+            8.5,
+            5.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "west": {
+          "uv": [
+            8.5,
+            2,
+            9.5,
+            5.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            2,
+            8.5,
+            5.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "up": {
+          "uv": [
+            7.5,
+            8.5,
+            8.5,
+            9.5
+          ],
+          "texture": "#plant_stem"
+        },
+        "down": {
+          "uv": [
+            7.5,
+            9.5,
+            8.5,
+            8.5
+          ],
+          "texture": "#plant_stem"
+        }
+      }
+    },
+    {
+      "from": [
+        5.25,
+        5.5,
+        8.0
+      ],
+      "to": [
+        6.0,
+        10.5,
+        8.75
+      ],
+      "rotation": {
+        "angle": -22.5,
+        "axis": "z",
+        "origin": [
+          5.5,
+          10.5,
+          8.5
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            6.5,
+            5,
+            5.75,
+            10
+          ],
+          "texture": "#plant_stem"
+        },
+        "south": {
+          "uv": [
+            5.75,
+            5,
+            6.5,
+            10
+          ],
+          "texture": "#plant_stem"
+        },
+        "west": {
+          "uv": [
+            8.5,
+            5,
+            9.25,
+            10
+          ],
+          "texture": "#plant_stem"
+        },
+        "east": {
+          "uv": [
+            9.25,
+            5,
+            8.5,
+            10
+          ],
+          "texture": "#plant_stem"
+        },
+        "up": {
+          "uv": [
+            5.75,
+            8.5,
+            6.5,
+            9.25
+          ],
+          "texture": "#plant_stem"
+        },
+        "down": {
+          "uv": [
+            5.75,
+            9.25,
+            6.5,
+            8.5
+          ],
+          "texture": "#plant_stem"
+        }
+      }
+    },
+    {
+      "from": [
+        9.5,
+        6.5,
+        8.0
+      ],
+      "to": [
+        10.25,
+        10.5,
+        8.75
+      ],
+      "rotation": {
+        "angle": 22.5,
+        "axis": "z",
+        "origin": [
+          10.0,
+          10.5,
+          8.5
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            10.75,
+            5,
+            10,
+            9
+          ],
+          "texture": "#plant_stem"
+        },
+        "south": {
+          "uv": [
+            10,
+            5,
+            10.75,
+            9
+          ],
+          "texture": "#plant_stem"
+        },
+        "west": {
+          "uv": [
+            8.5,
+            5,
+            9.25,
+            9
+          ],
+          "texture": "#plant_stem"
+        },
+        "east": {
+          "uv": [
+            9.25,
+            5,
+            8.5,
+            9
+          ],
+          "texture": "#plant_stem"
+        },
+        "up": {
+          "uv": [
+            10,
+            8.5,
+            10.75,
+            9.25
+          ],
+          "texture": "#plant_stem"
+        },
+        "down": {
+          "uv": [
+            10,
+            9.25,
+            10.75,
+            8.5
+          ],
+          "texture": "#plant_stem"
+        }
+      }
+    },
+    {
+      "from": [
+        8.0,
+        12.0,
+        8.25
+      ],
+      "to": [
+        12.0,
+        12.75,
+        8.75
+      ],
+      "rotation": {
+        "angle": 22.5,
+        "axis": "z",
+        "origin": [
+          8.0,
+          12.0,
+          8.5
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            12.5,
+            2.75,
+            8.5,
+            3.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "south": {
+          "uv": [
+            8.5,
+            2.75,
+            12.5,
+            3.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "west": {
+          "uv": [
+            8.75,
+            2.75,
+            9.25,
+            3.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "east": {
+          "uv": [
+            9.25,
+            2.75,
+            8.75,
+            3.5
+          ],
+          "texture": "#plant_leaf"
+        },
+        "up": {
+          "uv": [
+            8.5,
+            8.75,
+            12.5,
+            9.25
+          ],
+          "texture": "#plant_leaf"
+        },
+        "down": {
+          "uv": [
+            8.5,
+            9.25,
+            12.5,
+            8.75
+          ],
+          "texture": "#plant_leaf"
+        }
+      }
+    }
+  ],
+  "gui_light": "side",
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [
+        75,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        2.5,
+        0
+      ],
+      "scale": [
+        0.54,
+        0.54,
+        0.54
+      ]
+    },
+    "firstperson_righthand": {
+      "rotation": [
+        0,
+        45,
+        0
+      ],
+      "translation": [
+        0,
+        3.5,
+        0
+      ],
+      "scale": [
+        0.384,
+        0.384,
+        0.384
+      ]
+    },
+    "gui": {
+      "rotation": [
+        20,
+        -35,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1.14,
+        1.14,
+        1.14
+      ]
+    },
+    "ground": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        3,
+        0
+      ],
+      "scale": [
+        0.42,
+        0.42,
+        0.42
+      ]
+    },
+    "fixed": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.9,
+        0.9,
+        0.9
+      ]
+    }
+  }
+}

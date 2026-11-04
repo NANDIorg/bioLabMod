@@ -1,0 +1,67 @@
+{
+ "type": "minecraft:block",
+ "modifier": {
+  "type": "minecraft:explosion_decay"
+ },
+ "pools": [
+  {
+   "entries": [
+    {
+     "type": "minecraft:alternatives",
+     "children": [
+      {
+       "type": "minecraft:item",
+       "condition": {
+        "type": "minecraft:match_block",
+        "blocks": "biolab:belladonna",
+        "state": {
+         "age": "3"
+        }
+       },
+       "name": "biolab:belladonna_berries",
+       "modifier": {
+        "type": "minecraft:set_count",
+        "count": {
+         "type": "minecraft:uniform",
+         "min": 2.0,
+         "max": 3.0
+        }
+       }
+      },
+      {
+       "type": "minecraft:item",
+       "name": "biolab:belladonna_seeds"
+      }
+     ]
+    }
+   ],
+   "rolls": 1
+  },
+  {
+   "condition": {
+    "type": "minecraft:match_block",
+    "blocks": "biolab:belladonna",
+    "state": {
+     "age": "3"
+    }
+   },
+   "entries": [
+    {
+     "type": "minecraft:item",
+     "modifier": {
+      "type": "minecraft:apply_bonus",
+      "enchantment": "minecraft:fortune",
+      "formula": "minecraft:binomial_with_bonus_count",
+      "parameters": {
+       "extra": 1,
+       "probability": 0.5
+      }
+     },
+     "name": "biolab:belladonna_seeds"
+    }
+   ],
+   "rolls": 1
+  }
+ ],
+ "random_sequence": "biolab:blocks/belladonna"
+}
