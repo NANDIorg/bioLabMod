@@ -490,6 +490,9 @@ id = "effect-actions"
 kind = "HEAD"
 target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
 helper = "effect_actions.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
 
 # Карта исследований (GDD 4.13) — свой экран мода (API 111), только на
 # стабильных хуках. Раньше `biolab-deep` подменял пустую ванильную книгу пятью
