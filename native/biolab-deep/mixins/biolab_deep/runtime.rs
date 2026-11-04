@@ -572,6 +572,14 @@ pub fn is_legacy_marker(id: &str) -> bool {
         || gene_of_marker(id).is_some()
 }
 
+/// Где в сыром NBT моба искать старые метки. Сейв 1.21+ пишет
+/// `attributes`/`modifiers`/`id`, а `/summon` хранится как его набрали — в
+/// том числе старой формой `Attributes`/`Modifiers`/`Name` (так призывал
+/// мутанта тест в игре 04.11.2026, и метки не находились).
+pub const ATTRIBUTES_KEYS: [&str; 2] = ["attributes", "Attributes"];
+pub const MODIFIERS_KEYS: [&str; 2] = ["modifiers", "Modifiers"];
+pub const MODIFIER_ID_KEYS: [&str; 2] = ["id", "Name"];
+
 /// Что нашлось в старых метках моба.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Legacy {
@@ -738,6 +746,11 @@ mod tests {
         assert_eq!(checked, Legacy { genome: String::new(), surgery: 0, checked: true });
         assert_eq!(read_legacy(["minecraft:random_spawn_bonus", "biolab:genome_speed"]), None);
         assert_eq!(read_legacy([]), None);
+        // Обе формы NBT: сейв 1.21+ и старый призыв `/summon {Attributes:…}`.
+        for keys in [ATTRIBUTES_KEYS, MODIFIERS_KEYS, MODIFIER_ID_KEYS] {
+            assert_eq!(keys[0].to_lowercase(), keys[1].to_lowercase().replace("name", "id"));
+        }
+        assert!(ATTRIBUTES_KEYS.contains(&"Attributes") && MODIFIERS_KEYS.contains(&"Modifiers"));
     }
 
     #[test]

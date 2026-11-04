@@ -172,7 +172,14 @@ pub fn set_surgery(game: &mut crate::game::Game<'_>, id: u32, on_table: bool, fl
     SURGERY.set(host, holder, bits).is_ok()
 }
 
-/// Гены игрока — в его данные, для окна. Только если изменились.
+/// Гены игрока — в его данные, для окна. Зовётся раз в секунду; если гены не
+/// изменились, значение просто рассылается заново (`sync_data`). Без этого
+/// окно после перезахода генов не получало бы никогда: снимок при входе
+/// игрока (`send_level_info`) игра ставит только при загруженном трейт-моде
+/// (`hub.sync_attachments = !mod_api::mods().is_empty()`, `game/lan.rs`), а
+/// наши бандлы — миксины. Себя игрок не «видит», так что хук начала слежения
+/// (`biolab-deep`, `tracking.rs`) своему игроку не поможет. Повтор раз в
+/// секунду — тот же ритм, что был у пакета генов.
 pub fn set_player_genes(game: &mut crate::game::Game<'_>, uuid: u128, genes: &[(&'static str, i32)]) -> bool {
     let text = m::genome_data(genes);
     let host: &mut dyn Host = game;
@@ -183,7 +190,7 @@ pub fn set_player_genes(game: &mut crate::game::Game<'_>, uuid: u128, genes: &[(
         Err(_) => None,
     };
     if now.as_deref() == Some(text.as_str()) {
-        return true;
+        return PLAYER_GENES.sync_data(host, holder).is_ok();
     }
     // Пустая строка тоже записывается: так окно узнаёт, что наросты пора
     // снять, а после смерти игрока копия не воскресит снятый ген.

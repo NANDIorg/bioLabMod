@@ -302,3 +302,18 @@ helper = "view_sync.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
+
+# Игрок начал видеть сущность: разослать её данные заново. Свой снимок при
+# начале слежения игра шлёт только при загруженном трейт-моде
+# (`hub.sync_attachments`), а наши бандлы — миксины. Стабильный хук API 141.
+[[injection]]
+id = "start-tracking"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_start_tracking"
+helper = "tracking.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "entity", ty = "u32", value = "entity" },
+  { name = "uuid", ty = "u128", value = "uuid" },
+  { name = "kind", ty = "&str", value = "kind" },
+]
