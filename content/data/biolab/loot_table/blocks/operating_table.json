@@ -2,19 +2,16 @@
   "type": "minecraft:block",
   "pools": [
     {
-      "rolls": 1,
-      "bonus_rolls": 0.0,
+      "condition": {
+        "type": "minecraft:survives_explosion"
+      },
       "entries": [
         {
           "type": "minecraft:item",
           "name": "biolab:operating_table"
         }
       ],
-      "conditions": [
-        {
-          "condition": "minecraft:survives_explosion"
-        }
-      ]
+      "rolls": 1
     }
   ],
   "random_sequence": "biolab:blocks/operating_table"

@@ -9702,3 +9702,134 @@ mod screen_tests {
         );
     }
 }
+
+// Выпадение блоков при поломке (M11). Таблицы и теги — данные контентного
+// мода, а тест держит их в согласии с тем, какие блоки у нас есть: у каждого
+// блока с предметом — своя таблица в формате движка 26.3, у луж — никакой.
+// Подробнее и проверка шире — `tools/check_loot.py`.
+#[cfg(test)]
+mod drop_tests {
+    use super::*;
+
+    fn content(rel: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content").join(rel)
+    }
+
+    fn read(path: &std::path::Path) -> Option<Json> {
+        Json::parse(&std::fs::read_to_string(path).ok()?)
+    }
+
+    /// Блоки мода: имя без пространства, есть ли предмет, шаблон.
+    fn blocks() -> Vec<(String, bool, String)> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(content("data/biolab/horizon/block")).unwrap() {
+            let path = entry.unwrap().path();
+            let json = read(&path).expect("блок читается");
+            let name = path.file_stem().unwrap().to_string_lossy().to_string();
+            let item = !matches!(json.get("item"), Some(Json::Bool(false)));
+            let template = json.get("template").and_then(Json::str).unwrap_or("").to_string();
+            out.push((name, item, template));
+        }
+        out.sort();
+        out
+    }
+
+    /// Условие в виде, который читает движок (`items.rs`,
+    /// `LootContext::condition`): строка или объект с `type`. Старый вид
+    /// `{"condition": "..."}` без `type` движок считает «нет» — это и был баг
+    /// операционного стола.
+    fn engine_reads(condition: &Json) -> bool {
+        match condition {
+            Json::Str(_) => true,
+            Json::Arr(list) => list.iter().all(engine_reads),
+            Json::Obj(_) => condition.get("type").and_then(Json::str).is_some(),
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn the_old_condition_form_is_caught() {
+        let old = Json::parse(r#"{"condition": "minecraft:survives_explosion"}"#).unwrap();
+        let new = Json::parse(r#"{"type": "minecraft:survives_explosion"}"#).unwrap();
+        assert!(!engine_reads(&old));
+        assert!(engine_reads(&new));
+        assert!(engine_reads(&Json::Str("minecraft:tool/can_silk_touch".into())));
+    }
+
+    #[test]
+    fn every_block_with_an_item_drops_itself() {
+        let blocks = blocks();
+        assert_eq!(blocks.len(), 19, "блоков стало больше — решите, выпадают ли новые");
+        for (name, item, _) in &blocks {
+            let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
+            if !item {
+                assert!(!table.exists(), "{name}: у блока без предмета (лужа) не должно быть таблицы");
+                continue;
+            }
+            let json = read(&table).unwrap_or_else(|| panic!("{name}: нет таблицы выпадения"));
+            let pools = json.get("pools").and_then(Json::arr).unwrap_or(&[]);
+            assert!(!pools.is_empty(), "{name}: пустая таблица");
+            let id = format!("biolab:{name}");
+            let mut drops_itself = false;
+            for pool in pools {
+                if let Some(c) = pool.get("condition") {
+                    assert!(engine_reads(c), "{name}: условие пула движок не прочтёт");
+                }
+                for c in pool.get("conditions").and_then(Json::arr).unwrap_or(&[]) {
+                    assert!(engine_reads(c), "{name}: условие пула движок не прочтёт");
+                }
+                for entry in pool.get("entries").and_then(Json::arr).unwrap_or(&[]) {
+                    drops_itself |= entry.get("name").and_then(Json::str) == Some(id.as_str());
+                }
+            }
+            assert!(drops_itself, "{name}: таблица не роняет сам блок");
+            assert_eq!(
+                json.get("random_sequence").and_then(Json::str),
+                Some(format!("biolab:blocks/{name}").as_str()),
+                "{name}: последовательность случайностей — по имени таблицы, как у ванили"
+            );
+        }
+        // Все машины, стол, вольер, пульт и грядка выпадают; лужи — нет.
+        let dropping: Vec<&str> = blocks.iter().filter(|b| b.1).map(|b| b.0.as_str()).collect();
+        for machine in &MACHINES {
+            assert!(dropping.contains(&machine.id.trim_start_matches("biolab:")), "{}", machine.id);
+        }
+        for id in [OPERATING_TABLE, PEN, CONSOLE, GM_PLOT] {
+            assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
+        }
+        for fluid in &FLUIDS {
+            assert!(!dropping.contains(&fluid.block.trim_start_matches("biolab:")), "{}", fluid.block);
+        }
+    }
+
+    #[test]
+    fn blocks_whose_template_needs_a_tool_are_in_a_tool_tag() {
+        // `requires_tool` шаблонов по gameplay-facts пина: печь и снег требуют
+        // инструмент. Без тега ни один инструмент не подходит, и лут не
+        // катится вовсе (`game.rs`, `break_block_as_player`: `harvest`).
+        let tag = |tool: &str| -> Vec<String> {
+            let json = read(&content(&format!("data/minecraft/tags/block/mineable/{tool}.json")))
+                .unwrap_or_else(|| panic!("нет тега mineable/{tool}"));
+            json.get("values")
+                .and_then(Json::arr)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|v| v.str().map(str::to_string))
+                .collect()
+        };
+        let pickaxe = tag("pickaxe");
+        let shovel = tag("shovel");
+        for (name, item, template) in blocks() {
+            let id = format!("biolab:{name}");
+            match template.as_str() {
+                "minecraft:furnace" => assert!(pickaxe.contains(&id), "{id}: машина копается киркой"),
+                "minecraft:snow" if item => assert!(shovel.contains(&id), "{id}: грядка копается лопатой"),
+                _ => {}
+            }
+        }
+        // Металлические лабораторный и операционный столы — тоже киркой
+        // (быстрее), хотя ломаются и рукой.
+        assert!(pickaxe.contains(&LAB_BENCH.to_string()));
+        assert!(pickaxe.contains(&OPERATING_TABLE.to_string()));
+    }
+}

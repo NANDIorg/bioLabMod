@@ -87,43 +87,32 @@ fn biolab_core_interact_entity(
         }
     }
 
-    /// Есть ли в рюкзаке место для куска ткани.
-    fn room_for_tissue(game: &mut crate::game::Game<'_>) -> bool {
+    /// Кусок мутантной ткани падает на землю у пациента, как обычный лут, а
+    /// не в рюкзак: с полным рюкзаком срез раньше просто не делался.
+    ///
+    /// Срез скальпелем — не поломка блока и не смерть моба, поэтому
+    /// `native_loot_drops` его не слышит (`mod_api.rs`, `NativeLootDrops`), а
+    /// стабильного помощника «создать предметную сущность» в пине нет. Берём
+    /// ту же функцию, которой игра роняет лут умершего моба после
+    /// `native_loot_drops` (`Game::spawn_item`, `creatures.rs`: позиция моба,
+    /// толчок `dispenser::new_item_motion`, задержка подбора 10 тиков). Это
+    /// внутренний API, не хук-поинт: при обновлении Horizon проверить.
+    ///
+    /// Хук серверный (`native_interact_entity`), так что мир здесь свой.
+    /// Страховка на случай, если его позовут у клиента чужого сервера: там
+    /// предмет на земле был бы призраком, которого сервер не знает.
+    fn drop_tissue(game: &mut crate::game::Game<'_>, at: [f64; 3]) {
         use crate::game::biolab_core as m;
-        (0..36).any(|slot| match game.native_carried_slot(slot) {
-            Some(None) => true,
-            Some(Some(stack)) => &*stack.item == m::TISSUE_ID && stack.count < 64,
-            None => false,
-        })
-    }
-
-    /// Положить кусок мутантной ткани в рюкзак. `native_give` не годится: он
-    /// работает только в творческом режиме (проверено в игре, см. прежний
-    /// `killed.rs`), поэтому кладём в слот сами.
-    fn give_tissue(game: &mut crate::game::Game<'_>) -> bool {
-        use crate::game::biolab_core as m;
-        for slot in 0..36 {
-            let Some(place) = game.native_carried_slot(slot) else {
-                continue;
-            };
-            match place {
-                Some(stack) if &*stack.item == m::TISSUE_ID && stack.count < 64 => {
-                    stack.count += 1;
-                    return true;
-                }
-                None => {
-                    *place = Some(horizon_client::items::ItemStack {
-                        item: m::TISSUE_ID.into(),
-                        count: 1,
-                        damage: 0,
-                        extra: None,
-                    });
-                    return true;
-                }
-                _ => {}
-            }
+        if game.remote.is_some() {
+            return;
         }
-        false
+        let tissue = horizon_client::items::ItemStack {
+            item: m::TISSUE_ID.into(),
+            count: 1,
+            damage: 0,
+            extra: None,
+        };
+        game.spawn_item(tissue, at, crate::game::dispenser::new_item_motion(), 10);
     }
 
     if !game.native_on(m::ID) {
@@ -243,11 +232,6 @@ fn biolab_core_interact_entity(
         let id = mob.id;
         let health = mob.health;
         let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
-        // Сначала место под ткань: срез без ткани — зря покалеченный мутант.
-        if !room_for_tissue(game) {
-            game.native_chat("Рюкзак полон: освободите место для ткани");
-            return;
-        }
         if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
             add_modifier(
                 mob,
@@ -261,8 +245,8 @@ fn biolab_core_interact_entity(
         // Урон — через помощник API 37: он сам отправит здоровье клиентам.
         let dimension = game.dim.id().to_string();
         game.native_set_mob_health(&dimension, id, m::after_cut(health));
-        let given = u32::from(give_tissue(game));
-        game.native_chat(&m::cut_message(&kind, cut, given, &genes));
+        drop_tissue(game, at);
+        game.native_chat(&m::cut_message(&kind, cut, 1, &genes));
         play_at(game, m::Cue::Tissue, at);
         return;
     }
