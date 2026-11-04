@@ -414,9 +414,11 @@ pub fn player_tick(world: &std::path::Path, uuid: u128) -> Option<PlayerState> {
 // числа данных, из которых клиент сам рисует пламя и стрелку прогресса.
 
 /// Машины мода: блок, тип рецептов и id блок-сущности совпадают по имени.
-/// `slots` и `menu` — сколько у машины слотов и какое ванильное меню ей
-/// открывать. Машины на рецептах берут вход из слота 0 и кладут в последний;
-/// синтезатор читает все слоты, кроме последнего.
+/// `slots` — сколько у машины слотов, `menu` — ванильное меню, чью раскладку
+/// слотов она повторяет (печка, воронка, сетка 3×3): по нему решаются роли
+/// слотов. Открывается своё меню мода (`machine_menu`). Машины на рецептах
+/// берут вход из слота 0 и кладут в последний; синтезатор читает все слоты,
+/// кроме последнего.
 pub struct Machine {
     pub id: &'static str,
     pub slots: usize,
@@ -557,24 +559,20 @@ pub const LAST_GENE_KEY: &str = "biolab_last_gene";
 /// один всегда нужен под саму колбу, которая возвращается с водой.
 pub const DECOMPOSE_KINDS: usize = 3;
 
-/// Слоты, куда воронки кладут вход. Слот топлива меню печки нужен только
-/// клонирующему чану (питательный раствор): у остальных машин он пустует, и
-/// воронка, кладущая туда вход, просто забивала бы его.
+/// Слоты, куда воронки кладут вход: входы и топливо (`slot_role`). Слот
+/// топлива меню печки нужен только клонирующему чану (питательный раствор):
+/// у остальных машин он пустует, и воронка, кладущая туда вход, просто
+/// забивала бы его.
 pub fn machine_inputs(machine: &Machine) -> Vec<usize> {
-    match machine.menu {
-        "minecraft:furnace" if machine.id == CLONING_VAT => vec![SLOT_INPUT, SLOT_FUEL],
-        "minecraft:furnace" | "minecraft:hopper" => vec![SLOT_INPUT],
-        _ => (0..machine.slots - 1).collect(),
-    }
+    (0..machine.slots)
+        .filter(|slot| matches!(slot_role(machine, *slot), SlotRole::Input | SlotRole::Fuel))
+        .collect()
 }
 
 /// Слоты, откуда воронки забирают выход. У центрифуги на меню воронки вход
 /// один, а все остальные слоты — выходы.
 pub fn machine_outputs(machine: &Machine) -> Vec<usize> {
-    match machine.menu {
-        "minecraft:hopper" => (1..machine.slots).collect(),
-        _ => vec![machine.slots - 1],
-    }
+    (0..machine.slots).filter(|slot| slot_role(machine, *slot) == SlotRole::Output).collect()
 }
 
 /// Сколько тиков собирается или разлагается вещество: чем больше атомов,
@@ -721,6 +719,582 @@ pub fn synth_spent_slots(items: &[Option<&str>]) -> Vec<usize> {
         .filter(|(_, item)| item.is_some_and(|id| element(id).is_some()))
         .map(|(slot, _)| slot)
         .collect()
+}
+
+// ---- Автоматизация машин (GDD 4.15) ----
+//
+// Как машина живёт рядом с воронками, компаратором и шифт-кликом. Здесь
+// только решения: роль каждого слота, что слот принимает, куда шифт-клик
+// кладёт стак, какой сигнал видит компаратор. Хуки — `machine_slots.rs`
+// (стороны для воронок), `machine_quick_move.rs`, `menu_slot_rules.rs`,
+// `hopper_filter.rs`, `machine_analog*.rs` и начало тика в `machine.rs`.
+
+/// Роль слота машины.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotRole {
+    /// Сырьё: то, что машина перерабатывает.
+    Input,
+    /// Слот топлива меню печки. Нужен только клонирующему чану — там лежит
+    /// питательный раствор.
+    Fuel,
+    /// Готовое: игрок и воронки только забирают.
+    Output,
+    /// Слот есть в меню печки, но машине не нужен (топливо у всех, кроме
+    /// чана): спрятан с экрана, ничего не принимает.
+    Unused,
+}
+
+/// Роль слота по раскладке машины. Слот за пределами машины — `Unused`.
+pub fn slot_role(machine: &Machine, slot: usize) -> SlotRole {
+    if slot >= machine.slots {
+        return SlotRole::Unused;
+    }
+    match machine.menu {
+        "minecraft:furnace" => match slot {
+            SLOT_INPUT => SlotRole::Input,
+            SLOT_FUEL if machine.id == CLONING_VAT => SlotRole::Fuel,
+            SLOT_FUEL => SlotRole::Unused,
+            _ => SlotRole::Output,
+        },
+        // Центрифуга: вход и четыре выхода.
+        "minecraft:hopper" if slot == 0 => SlotRole::Input,
+        "minecraft:hopper" => SlotRole::Output,
+        // Сетка 3×3: восемь входов, последний — выход.
+        _ if slot + 1 == machine.slots => SlotRole::Output,
+        _ => SlotRole::Input,
+    }
+}
+
+/// Открывать у машин своё меню мода, а не ванильное. Только у своего типа
+/// меню есть `results` (в выход нельзя положить руками) и правила слотов
+/// (`native_menu_slot_rules`); ванильные меню печки, воронки и сетки для
+/// контейнера мода пускают что угодно куда угодно. Если свои типы меню
+/// подведут в игре, `false` возвращает ванильные: шифт-клик, воронки и
+/// компаратор от этого не зависят.
+pub const OWN_MENUS: bool = true;
+
+/// Какое меню открывает машина: свой тип меню мода называется так же, как
+/// машина (`data/biolab/horizon/menu/<машина>.json`).
+pub fn machine_menu(machine: &Machine) -> &'static str {
+    if OWN_MENUS { machine.id } else { machine.menu }
+}
+
+/// Машина, чей это тип меню; None — меню не наше.
+pub fn machine_of_menu(menu: &str) -> Option<&'static Machine> {
+    MACHINES.iter().find(|m| machine_menu(m) == menu)
+}
+
+/// Что принимает вход машин на рецептах: всё, что стоит в `ingredient`
+/// (`ingredients` у стола) её рецептов в `content/`. Правилам слотов мир не
+/// виден (ни рецептов, ни уровня), поэтому список свой; тест сверяет его с
+/// рецептами, так что новый рецепт без строки здесь не пройдёт.
+pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
+    (
+        "biolab:still",
+        &[
+            "biolab:mutant_tissue",
+            "minecraft:bone",
+            "minecraft:bone_meal",
+            "minecraft:charcoal",
+            "minecraft:copper_ingot",
+            "minecraft:dried_kelp",
+            "minecraft:dried_kelp_block",
+            "minecraft:glowstone_dust",
+            "minecraft:gold_nugget",
+            "minecraft:gunpowder",
+            "minecraft:ice",
+            "minecraft:iron_nugget",
+            "minecraft:kelp",
+            "minecraft:prismarine_crystals",
+            "minecraft:prismarine_shard",
+            "minecraft:redstone",
+            "minecraft:rotten_flesh",
+            "minecraft:sand",
+            "minecraft:sea_pickle",
+            "minecraft:seagrass",
+        ],
+    ),
+    ("biolab:incubator", &["biolab:culture", "biolab:swab", "minecraft:bread"]),
+    (
+        "biolab:fermenter",
+        &[
+            "biolab:culture",
+            "biolab:mold",
+            "minecraft:birch_leaves",
+            "minecraft:cocoa_beans",
+            "minecraft:poppy",
+            "minecraft:spider_eye",
+            "minecraft:wheat",
+        ],
+    ),
+    (
+        "biolab:centrifuge",
+        &[
+            "biolab:extract_raw",
+            "minecraft:glistering_melon_slice",
+            "minecraft:gravel",
+            "minecraft:magma_cream",
+            "minecraft:spider_eye",
+        ],
+    ),
+    ("biolab:reactor", &["biolab:culture", "biolab:element_glaurium", "minecraft:calcite"]),
+    (
+        "biolab:press",
+        &["biolab:extract_caffeine", "biolab:extract_penicillin", "biolab:extract_salicylate", "minecraft:charcoal"],
+    ),
+    (
+        "biolab:extractor",
+        &[
+            "biolab:gm_crop",
+            "biolab:mutant_tissue",
+            "minecraft:bone",
+            "minecraft:glow_ink_sac",
+            "minecraft:goat_horn",
+            "minecraft:ink_sac",
+            "minecraft:magma_cream",
+            "minecraft:phantom_membrane",
+            "minecraft:poisonous_potato",
+            "minecraft:rabbit_foot",
+            "minecraft:rotten_flesh",
+            "minecraft:spider_eye",
+            "minecraft:turtle_scute",
+        ],
+    ),
+    (
+        "biolab:lab_bench",
+        &[
+            "biolab:agar",
+            "biolab:culture_weakened",
+            "biolab:element_glaurium",
+            "biolab:element_redstonium",
+            "biolab:extract_caffeine",
+            "biolab:extract_penicillin",
+            "biolab:extract_salicylate",
+            "biolab:extract_sedative",
+            "biolab:extract_venom",
+            "biolab:flask",
+            "biolab:mutagen",
+            "biolab:mutant_tissue",
+            "biolab:syringe",
+            "biolab:syringe_sedative",
+            "biolab:syringe_venom",
+            "minecraft:compass",
+            "minecraft:copper_ingot",
+            "minecraft:feather",
+            "minecraft:glass",
+            "minecraft:glass_bottle",
+            "minecraft:glass_pane",
+            "minecraft:iron_ingot",
+            "minecraft:iron_nugget",
+            "minecraft:slime_ball",
+            "minecraft:stick",
+            "minecraft:string",
+            "minecraft:sugar",
+            "minecraft:white_wool",
+        ],
+    ),
+];
+
+/// Входы машины на рецептах; пусто — у машины своя логика.
+pub fn machine_ingredients(id: &str) -> &'static [&'static str] {
+    MACHINE_INGREDIENTS.iter().find(|(m, _)| *m == id).map_or(&[], |(_, items)| items)
+}
+
+/// Возьмёт ли слот машины этот предмет. Отвечает по одному id: правила слотов
+/// зовутся по нескольку раз за клик без уровня и игрока — только стак и
+/// быстро. Выход и пустующий слот топлива не берут ничего; топливо чана —
+/// только раствор; вход — то, с чем машина работает: у машин со своей
+/// логикой это их сырьё, у остальных — входы рецептов.
+pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
+    match slot_role(machine, slot) {
+        SlotRole::Output | SlotRole::Unused => false,
+        SlotRole::Fuel => item == BROTH_ID,
+        SlotRole::Input => match machine.id {
+            CLONING_VAT => item == FRAGMENT_ID,
+            SYNTHESIZER => element(item).is_some() || item == BLUEPRINT_ID,
+            SPECTROMETER => item == FLASK_ID,
+            // Центрифуга разлагает колбы и вдобавок крутит свои рецепты.
+            CENTRIFUGE => item == FLASK_ID || machine_ingredients(machine.id).contains(&item),
+            id => machine_ingredients(id).contains(&item),
+        },
+    }
+}
+
+/// Возьмёт ли машина предмет хоть в один слот, куда кладут воронки. Слот
+/// воронке не известен (`native_inventory_move_item` называет только блоки),
+/// поэтому вопрос — про машину целиком: чужой предмет остаётся в воронке,
+/// а не забивает вход.
+pub fn hopper_accepts(machine: &Machine, item: &str) -> bool {
+    machine_inputs(machine).into_iter().any(|slot| slot_accepts(machine, slot, item))
+}
+
+/// Правило слота своего меню машины: None — меню не наше (решает чужой мод
+/// или игра), иначе можно ли положить предмет.
+pub fn menu_slot_rule(menu: &str, slot: usize, item: &str) -> Option<bool> {
+    machine_of_menu(menu).map(|machine| slot_accepts(machine, slot, item))
+}
+
+/// Стороны машины для воронок, по `Direction`: низ, верх, север, юг, запад,
+/// восток. Снизу забирают выход. Сверху кладут сырьё, сбоку — топливо, как у
+/// ванильной печки; у машин без топлива сбоку тоже сырьё. Раньше у чана все
+/// стороны вели в оба слота, и раствор, пришедший в пустой чан, ложился во
+/// вход фрагмента — чан вставал.
+pub fn machine_faces(machine: &Machine) -> [Vec<usize>; 6] {
+    let slots = |role: SlotRole| -> Vec<usize> {
+        (0..machine.slots).filter(|slot| slot_role(machine, *slot) == role).collect()
+    };
+    let input = slots(SlotRole::Input);
+    let fuel = slots(SlotRole::Fuel);
+    let side = if fuel.is_empty() { input.clone() } else { fuel };
+    [slots(SlotRole::Output), input, side.clone(), side.clone(), side.clone(), side]
+}
+
+/// Куда шифт-клик из инвентаря кладёт предмет: слоты, которые его примут,
+/// по порядку (вход, у чана раствор — в топливо). Пусто — машине он не
+/// нужен, решает игра (в своём меню она тоже спросит правила слотов, то
+/// есть никуда не положит).
+pub fn quick_move_targets(machine: &Machine, item: &str) -> Vec<usize> {
+    (0..machine.slots).filter(|slot| slot_accepts(machine, *slot, item)).collect()
+}
+
+/// Раскладка шифт-клика, как `moveItemStackTo` ванильного меню: сперва
+/// долить стаки того же предмета с теми же данными, потом занять пустые
+/// слоты. `held` — слоты машины: пусто или (тот же ли предмет, сколько);
+/// `targets` — куда можно (`quick_move_targets`); `max` — стопка предмета.
+/// Вернёт, в какой слот сколько положить; сумма не больше `count`.
+pub fn quick_move_plan(held: &[Option<(bool, u32)>], targets: &[usize], count: u32, max: u32) -> Vec<(usize, u32)> {
+    let max = max.max(1);
+    let mut left = count;
+    let mut plan = Vec::new();
+    for &slot in targets {
+        if left == 0 {
+            break;
+        }
+        if let Some(Some((true, have))) = held.get(slot)
+            && *have < max
+        {
+            let put = (max - have).min(left);
+            plan.push((slot, put));
+            left -= put;
+        }
+    }
+    for &slot in targets {
+        if left == 0 {
+            break;
+        }
+        if matches!(held.get(slot), Some(None)) {
+            let put = left.min(max);
+            plan.push((slot, put));
+            left -= put;
+        }
+    }
+    plan
+}
+
+/// Сигнал компаратора — прогресс работы: 0 — машина стоит, 1 — только
+/// начала, 15 — почти готово. Не заполненность: воронки при автоматизации и
+/// так держат выход пустым, а заполненность всех слотов (что дала бы
+/// ванилла) смешивает сырьё с готовым. Прогресс же иначе не увидеть: по нему
+/// понятно, работает ли машина, когда закончит и что она встала (нет
+/// сырья, выход забит) — и это работает у чана, который ничего не выдаёт
+/// в слот, и у спектрометра, который колбу не тратит. Сброс с 15 на 0 —
+/// вещь готова: импульс для счётчика.
+pub fn comparator_signal(data: &[i32]) -> i32 {
+    let total = data.get(DATA_TOTAL).copied().unwrap_or(0);
+    let progress = data.get(DATA_PROGRESS).copied().unwrap_or(0);
+    if total <= 0 || progress <= 0 {
+        return 0;
+    }
+    // Округление вверх: работающая машина — хотя бы 1, иначе компаратор
+    // первые тики долгого рецепта не отличил бы её от стоящей.
+    let signal = (u64::from(progress.unsigned_abs()) * 15).div_ceil(u64::from(total.unsigned_abs()));
+    signal.clamp(1, 15) as i32
+}
+
+/// Сигналы машин для компаратора по месту. Компаратор спрашивает уровень,
+/// а тикающая машина в это время вынута из мира — поэтому её сигнал лежит
+/// здесь, а не читается из блок-сущности.
+type Signals = std::collections::HashMap<(String, [i32; 3]), i32>;
+
+fn machine_signals() -> &'static std::sync::Mutex<Signals> {
+    static SIGNALS: std::sync::OnceLock<std::sync::Mutex<Signals>> = std::sync::OnceLock::new();
+    SIGNALS.get_or_init(Default::default)
+}
+
+/// Запомнить сигнал машины. true — он изменился (или машина ещё не
+/// отвечала с этого места): компараторам пора перечитать. Так соседей
+/// будят только на смене ступени, а не каждый тик.
+pub fn remember_signal(dimension: &str, pos: [i32; 3], signal: i32) -> bool {
+    let mut signals = machine_signals().lock().unwrap_or_else(|e| e.into_inner());
+    signals.insert((dimension.to_string(), pos), signal) != Some(signal)
+}
+
+/// Сигнал машины по месту; 0 — машина ещё не тикала.
+pub fn known_signal(dimension: &str, pos: [i32; 3]) -> i32 {
+    let signals = machine_signals().lock().unwrap_or_else(|e| e.into_inner());
+    signals.get(&(dimension.to_string(), pos)).copied().unwrap_or(0)
+}
+
+#[cfg(test)]
+mod automation_tests {
+    use super::*;
+
+    fn m(id: &str) -> &'static Machine {
+        machine(id).unwrap_or_else(|| panic!("{id} — машина"))
+    }
+
+    #[test]
+    fn every_slot_has_one_role() {
+        for machine in &MACHINES {
+            let roles: Vec<SlotRole> = (0..machine.slots).map(|s| slot_role(machine, s)).collect();
+            assert!(roles.contains(&SlotRole::Input), "{}", machine.id);
+            assert!(roles.contains(&SlotRole::Output), "{}", machine.id);
+            assert_eq!(roles.contains(&SlotRole::Fuel), machine.id == CLONING_VAT, "{}", machine.id);
+            assert_eq!(slot_role(machine, machine.slots), SlotRole::Unused, "за пределами");
+        }
+        assert_eq!(slot_role(m("biolab:still"), SLOT_FUEL), SlotRole::Unused);
+        assert_eq!(slot_role(m(CLONING_VAT), SLOT_FUEL), SlotRole::Fuel);
+        assert_eq!(slot_role(m(CENTRIFUGE), 3), SlotRole::Output);
+        assert_eq!(slot_role(m(SYNTHESIZER), 7), SlotRole::Input);
+        assert_eq!(slot_role(m(LAB_BENCH), 8), SlotRole::Output);
+    }
+
+    #[test]
+    fn roles_agree_with_the_screen() {
+        // Выход в бирюзовой рамке — тот же слот, что выход по роли; слот
+        // без роли спрятан с экрана.
+        for machine in &MACHINES {
+            let screen = machine_screen(machine.id).unwrap();
+            for slot in 0..machine.slots {
+                let role = slot_role(machine, slot);
+                assert_eq!(is_output_slot(machine.id, slot), role == SlotRole::Output, "{} {slot}", machine.id);
+                assert_eq!(screen.slots[slot].is_none(), role == SlotRole::Unused, "{} {slot}", machine.id);
+            }
+        }
+    }
+
+    #[test]
+    fn outputs_and_the_idle_fuel_slot_take_nothing() {
+        for machine in &MACHINES {
+            for slot in machine_outputs(machine) {
+                for item in [FLASK_ID, "minecraft:bone", BROTH_ID, "biolab:element_carbon"] {
+                    assert!(!slot_accepts(machine, slot, item), "{} {slot} {item}", machine.id);
+                }
+            }
+        }
+        assert!(!slot_accepts(m("biolab:still"), SLOT_FUEL, "minecraft:bone"));
+        assert!(!slot_accepts(m("biolab:still"), SLOT_FUEL, "minecraft:coal"), "топлива у куба нет");
+    }
+
+    #[test]
+    fn inputs_take_what_the_machine_works_with() {
+        let vat = m(CLONING_VAT);
+        assert!(slot_accepts(vat, SLOT_INPUT, FRAGMENT_ID));
+        assert!(!slot_accepts(vat, SLOT_INPUT, BROTH_ID), "раствор — не во вход");
+        assert!(slot_accepts(vat, SLOT_FUEL, BROTH_ID));
+        assert!(!slot_accepts(vat, SLOT_FUEL, FRAGMENT_ID));
+        assert!(!slot_accepts(vat, SLOT_FUEL, "minecraft:coal"), "уголь чану не топливо");
+
+        let synth = m(SYNTHESIZER);
+        assert!(slot_accepts(synth, 0, "biolab:element_hydrogen"));
+        assert!(slot_accepts(synth, 7, BLUEPRINT_ID));
+        assert!(!slot_accepts(synth, 0, "minecraft:dirt"));
+
+        assert!(slot_accepts(m(SPECTROMETER), SLOT_INPUT, FLASK_ID));
+        assert!(!slot_accepts(m(SPECTROMETER), SLOT_INPUT, BLUEPRINT_ID));
+
+        let centrifuge = m(CENTRIFUGE);
+        assert!(slot_accepts(centrifuge, 0, FLASK_ID), "колбу разлагает");
+        assert!(slot_accepts(centrifuge, 0, "minecraft:gravel"), "и крутит рецепты");
+        assert!(!slot_accepts(centrifuge, 0, "minecraft:dirt"));
+
+        assert!(slot_accepts(m("biolab:still"), SLOT_INPUT, "minecraft:kelp"));
+        assert!(!slot_accepts(m("biolab:still"), SLOT_INPUT, "minecraft:dirt"));
+        assert!(slot_accepts(m(LAB_BENCH), 3, "minecraft:stick"));
+        assert!(!slot_accepts(m(LAB_BENCH), 3, "minecraft:dirt"));
+    }
+
+    /// Входы рецептов машин в `content/`: машина → id предметов.
+    fn recipe_inputs() -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/recipe");
+        let mut out: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> = Default::default();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let kind = json.get("type").and_then(Json::str).unwrap_or("");
+            if !is_machine(kind) {
+                continue;
+            }
+            let entries: Vec<&Json> = match (json.get("ingredient"), json.get("ingredients")) {
+                (Some(one), _) => vec![one],
+                (None, Some(list)) => list.arr().expect("ingredients — список").iter().collect(),
+                (None, None) => panic!("{}: рецепт без входа", path.display()),
+            };
+            for entry in entries {
+                // Тег или список вариантов правилам слотов не по зубам: им
+                // виден только id предмета.
+                let id = entry.str().unwrap_or_else(|| panic!("{}: вход не id предмета", path.display()));
+                assert!(!id.starts_with('#'), "{}: тег во входе", path.display());
+                out.entry(kind.to_string()).or_default().insert(id.to_string());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_ingredient_table_matches_the_recipes() {
+        let recipes = recipe_inputs();
+        let mut listed: Vec<&str> = MACHINE_INGREDIENTS.iter().map(|(id, _)| *id).collect();
+        listed.sort();
+        let with_recipes: Vec<&str> = recipes.keys().map(String::as_str).collect();
+        assert_eq!(listed, with_recipes, "машины с рецептами");
+        for (id, items) in &MACHINE_INGREDIENTS {
+            let table: std::collections::BTreeSet<String> = items.iter().map(|s| s.to_string()).collect();
+            assert_eq!(table.len(), items.len(), "{id}: предмет дважды");
+            assert_eq!(&table, &recipes[*id], "{id}: таблица разошлась с рецептами");
+        }
+        // Каждый вход рецепта машина примет — и руками, и воронкой.
+        for (id, items) in &recipes {
+            let machine = m(id);
+            for item in items {
+                assert!(hopper_accepts(machine, item), "{id} {item}");
+                assert!(!quick_move_targets(machine, item).is_empty(), "{id} {item}");
+            }
+        }
+    }
+
+    #[test]
+    fn hoppers_follow_the_furnace_sides() {
+        let vat = m(CLONING_VAT);
+        let faces = machine_faces(vat);
+        assert_eq!(faces[0], vec![SLOT_OUTPUT], "снизу — выход");
+        assert_eq!(faces[1], vec![SLOT_INPUT], "сверху — фрагмент");
+        for side in &faces[2..] {
+            assert_eq!(side, &vec![SLOT_FUEL], "сбоку — раствор");
+        }
+        for machine in &MACHINES {
+            let faces = machine_faces(machine);
+            let inputs = machine_inputs(machine);
+            assert_eq!(faces[0], machine_outputs(machine), "{}", machine.id);
+            for face in &faces[1..] {
+                assert!(!face.is_empty(), "{}", machine.id);
+                assert!(face.iter().all(|s| inputs.contains(s)), "{}: выход в сторонах подачи", machine.id);
+            }
+        }
+        let centrifuge = machine_faces(m(CENTRIFUGE));
+        assert_eq!(centrifuge[0], vec![1, 2, 3, 4]);
+        assert_eq!(centrifuge[3], vec![0]);
+        assert_eq!(machine_faces(m(SYNTHESIZER))[4], (0..8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn hoppers_keep_foreign_items_out() {
+        assert!(hopper_accepts(m(CLONING_VAT), FRAGMENT_ID));
+        assert!(hopper_accepts(m(CLONING_VAT), BROTH_ID));
+        assert!(!hopper_accepts(m(CLONING_VAT), "minecraft:coal"));
+        assert!(!hopper_accepts(m("biolab:still"), "minecraft:dirt"));
+        assert!(hopper_accepts(m(SYNTHESIZER), "biolab:element_oxygen"));
+    }
+
+    #[test]
+    fn shift_click_routes_by_role() {
+        assert_eq!(quick_move_targets(m(CLONING_VAT), BROTH_ID), vec![SLOT_FUEL]);
+        assert_eq!(quick_move_targets(m(CLONING_VAT), FRAGMENT_ID), vec![SLOT_INPUT]);
+        assert_eq!(quick_move_targets(m("biolab:press"), "minecraft:charcoal"), vec![SLOT_INPUT]);
+        assert_eq!(quick_move_targets(m(CENTRIFUGE), FLASK_ID), vec![0]);
+        assert_eq!(quick_move_targets(m(SYNTHESIZER), "biolab:element_carbon"), (0..8).collect::<Vec<_>>());
+        assert!(quick_move_targets(m("biolab:still"), "minecraft:dirt").is_empty(), "не нужно — решает игра");
+        assert!(quick_move_targets(m("biolab:still"), "minecraft:coal").is_empty(), "в пустующее топливо — нет");
+    }
+
+    #[test]
+    fn shift_click_tops_up_then_fills_empty_slots() {
+        // Слоты: 0 — чужой предмет, 1 — тот же (60), 2 — пусто, 3 — тот же (64).
+        let held = [Some((false, 5)), Some((true, 60)), None, Some((true, 64))];
+        assert_eq!(quick_move_plan(&held, &[0, 1, 2, 3], 10, 64), vec![(1, 4), (2, 6)]);
+        // Влезло в доливку — пустой слот не трогаем.
+        assert_eq!(quick_move_plan(&held, &[0, 1, 2, 3], 3, 64), vec![(1, 3)]);
+        // Больше стопки — в пустой слот только стопка, остаток остаётся у игрока.
+        assert_eq!(quick_move_plan(&[None, None], &[0], 100, 64), vec![(0, 64)]);
+        assert_eq!(quick_move_plan(&[None, None], &[0, 1], 100, 64), vec![(0, 64), (1, 36)]);
+        // Стопка в 1 (фрагмент, колба с данными): по одному в пустой слот.
+        assert_eq!(quick_move_plan(&[None, None], &[0, 1], 3, 1), vec![(0, 1), (1, 1)]);
+        // Некуда: всё занято чужим или полно.
+        assert!(quick_move_plan(&held, &[0, 3], 10, 64).is_empty());
+        // Слот за пределами машины пропускается.
+        assert!(quick_move_plan(&held, &[9], 10, 64).is_empty());
+    }
+
+    #[test]
+    fn own_menus_answer_slot_rules() {
+        let still = m("biolab:still");
+        assert_eq!(machine_of_menu(machine_menu(still)).map(|x| x.id), Some(still.id));
+        assert_eq!(menu_slot_rule("minecraft:chest", 0, FLASK_ID), None, "чужое меню не трогаем");
+        if OWN_MENUS {
+            assert_eq!(menu_slot_rule("biolab:still", SLOT_OUTPUT, "minecraft:kelp"), Some(false));
+            assert_eq!(menu_slot_rule("biolab:still", SLOT_INPUT, "minecraft:kelp"), Some(true));
+            assert_eq!(menu_slot_rule("biolab:cloning_vat", SLOT_FUEL, BROTH_ID), Some(true));
+        }
+    }
+
+    /// Свои типы меню в `content/`: по файлу на машину, слоты, данные и
+    /// выходы — как у машины, иначе меню не откроется или экран недосчитается
+    /// чисел.
+    #[test]
+    fn menu_types_match_the_machines() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/horizon/menu");
+        for machine in &MACHINES {
+            let name = machine.id.trim_start_matches("biolab:");
+            let path = dir.join(format!("{name}.json"));
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("нет {}", path.display()));
+            let json = Json::parse(&text).unwrap();
+            let num = |key: &str| json.get(key).and_then(Json::num).map(|n| n as usize);
+            assert_eq!(num("slots"), Some(machine.slots), "{name}");
+            assert_eq!(num("data_slots"), Some(machine_data_slots(machine.id)), "{name}");
+            let results: Vec<usize> = json
+                .get("results")
+                .and_then(Json::arr)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(Json::num)
+                .map(|n| n as usize)
+                .collect();
+            assert_eq!(results, machine_outputs(machine), "{name}");
+        }
+        let files = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(files, MACHINES.len(), "лишний тип меню");
+    }
+
+    #[test]
+    fn comparator_reads_progress() {
+        let data = |progress: i32, total: i32| {
+            let mut d = vec![0; DATA_SLOTS];
+            d[DATA_PROGRESS] = progress;
+            d[DATA_TOTAL] = total;
+            d
+        };
+        assert_eq!(comparator_signal(&[]), 0, "до первого тика");
+        assert_eq!(comparator_signal(&data(0, 0)), 0, "стоит");
+        assert_eq!(comparator_signal(&data(0, 100)), 0);
+        assert_eq!(comparator_signal(&data(1, 400)), 1, "работает — хотя бы 1");
+        assert_eq!(comparator_signal(&data(50, 100)), 8);
+        assert_eq!(comparator_signal(&data(99, 100)), 15, "почти готово");
+        assert_eq!(comparator_signal(&data(500, 100)), 15, "не выше 15");
+        // Ступеней 15 на любой рецепт: соседей будят не чаще.
+        let steps: std::collections::BTreeSet<i32> = (0..400).map(|p| comparator_signal(&data(p, 400))).collect();
+        assert_eq!(steps.len(), 16);
+    }
+
+    #[test]
+    fn neighbours_wake_only_on_a_new_step() {
+        let pos = [123_457, -7, 99];
+        assert!(remember_signal("test:dim", pos, 0), "первый ответ с места");
+        assert!(!remember_signal("test:dim", pos, 0));
+        assert!(remember_signal("test:dim", pos, 3));
+        assert_eq!(known_signal("test:dim", pos), 3);
+        assert_eq!(known_signal("test:other", pos), 0, "другое измерение");
+        assert_eq!(known_signal("test:dim", [0, -64, 0]), 0, "не тикала");
+    }
 }
 
 // ---- Звуки ----
@@ -8794,7 +9368,9 @@ fn furnace_screen(
 /// `minecraft:generic_3x3` и `minecraft:hopper` по-своему раньше, чем
 /// спрашивает мод (`machine_slot_position` в `game.rs`), и при другой
 /// раскладке предметы легли бы мимо нарисованных рамок. У машин на меню
-/// печки раскладка своя целиком.
+/// печки раскладка своя целиком. Со своими типами меню (`OWN_MENUS`)
+/// раскладка наша у всех, но места те же — чтобы откат на ванильные меню
+/// ничего не сдвинул.
 pub fn machine_screen(id: &str) -> Option<MachineScreen> {
     let machine = machine(id)?;
     let screen = match machine.id {

@@ -285,6 +285,18 @@ fn biolab_core_machine_tick(
         return;
     }
 
+    // Компаратор (GDD 4.15): сигнал машины — её прогресс. Считаем по числам,
+    // какими их оставил прошлый тик (тик в тик, компаратору это всё равно), —
+    // так одна точка на все ветки ниже с их ранними выходами. Соседей будим
+    // только на смене ступени: их 15 на рецепт, а не по разу за тик. Пишет
+    // только сервер — у него компаратор и спрашивает.
+    if m::is_machine(&entity.id) && (game.serving.is_some() || game.options.dedicated.is_some()) {
+        let dimension = game.dim.id();
+        if m::remember_signal(dimension, pos, m::comparator_signal(&entity.data)) {
+            game.native_update_output_neighbors(dimension, pos);
+        }
+    }
+
     // ГМ-грядка: растёт сама, а на последней стадии подмешивает ген соседа.
     if entity.id == m::GM_PLOT {
         use horizon_world::nbt::Tag;

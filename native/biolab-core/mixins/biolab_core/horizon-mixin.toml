@@ -311,3 +311,82 @@ bindings = [
   { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
   { name = "entity", ty = "u32", value = "entity" },
 ]
+
+# Автоматизация машин (GDD 4.15). Компаратор читает прогресс машины: есть ли
+# у блока сигнал — по состоянию, сам сигнал — из таблицы мода, куда его кладёт
+# тик (`machine.rs` будит соседей через `native_update_output_neighbors`).
+# Стабильные хуки API 64, только у сервера.
+[[injection]]
+id = "machine-has-analog"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::GameLevel<'_>::native_has_analog_output"
+helper = "machine_analog_has.rs"
+bindings = [
+  { name = "level", ty = "&crate::game::GameLevel<'_>", value = "self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "output", ty = "&mut bool", value = "&mut *output" },
+]
+
+[[injection]]
+id = "machine-analog"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::GameLevel<'_>::native_analog_output"
+helper = "machine_analog.rs"
+bindings = [
+  { name = "level", ty = "&crate::game::GameLevel<'_>", value = "self" },
+  { name = "dimension", ty = "horizon_world::level::Dimension", value = "dimension" },
+  { name = "pos", ty = "horizon_core::position::BlockPos", value = "pos" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "output", ty = "&mut i32", value = "&mut *output" },
+]
+
+# Шифт-клик из инвентаря в меню машины — в слот по роли (сырьё во вход,
+# раствор чана в топливо). Стабильный хук API 309, на сервере, до правил игры.
+[[injection]]
+id = "machine-quick-move"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_menu_quick_move"
+helper = "machine_quick_move.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
+  { name = "container_slots", ty = "usize", value = "container_slots" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&mut horizon_client::items::ItemStack", value = "&mut *stack" },
+  { name = "handled", ty = "&mut bool", value = "&mut *handled" },
+]
+
+# Воронка не кладёт в машину чужое. Стабильный хук API 334.
+[[injection]]
+id = "hopper-filter"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_inventory_move_item"
+helper = "hopper_filter.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "destination", ty = "[i32; 3]", value = "destination" },
+  { name = "item", ty = "&str", value = "item" },
+  { name = "cancel", ty = "&mut bool", value = "&mut *cancel" },
+]
+
+# Правила слотов своего меню машины (`data/biolab/horizon/menu/`). Хук —
+# свободная функция lib-крейта, где `crate::game::biolab_core` не виден,
+# поэтому `runtime.rs` добавлен и туда: `crate::biolab_core` lib-крейта.
+# Стабильный хук API 130.
+[[module]]
+id = "runtime-menu"
+file = "crates/horizon-client/src/client_lib.rs"
+name = "biolab_core"
+source = "runtime.rs"
+
+[[injection]]
+id = "menu-slot-rules"
+kind = "HEAD"
+target = "horizon_client_lib::menu::native_menu_slot_rules"
+helper = "menu_slot_rules.rs"
+bindings = [
+  { name = "menu", ty = "&str", value = "menu" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&crate::items::ItemStack", value = "&*stack" },
+  { name = "may_place", ty = "&mut bool", value = "&mut *may_place" },
+]
