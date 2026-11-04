@@ -1,106 +1,52 @@
-// Мобы появились в мире (родились, призваны или загрузились с диска).
-// Загруженному мутанту возвращаем наши модификаторы из сырого NBT: ванилла
-// пишет их в сейв, но обратно не читает. Новому мобу любого вида без меток
-// бросаем геном: шанс и подходящие гены — по таблице видов
-// (`biolab_deep::roll_for`). Вид и поведение в lib-крейте сами узнают геном
-// по меткам на мобе.
+// Новые мобы в мире (родились, призваны, вышли из чана): бросок генома.
+//
+// Геном — данные на мобе (`biolab:genome`, M11), а не метки. Шанс и
+// подходящие гены — по таблице видов (`biolab_deep::roll_for`). Бросок
+// делается один раз за жизнь моба: отметка `biolab:mutation_checked` уходит
+// в сейв вместе с ним, и перезаход не даёт стаду у дома новый шанс.
+// Загруженных с диска этот хук не видит (их принимает `loaded.rs`).
+//
+// Призванный командой `/summon` с NBT старого формата (метки на атрибуте)
+// сначала проходит миграцию: метки — в данные. Раньше такие метки
+// возвращались, только если у них была сумма-дробь (`amount:0.0d`) и
+// операция строкой: `amount:0` из команды — целое, и моб молча оставался
+// обычным; по меткам он «был» мутантом (их показывал `data get`), а наростов
+// не получал до первого укола. Миграция узнаёт метки по имени.
+// Моб с уже записанными данными (клон чана, пациент стола, призыв с
+// `horizon:attachments` и UUID) не бросает: геном ему задали нарочно — те,
+// кто его создаёт, всё равно перепишут данные сразу после появления.
+// Прибавки к атрибутам выставит проход мутантов (`mutant_tick.rs`).
+// Внутренние поля `Game` — не хук-поинты: при обновлении Horizon проверить.
 fn biolab_deep_mobs_joined(game: &mut crate::game::Game<'_>, from: usize) {
     use crate::game::biolab_deep as d;
-    use horizon_client::mobs::finalize::{Attr, Op, add_modifier, has_modifier};
-    use horizon_world::nbt::Tag;
+    use crate::game::biolab_deep_data as data;
     if !game.native_on(d::ID) {
         return;
     }
-    for index in from..game.mobs.len() {
-        let id = game.mobs[index].id;
-
-        // 1. Загруженный мутант: что из наших модификаторов лежит в сейве.
-        let mut restored: Vec<(Attr, &'static str, f64, Op)> = Vec::new();
-        let mut saved_health: Option<f32> = None;
-        if let Some(raw) = game.persist.raw.get(&id) {
-            if let Some(Tag::Float(bits)) = raw.get("Health") {
-                saved_health = Some(f32::from_bits(*bits));
-            }
-            if let Some(Tag::List(attrs)) = raw.get("attributes") {
-                for entry in attrs {
-                    let Some(Tag::String(name)) = entry.get("id") else {
-                        continue;
-                    };
-                    let name = name.to_string_lossy();
-                    let Some(attr) = Attr::ALL
-                        .into_iter()
-                        .find(|a| format!("minecraft:{}", a.name()) == name)
-                    else {
-                        continue;
-                    };
-                    let Some(Tag::List(mods)) = entry.get("modifiers") else {
-                        continue;
-                    };
-                    for md in mods {
-                        let Some(Tag::String(mid)) = md.get("id") else {
-                            continue;
-                        };
-                        let Some(known) = d::our_modifier(&mid.to_string_lossy()) else {
-                            continue;
-                        };
-                        let Some(Tag::Double(bits)) = md.get("amount") else {
-                            continue;
-                        };
-                        let op = match md.get("operation") {
-                            Some(Tag::String(o)) => match o.to_string_lossy().as_str() {
-                                "add_value" => Op::AddValue,
-                                "add_multiplied_base" => Op::AddMultipliedBase,
-                                "add_multiplied_total" => Op::AddMultipliedTotal,
-                                _ => continue,
-                            },
-                            _ => continue,
-                        };
-                        restored.push((attr, known, f64::from_bits(*bits), op));
-                    }
-                }
-            }
-        }
-
-        let m = &mut game.mobs[index];
-        if !restored.is_empty() {
-            for (attr, known, amount, op) in restored {
-                add_modifier(m, attr, known, amount, op);
-            }
-            // Ванилла при загрузке срезала здоровье до базового максимума:
-            // возвращаем сохранённое, теперь уже под нашим максимумом.
-            if let Some(health) = saved_health {
-                m.health = health.min(m.attrs.max_health).max(m.health);
-            }
+    // Бросает только сервер: у клиента данные — копия, и бросок там ничего
+    // бы не значил.
+    if game.serving.is_none() && game.options.dedicated.is_none() {
+        return;
+    }
+    let fresh: Vec<(u32, String)> = game
+        .mobs
+        .iter()
+        .skip(from)
+        .map(|m| {
+            // Вид так, как его называют хук-поинты (`minecraft:zombie`).
+            let kind = ["minecraft:", m.kind.id.trim_start_matches("minecraft:")].concat();
+            (m.id, kind)
+        })
+        .collect();
+    for (id, kind) in fresh {
+        data::migrate(game, id);
+        if data::checked(game, id) || !data::genome(game, id).is_empty() {
             continue;
         }
-
-        // 2. Моб любого вида. Уже помеченного (клон из чана, укол вектором)
-        // не трогаем — геном ему задали нарочно. Бросок делается один раз за
-        // жизнь моба: отметка `CHECKED_MARKER` уходит в сейв, и перезаход не
-        // даёт стаду у дома новый шанс. Сырые данные моба (`persist.raw`) для
-        // этого не годятся: они есть и у призванного с NBT.
-        let m = &mut game.mobs[index];
-        if d::GENE_MARKERS
-            .iter()
-            .chain(std::iter::once(&d::CHECKED_MARKER))
-            .any(|marker| has_modifier(m, Attr::FollowRange, marker))
-        {
-            continue;
-        }
-        add_modifier(m, Attr::FollowRange, d::CHECKED_MARKER, 0.0, Op::AddValue);
-        // Вид так, как его называют хук-поинты (`minecraft:zombie`).
-        let kind = ["minecraft:", m.kind.id.trim_start_matches("minecraft:")].concat();
-        let genome = d::roll_for(&kind, m.id.wrapping_mul(2_654_435_761));
-        if genome.is_empty() {
-            continue;
-        }
-        // Метки с нулевой прибавкой: по ним геном найдут вид, поведение и
-        // сейв. Прибавки к атрибутам ставит lib по этим же меткам
-        // (`spawn.rs`), поэтому здесь их нет.
-        for (gene, strength) in genome {
-            if let Some(marker) = d::marker(gene, strength) {
-                add_modifier(m, Attr::FollowRange, marker, 0.0, Op::AddValue);
-            }
+        data::set_checked(game, id);
+        let genome = d::roll_for(&kind, id.wrapping_mul(2_654_435_761));
+        if !genome.is_empty() {
+            data::set_genome(game, id, &d::genome_text(&genome));
         }
     }
 }

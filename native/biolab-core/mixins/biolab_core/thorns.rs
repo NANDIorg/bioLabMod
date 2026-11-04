@@ -6,7 +6,6 @@ fn biolab_core_hurt_enemy(
     entity: u32,
 ) {
     use crate::game::biolab_core as m;
-    use horizon_client::mobs::finalize::{Attr, has_modifier};
     use crate::game::biolab_particles as fx;
     if !game.native_on(m::ID) {
         return;
@@ -47,14 +46,11 @@ fn biolab_core_hurt_enemy(
         let source = crate::mobs::Damage::player([player.x, player.y, player.z]);
         mob.knockback(m::player_ram_push(horns), xd, zd, &source);
     }
-    let Some(mob) = game.mobs.iter().find(|mob| mob.id == entity) else {
+    if !game.mobs.iter().any(|mob| mob.id == entity) {
         return;
-    };
-    let genes: Vec<(&'static str, i32)> = m::GENE_MARKERS
-        .iter()
-        .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-        .filter_map(|marker| m::gene_of_marker(marker))
-        .collect();
+    }
+    // Геном — данные на мобе (M11).
+    let genes = crate::game::biolab_core_data::genes(game, entity);
     if genes.is_empty() {
         return;
     }

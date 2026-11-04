@@ -3,27 +3,25 @@
 // скальпелем с живого мутанта на операционном столе (GDD 4.17, `inject.rs`).
 fn biolab_core_mob_killed(game: &mut crate::game::Game<'_>, entity: u32) {
     use crate::game::biolab_core as m;
-    use horizon_client::mobs::finalize::{Attr, has_modifier};
 
     if !game.native_on(m::ID) {
         return;
     }
-    let Some(mob) = game.mobs.iter().find(|mob| mob.id == entity) else {
+    let Some(spot) = game.mobs.iter().find(|mob| mob.id == entity).map(|mob| {
+        [
+            mob.position.x.floor() as i32,
+            mob.position.y.floor() as i32,
+            mob.position.z.floor() as i32,
+        ]
+    }) else {
         return;
     };
-    let genes: Vec<(&'static str, i32)> = m::GENE_MARKERS
-        .iter()
-        .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-        .filter_map(|marker| m::gene_of_marker(marker))
-        .collect();
+    // Геном — данные на мобе (M11). Убитый ещё в списке мобов, и данные при
+    // нём, пока игра его не убрала.
+    let genes = crate::game::biolab_core_data::genes(game, entity);
     if genes.is_empty() {
         return;
     }
-    let spot = [
-        mob.position.x.floor() as i32,
-        mob.position.y.floor() as i32,
-        mob.position.z.floor() as i32,
-    ];
     let volatile = m::behaviour_strength(&genes, "volatile") > 0;
     let necrosis = m::behaviour_strength(&genes, "necrosis") > 0;
     if !volatile && !necrosis {

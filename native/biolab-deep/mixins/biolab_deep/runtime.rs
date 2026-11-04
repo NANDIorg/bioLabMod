@@ -1,6 +1,7 @@
 // BioLab, «глубокая» часть: то, для чего стабильных хук-поинтов не хватает, —
-// мутанты (геном в NBT, прибавки к атрибутам, внешний вид). Поведение своих
-// эффектов отсюда ушло в `biolab-core` на стабильные хуки API 56.
+// мутанты (прибавки к атрибутам, поведение по генам, внешний вид). Поведение
+// своих эффектов отсюда ушло в `biolab-core` на стабильные хуки API 56, а
+// геном и операционная с M11 — свои данные на сущностях (attachments, ниже).
 //
 // Бандл цепляется к внутренним функциям игры и привязан к коммиту
 // d91cab6. После обновления Horizon цели надо перепроверять.
@@ -13,12 +14,13 @@ pub const ID: &str = "biolab_deep";
 
 // ---- Мутанты: что делает бинарник ----
 //
-// Геном выдаётся и возвращается после загрузки в бинарнике (хук
-// `native_mobs_joined`), потому что только здесь виден сырой NBT мобов
-// (`persist.raw`). Вид и поведение живут в lib-крейте и узнают геном по
-// меткам на самом мобе — модификаторам атрибута с именем гена. Общий контракт
-// двух частей — имена генов, их цена и формат метки; тест `tests/modules.rs`
-// следит, чтобы копии не разошлись.
+// Геном бросается новому мобу в бинарнике (хук `native_mobs_joined`) и
+// хранится данными на самом мобе (`biolab:genome`, ниже). Прибавки к
+// атрибутам и поведение по генам тоже считает бинарник — проход перед тиком
+// мобов (`mutant_tick.rs`), где видны и данные, и мобы. Вид рисует lib-крейт
+// по тому, что пришло на клиент (`view_sync.rs` → `biolab_bridge`). Общий
+// контракт частей — имена генов, их цена и форма данных; тест
+// `tests/modules.rs` следит, чтобы копии не разошлись.
 
 /// Гены по номерам: тот же порядок, что `mutants::GENE_NAMES`.
 pub const GENE_NAMES: [&str; 40] = [
@@ -73,9 +75,10 @@ pub const GENE_COSTS: [i32; 40] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 
 pub const MAX_GENES: usize = 3;
 pub const STABILITY: i32 = 6;
 
-/// Модификаторы с прибавками генома: по одному на атрибут. Ставит их lib
-/// (`mutants::stats`), а здесь список нужен, чтобы узнать свои модификаторы
-/// в сыром NBT загруженного моба.
+/// Модификаторы с прибавками генома: по одному на атрибут. Ставит их мост
+/// `biolab_bridge::apply_genome` по `mutants::scaled_stats`; прибавки
+/// остаются модификаторами — у них стабильного API нет. Тот же список, что
+/// `mutants::STAT_MODIFIERS`.
 pub const STAT_MODIFIERS: [&str; 5] = [
     "biolab:genome_health",
     "biolab:genome_speed",
@@ -84,8 +87,9 @@ pub const STAT_MODIFIERS: [&str; 5] = [
     "biolab:genome_knockback",
 ];
 
-/// Метки генома: модификатор дальности преследования с нулевой прибавкой,
-/// чьё имя и есть ген. Ванилла пишет его в сейв вместе с остальными.
+/// Метки генома старого формата (до M11): модификатор дальности
+/// преследования с нулевой прибавкой, чьё имя и есть ген. Новых таких меток
+/// мод не ставит; список нужен только миграции старых миров.
 pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
@@ -398,7 +402,138 @@ pub fn cost(genes: &[(usize, i32)]) -> i32 {
         .sum()
 }
 
-/// Метка гена для сейва.
+// ---- Данные на сущностях (attachments, M11) ----
+//
+// Геном мутанта, состояние операционной, отметка «бросок мутации был» и гены
+// игрока — свои данные мода на носителе (`docs/native-mods.md` пина, «Server
+// attachments»). Типы объявлены в бинарнике (`data.rs`, модуль
+// `crate::game::biolab_deep_data`): там виден `Host` игры. Здесь — чистая
+// часть контракта: ключи, поля сохранённой формы и их разбор. `biolab-core`
+// объявляет те же типы у себя (ключ — пара «пространство имён, имя», и тип
+// значения у обоих один и тот же: `String`, `u8`, `bool`), поэтому формы
+// должны совпадать до байта — это сверяет `tests/modules.rs`.
+
+/// Пространство имён наших данных.
+pub const DATA_NAMESPACE: &str = "biolab";
+/// Геном моба (`Holder::Entity`): строка `ген:сила` через запятую, гены — в
+/// порядке таблицы. Едет на клиент: по нему окно рисует наросты, оттенок и
+/// размер.
+pub const GENOME_DATA: &str = "genome";
+/// Операционная (`Holder::Entity`): маска срезанных конечностей, «на столе»,
+/// «спит». Едет на клиент: поза «лёжа» и кости.
+pub const SURGERY_DATA: &str = "surgery";
+/// «Бросок мутации уже был» (`Holder::Entity`): только сервер.
+pub const CHECKED_DATA: &str = "mutation_checked";
+/// Гены игрока (`Holder::Player`): та же строка, что у генома моба. Едет на
+/// клиент и переживает смерть игрока.
+pub const PLAYER_GENES_DATA: &str = "player_genes";
+
+/// Поле генома в сохранённой форме: `{genes: "horns:2,tail:1"}`.
+pub const GENES_FIELD: &str = "genes";
+/// Поле отметки броска: `{checked: 1b}`.
+pub const CHECKED_FIELD: &str = "checked";
+/// Поля операционной: `{flayed: 5b, table: 1b, asleep: 0b}`.
+pub const FLAYED_FIELD: &str = "flayed";
+pub const TABLE_FIELD: &str = "table";
+pub const ASLEEP_FIELD: &str = "asleep";
+
+/// Биты состояния операционной в значении `u8`: нижние четыре — срезанные
+/// конечности по номерам, потом «на столе» и «спит под снотворным».
+pub const FLAYED_BITS: u8 = 0b1111;
+pub const TABLE_BIT: u8 = 1 << 4;
+pub const ASLEEP_BIT: u8 = 1 << 5;
+
+/// Геном строкой для данных: гены в порядке таблицы, у каждого — самая
+/// сильная из названных сил, вне 1–3 и незнакомое отброшено. Одна и та же
+/// запись генома всегда даёт одну и ту же строку: так «изменилось ли» —
+/// сравнение строк, и лишней синхронизации нет.
+pub fn genome_text(genes: &[(usize, i32)]) -> String {
+    let mut best = [0i32; GENE_NAMES.len()];
+    for (gene, strength) in genes {
+        if let Some(slot) = best.get_mut(*gene)
+            && (1..=3).contains(strength)
+        {
+            *slot = (*slot).max(*strength);
+        }
+    }
+    best.iter()
+        .enumerate()
+        .filter(|(_, s)| **s > 0)
+        .map(|(gene, s)| format!("{}:{s}", GENE_NAMES[gene]))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Геном из строки данных. Незнакомый ген и битую пару пропускаем: мир от
+/// новой версии мода не должен ломать старую.
+pub fn genome_from_text(text: &str) -> Vec<(usize, i32)> {
+    let mut best = [0i32; GENE_NAMES.len()];
+    for part in text.split(',') {
+        let Some((name, strength)) = part.trim().split_once(':') else {
+            continue;
+        };
+        let (Some(gene), Ok(strength)) =
+            (GENE_NAMES.iter().position(|n| *n == name), strength.parse::<i32>())
+        else {
+            continue;
+        };
+        if (1..=3).contains(&strength) {
+            best[gene] = best[gene].max(strength);
+        }
+    }
+    best.iter()
+        .enumerate()
+        .filter(|(_, s)| **s > 0)
+        .map(|(gene, s)| (gene, *s))
+        .collect()
+}
+
+/// Геном для отрисовки и прибавок: номер гена и сила байтом.
+pub fn strengths(genes: &[(usize, i32)]) -> Vec<(usize, u8)> {
+    genes
+        .iter()
+        .map(|(gene, strength)| (*gene, (*strength).clamp(0, 3) as u8))
+        .collect()
+}
+
+/// Гены по именам — так их ждут модели игроков (`biolab_players`).
+pub fn named(genes: &[(usize, i32)]) -> Vec<(String, u8)> {
+    genes
+        .iter()
+        .filter_map(|(gene, strength)| {
+            Some(((*GENE_NAMES.get(*gene)?).to_owned(), (*strength).clamp(0, 3) as u8))
+        })
+        .collect()
+}
+
+/// Состояние операционной полями сохранённой формы.
+pub fn surgery_fields(bits: u8) -> [(&'static str, i8); 3] {
+    [
+        (FLAYED_FIELD, (bits & FLAYED_BITS) as i8),
+        (TABLE_FIELD, i8::from(bits & TABLE_BIT != 0)),
+        (ASLEEP_FIELD, i8::from(bits & ASLEEP_BIT != 0)),
+    ]
+}
+
+/// Состояние операционной из полей; `field` — байт поля, если он есть.
+/// Недостающее поле — ноль: так читается и форма, записанная до того, как
+/// поле появилось.
+pub fn surgery_from_fields(field: impl Fn(&str) -> Option<i8>) -> u8 {
+    let flag = |name: &str, bit: u8| if field(name).unwrap_or(0) != 0 { bit } else { 0 };
+    (field(FLAYED_FIELD).unwrap_or(0) as u8 & FLAYED_BITS)
+        | flag(TABLE_FIELD, TABLE_BIT)
+        | flag(ASLEEP_FIELD, ASLEEP_BIT)
+}
+
+// ---- Старые метки: только для миграции ----
+//
+// До M11 всё это хранилось метками — модификаторами `FollowRange` с нулевой
+// прибавкой. Horizon при загрузке модификаторы не читает, поэтому метки
+// старого мира лежат только в сыром NBT моба (`persist.raw`). Миграция
+// (`data.rs`) читает их оттуда один раз, кладёт в данные и вычёркивает из
+// сырого NBT, а следующий сейв пишет моба уже без них.
+
+/// Метка гена старого формата.
 pub fn marker(gene: usize, strength: i32) -> Option<&'static str> {
     if gene >= GENE_NAMES.len() || !(1..=3).contains(&strength) {
         return None;
@@ -406,7 +541,7 @@ pub fn marker(gene: usize, strength: i32) -> Option<&'static str> {
     GENE_MARKERS.get(gene * 3 + (strength - 1) as usize).copied()
 }
 
-/// Ген по метке: нужен, чтобы дополнить геном уже помеченного моба.
+/// Ген по метке старого формата.
 pub fn gene_of_marker(marker: &str) -> Option<(usize, i32)> {
     let rest = marker.strip_prefix("biolab:gene/")?;
     let (name, strength) = rest.rsplit_once('/')?;
@@ -415,47 +550,120 @@ pub fn gene_of_marker(marker: &str) -> Option<(usize, i32)> {
     (1..=3).contains(&strength).then_some((gene, strength))
 }
 
-/// Наш модификатор по имени из сейва: имена модификаторов в игре —
-/// `&'static str`, поэтому строку из NBT сопоставляем с известным списком.
-/// Мобы, которым в этой сессии уже вернули модификаторы из сейва
-/// (`restore.rs`): каждый — один раз.
-fn restored_ids() -> &'static std::sync::Mutex<std::collections::HashSet<u32>> {
-    static IDS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u32>>> =
-        std::sync::OnceLock::new();
-    IDS.get_or_init(Default::default)
-}
-
-/// Первый ли раз встречаем этого моба на тике восстановления.
-pub fn first_restore(id: u32) -> bool {
-    restored_ids().lock().map(|mut ids| ids.insert(id)).unwrap_or(false)
-}
-
-/// Отметка «бросок мутации уже был»: модификатор с нулевой прибавкой, как
-/// метки генов. Пишется в сейв вместе с мобом, поэтому загруженный моб не
-/// бросает заново, а новый — бросает, как бы он ни появился (призыв с NBT
-/// тоже оставляет сырые данные, и по ним «новый» от «загруженного» не отличить).
+/// Старая отметка «бросок мутации уже был».
 pub const CHECKED_MARKER: &str = "biolab:mutation_checked";
 
-/// Метки операционной (GDD 4.17): ставит сервер, читают отрисовка и сейв.
-/// Без них в этом списке пациент после перезахода вставал бы со стола, а
-/// срезанные конечности отрастали бы сами.
-pub const SURGERY_MARKERS: [&str; 6] = [
-    "biolab:surgery/table",
+/// Старые метки операционной: стол и срезанные конечности по номерам.
+/// `biolab:surgery/slow` сюда не входит: это настоящая прибавка к скорости,
+/// её пересчитывает тик операционной в `biolab-core`.
+pub const TABLE_MARKER: &str = "biolab:surgery/table";
+pub const FLAYED_MARKERS: [&str; 4] = [
     "biolab:surgery/flayed/0",
     "biolab:surgery/flayed/1",
     "biolab:surgery/flayed/2",
     "biolab:surgery/flayed/3",
-    "biolab:surgery/slow",
 ];
 
-pub fn our_modifier(id: &str) -> Option<&'static str> {
-    STAT_MODIFIERS
-        .iter()
-        .chain(GENE_MARKERS.iter())
-        .chain(SURGERY_MARKERS.iter())
-        .chain(std::iter::once(&CHECKED_MARKER))
-        .find(|known| **known == id)
-        .copied()
+/// Метка ли это старого формата (а не настоящая прибавка).
+pub fn is_legacy_marker(id: &str) -> bool {
+    id == CHECKED_MARKER
+        || id == TABLE_MARKER
+        || FLAYED_MARKERS.contains(&id)
+        || gene_of_marker(id).is_some()
+}
+
+/// Что нашлось в старых метках моба.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Legacy {
+    /// Гены строкой данных (`genome_text`); пусто — генов не было.
+    pub genome: String,
+    /// Биты операционной (`FLAYED_BITS`, `TABLE_BIT`).
+    pub surgery: u8,
+    pub checked: bool,
+}
+
+/// Разбор старых меток по id модификаторов моба. None — меток нет совсем.
+/// Сумма меток и операция не важны: призванный командой моб с `amount:0`
+/// (целое) или без `operation` раньше молча терял метки — теперь их узнаём
+/// по имени.
+pub fn read_legacy<'a>(ids: impl IntoIterator<Item = &'a str>) -> Option<Legacy> {
+    let mut found = false;
+    let mut genes = Vec::new();
+    let mut legacy = Legacy::default();
+    for id in ids {
+        if let Some(gene) = gene_of_marker(id) {
+            genes.push(gene);
+        } else if id == CHECKED_MARKER {
+            legacy.checked = true;
+        } else if id == TABLE_MARKER {
+            legacy.surgery |= TABLE_BIT;
+        } else if let Some(limb) = FLAYED_MARKERS.iter().position(|m| *m == id) {
+            legacy.surgery |= 1 << limb;
+        } else {
+            continue;
+        }
+        found = true;
+    }
+    legacy.genome = genome_text(&genes);
+    found.then_some(legacy)
+}
+
+// ---- Проход мутантов на сервере ----
+//
+// Прибавки к атрибутам и поведение по генам (огонь, яды, планирование,
+// регенерация) считает бинарник перед тиком мобов (`mutant_tick.rs`, хук
+// `native_entity_tick_listened`, API 146): там видны и данные, и мобы. Хук
+// спрашивается раз на семейство сущностей (мобы, предметы, вагонетки, лодки)
+// за тик уровня, поэтому проход отсекается по «уровень, тик».
+
+/// Каждые столько тиков проход перечитывает данные всех мобов: прибавки,
+/// «спит», миграция отставших. Между переборами поведение идёт по запомненным
+/// геномам — читать данные каждого моба каждый тик дорого: игра ищет носитель
+/// перебором списка мобов.
+pub const SCAN_EVERY: u64 = 10;
+
+fn passes() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+        std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Первый ли вызов прохода в тике `ticks` уровня `dimension`.
+pub fn first_pass(dimension: &str, ticks: u64) -> bool {
+    let Ok(mut at) = passes().lock() else {
+        return false;
+    };
+    at.insert(dimension.to_owned(), ticks) != Some(ticks)
+}
+
+/// Пора ли перечитать данные всех мобов.
+pub fn scan_due(ticks: u64) -> bool {
+    ticks % SCAN_EVERY == 0
+}
+
+type MutantTable = std::collections::HashMap<String, Vec<(u32, Vec<(usize, u8)>)>>;
+
+fn mutant_table() -> &'static std::sync::Mutex<MutantTable> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<MutantTable>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Запомнить мутантов уровня до следующего перебора. Это не источник
+/// правды, а выжимка из данных: она живёт `SCAN_EVERY` тиков и только на
+/// сервере, окно её не читает.
+pub fn remember_mutants(dimension: &str, list: Vec<(u32, Vec<(usize, u8)>)>) {
+    if let Ok(mut table) = mutant_table().lock() {
+        table.insert(dimension.to_owned(), list);
+    }
+}
+
+/// Мутанты уровня, запомненные последним перебором.
+pub fn mutants(dimension: &str) -> Vec<(u32, Vec<(usize, u8)>)> {
+    mutant_table()
+        .lock()
+        .ok()
+        .and_then(|t| t.get(dimension).cloned())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -463,19 +671,85 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_mob_is_restored_once() {
-        assert!(first_restore(4_000_000_001));
-        assert!(!first_restore(4_000_000_001));
-        assert!(first_restore(4_000_000_002));
+    fn genome_text_is_canonical() {
+        let horns = GENE_NAMES.iter().position(|n| *n == "horns").unwrap();
+        let chitin = GENE_NAMES.iter().position(|n| *n == "chitin").unwrap();
+        // Порядок таблицы, сильнейшая сила, мусор отброшен.
+        let text = genome_text(&[(horns, 1), (chitin, 2), (horns, 3), (99, 1), (chitin, 7)]);
+        assert_eq!(text, "chitin:2,horns:3");
+        assert_eq!(genome_from_text(&text), vec![(chitin, 2), (horns, 3)]);
+        assert_eq!(genome_text(&genome_from_text(&text)), text);
+        // Незнакомое и битое пропускается, а не роняет весь геном.
+        assert_eq!(genome_from_text("ghost:1,horns:2,tail,chitin:x,tail:9"), vec![(horns, 2)]);
+        assert!(genome_from_text("").is_empty());
+        assert_eq!(genome_text(&[]), "");
+        assert_eq!(named(&[(horns, 2)]), vec![("horns".to_owned(), 2)]);
+        assert_eq!(strengths(&[(horns, 2)]), vec![(horns, 2u8)]);
     }
 
     #[test]
-    fn the_checked_mark_survives_a_save() {
-        assert_eq!(our_modifier(CHECKED_MARKER), Some(CHECKED_MARKER));
-        for marker in SURGERY_MARKERS {
-            assert_eq!(our_modifier(marker), Some(marker), "метка операционной теряется в сейве");
+    fn surgery_fields_round_trip() {
+        for bits in 0..=(FLAYED_BITS | TABLE_BIT | ASLEEP_BIT) {
+            let fields = surgery_fields(bits);
+            let back = surgery_from_fields(|name| {
+                fields.iter().find(|(f, _)| *f == name).map(|(_, v)| *v)
+            });
+            assert_eq!(back, bits, "{bits:#b}");
         }
-        assert!(!GENE_MARKERS.contains(&CHECKED_MARKER), "отметка — не ген");
+        assert_eq!(
+            surgery_fields(ASLEEP_BIT | 0b0101),
+            [(FLAYED_FIELD, 5), (TABLE_FIELD, 0), (ASLEEP_FIELD, 1)]
+        );
+        // Формы без поля — ноль, лишние биты маски срезов не проходят.
+        assert_eq!(surgery_from_fields(|_| None), 0);
+        assert_eq!(surgery_from_fields(|f| (f == FLAYED_FIELD).then_some(-1)), FLAYED_BITS);
+    }
+
+    #[test]
+    fn old_markers_become_data() {
+        let ids = [
+            "minecraft:random_spawn_bonus",
+            "biolab:gene/horns/1",
+            "biolab:gene/chitin/2",
+            "biolab:gene/horns/3",
+            "biolab:genome_health",
+            "biolab:surgery/table",
+            "biolab:surgery/flayed/2",
+            "biolab:surgery/slow",
+            "biolab:mutation_checked",
+        ];
+        let legacy = read_legacy(ids).expect("метки есть");
+        assert_eq!(legacy.genome, "chitin:2,horns:3");
+        assert_eq!(legacy.surgery, TABLE_BIT | 0b100);
+        assert!(legacy.checked);
+        // Настоящие прибавки — не метки: их снимать нельзя.
+        assert!(!is_legacy_marker("biolab:genome_health"));
+        assert!(!is_legacy_marker("biolab:surgery/slow"));
+        assert!(!is_legacy_marker("minecraft:random_spawn_bonus"));
+        for marker in GENE_MARKERS
+            .iter()
+            .chain(&FLAYED_MARKERS)
+            .chain([&TABLE_MARKER, &CHECKED_MARKER])
+        {
+            assert!(is_legacy_marker(marker), "{marker}");
+        }
+        // Только отметка броска: моб проверен, генома нет.
+        let checked = read_legacy(["biolab:mutation_checked"]).unwrap();
+        assert_eq!(checked, Legacy { genome: String::new(), surgery: 0, checked: true });
+        assert_eq!(read_legacy(["minecraft:random_spawn_bonus", "biolab:genome_speed"]), None);
+        assert_eq!(read_legacy([]), None);
+    }
+
+    #[test]
+    fn the_pass_runs_once_a_tick_per_level() {
+        assert!(first_pass("test:a", 7));
+        assert!(!first_pass("test:a", 7), "второе семейство того же тика");
+        assert!(first_pass("test:b", 7), "другой уровень — свой проход");
+        assert!(first_pass("test:a", 8));
+        assert!(scan_due(0) && scan_due(SCAN_EVERY) && !scan_due(SCAN_EVERY + 1));
+        remember_mutants("test:a", vec![(5, vec![(1, 2)])]);
+        assert_eq!(mutants("test:a"), vec![(5, vec![(1, 2)])]);
+        assert!(mutants("test:c").is_empty());
     }
 
     const ALL_TEMPERS: [Temperament; 3] =
@@ -617,7 +891,7 @@ mod tests {
             for strength in 1..=3 {
                 let m = marker(gene, strength).expect("метка есть");
                 assert_eq!(gene_of_marker(m), Some((gene, strength)));
-                assert_eq!(our_modifier(m), Some(m));
+                assert!(is_legacy_marker(m), "{m}");
             }
         }
         assert_eq!(marker(GENE_NAMES.len(), 1), None);

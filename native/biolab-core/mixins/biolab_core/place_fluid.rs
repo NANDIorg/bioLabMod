@@ -33,11 +33,10 @@ fn biolab_core_use_item_on(
     }
 
     // Операционный стол: носилки с пациентом укладывают его на стол. Моб
-    // появляется над столом заново, как клон из чана (`machine.rs`): метки
-    // генов, срезов и стола вешаем сами, прибавки по генам выставит
-    // `biolab-deep`.
+    // появляется над столом заново, как клон из чана (`machine.rs`): геном,
+    // срезы и стол пишем в его данные (`biolab_core_data`, M11), прибавки по
+    // генам выставит `biolab-deep`.
     if &*stack.item == m::STRETCHER_ID && game.native_block(pos) == m::OPERATING_TABLE {
-        use horizon_client::mobs::finalize::{Attr, Op, add_modifier, has_modifier, remove_modifier};
         use horizon_world::nbt::Tag;
         *claimed = true;
         let text = stack.extra.as_ref().and_then(|extra| {
@@ -90,12 +89,17 @@ fn biolab_core_use_item_on(
         // Пациент ложится по центру ряда, вдоль него, головой к изголовью.
         let spot = row.center();
         let yaw = row.yaw();
-        // Один стол — один пациент: на любой секции ряда.
-        let busy = game.mobs.iter().any(|mob| {
-            mob.alive()
-                && has_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE)
-                && row.covers([mob.position.x, mob.position.y, mob.position.z])
-        });
+        // Один стол — один пациент: на любой секции ряда. Кто на столе —
+        // данные моба; читаем их у тех, кто над рядом.
+        let over: Vec<u32> = game
+            .mobs
+            .iter()
+            .filter(|mob| mob.alive() && row.covers([mob.position.x, mob.position.y, mob.position.z]))
+            .map(|mob| mob.id)
+            .collect();
+        let busy = over
+            .into_iter()
+            .any(|id| crate::game::biolab_core_data::surgery(game, id) & m::TABLE_BIT != 0);
         if busy {
             game.native_chat("Стол занят: сначала снимите пациента");
             return;
@@ -112,33 +116,13 @@ fn biolab_core_use_item_on(
             game.native_chat("Не удалось уложить: на мирной сложности враждебные не появляются");
             return;
         };
+        // Свежему мобу игра успевает бросить случайный геном (`joined.rs` в
+        // biolab-deep) — данные пациента его просто перезаписывают. Прибавок
+        // бросок не ставит (их выставит проход мутантов по итоговому
+        // геному), так что снимать нечего.
+        crate::game::biolab_core_data::set_genes(game, id, &patient.genes);
+        crate::game::biolab_core_data::set_surgery(game, id, true, patient.flayed);
         if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
-            // Свежему мобу игра успевает бросить случайный геном (`joined.rs`
-            // в biolab-deep) — снимаем его и его прибавки, как чан.
-            for old in m::GENE_MARKERS {
-                remove_modifier(mob, Attr::FollowRange, old);
-            }
-            for (attr, name) in [
-                (Attr::MaxHealth, m::STAT_MODIFIERS[0]),
-                (Attr::MovementSpeed, m::STAT_MODIFIERS[1]),
-                (Attr::AttackDamage, m::STAT_MODIFIERS[2]),
-                (Attr::Armor, m::STAT_MODIFIERS[3]),
-                (Attr::KnockbackResistance, m::STAT_MODIFIERS[4]),
-            ] {
-                remove_modifier(mob, attr, name);
-            }
-            for (name, strength) in &patient.genes {
-                if let Some(marker) = m::marker_for(name, *strength) {
-                    add_modifier(mob, Attr::FollowRange, marker, 0.0, Op::AddValue);
-                }
-            }
-            // `into_iter`: метке нужна `&'static str`, а не ссылка на неё.
-            for (i, marker) in m::SURGERY_FLAYED.into_iter().enumerate() {
-                if patient.flayed & (1 << i) != 0 {
-                    add_modifier(mob, Attr::FollowRange, marker, 0.0, Op::AddValue);
-                }
-            }
-            add_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE, 0.0, Op::AddValue);
             // Пристёгнут и спит с первого тика: иначе зомби успел бы ударить.
             mob.add_effect(m::SEDATION_EFFECT, m::TABLE_SEDATION_TICKS, 0);
             mob.ai.target = None;

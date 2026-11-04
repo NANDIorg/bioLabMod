@@ -12,10 +12,12 @@
 //
 // Обязанности поделены между двумя частями бандла, потому что модуль lib
 // бинарнику не виден:
-// * бинарник (`runtime.rs`) бросает геном, считает прибавки к атрибутам и
-//   вешает метки;
-// * эта библиотека читает метки и отвечает за вид и поведение моба.
-// Общий контракт — имена генов и формат метки; его сверяет `tests/modules.rs`.
+// * бинарник бросает геном и хранит его данными на мобе (`biolab:genome`,
+//   `data.rs`), а перед тиком мобов выставляет прибавки и поведение через
+//   мост `biolab_bridge` (`mutant_tick.rs`);
+// * эта библиотека знает, что гены значат (прибавки, оттенок, размер,
+//   поведение), и держит геномы, пришедшие в окно, для отрисовки.
+// Общий контракт — имена генов и форма данных; его сверяет `tests/modules.rs`.
 //
 // Этот файл подключается как модуль `crate::biolab_mutants` крейта
 // horizon-client (там живёт `mobs`).
@@ -393,52 +395,65 @@ pub fn glide_fall(vertical: f64, strength: i32) -> f64 {
 // ---- Седация ----
 //
 // Сам эффект (потеря цели) — в `biolab-core` на стабильных хуках API 56.
-// Здесь он нужен только тику моба (`mob_tick.rs`): усыплённому гасится
-// скорость модификатором, а у прибавок к атрибутам стабильного API нет.
-// Мутаген тоже переехал в `biolab-core` (нагрузка, выбор гена, метка).
+// Здесь он нужен тику моба (`mob_tick.rs`): усыплённому гасится скорость
+// модификатором, а у прибавок к атрибутам стабильного API нет. Ещё по нему
+// сервер ставит бит «спит» в данных операционной — окно кладёт уснувшего.
+// Мутаген тоже переехал в `biolab-core` (нагрузка, выбор гена, данные).
 
 /// Седативное: тот же id, что `SEDATION_EFFECT` в `biolab-core`
 /// (сверяет `tests/modules.rs`).
 pub const SEDATION: &str = "biolab:sedation";
 
-/// Геномы живых мобов по их id. Клиент и сервер одиночной игры — один
-/// процесс, поэтому отрисовке виден геном, записанный при спавне.
-fn table() -> &'static Mutex<HashMap<u32, Option<Genome>>> {
-    static TABLE: OnceLock<Mutex<HashMap<u32, Option<Genome>>>> = OnceLock::new();
+/// Геномы мобов, которых рисует окно, по их id — копия того, что пришло с
+/// сервера данными `biolab:genome` (attachment с `sync`).
+///
+/// Почему копия, а не чтение данных прямо в отрисовке: синхронизированное
+/// значение окно держит в своём `Game` (`Host::attachments` → копия
+/// `remote.attachments`), а моб рисуется в lib-крейте (`mobs::render`), куда
+/// доходит только `&Mob` — ни `Game`, ни `Host` там нет. Поэтому раз в тик
+/// окна бинарник переписывает сюда всё, что пришло (`view_sync.rs` →
+/// `biolab_bridge::show`), а отрисовка читает отсюда. Источник — только
+/// данные клиента: сервер сюда больше не пишет, и так это работает и в
+/// сетевой игре, где сервер — другой процесс.
+fn table() -> &'static Mutex<HashMap<u32, Genome>> {
+    static TABLE: OnceLock<Mutex<HashMap<u32, Genome>>> = OnceLock::new();
     TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Геном из пар «номер гена, сила»; незнакомое и вне 1–3 пропускается.
+pub fn genome_of(genes: &[(usize, u8)]) -> Genome {
+    let mut genome = Genome::default();
+    for (index, strength) in genes {
+        genome.add(Gene { index: *index, strength: i32::from(*strength) });
+    }
+    genome
 }
 
 pub fn remember(id: u32, genome: Genome) {
     if let Ok(mut t) = table().lock() {
-        t.insert(id, Some(genome));
+        t.insert(id, genome);
     }
 }
 
-/// Запомнить, что у моба генома нет: второй раз метки не ищем.
-pub fn remember_plain(id: u32) {
+/// Заменить всю таблицу окна тем, что пришло с сервера: моб, у которого
+/// генома больше нет (или который ушёл), пропадает сам.
+pub fn replace_all(list: Vec<(u32, Vec<(usize, u8)>)>) {
+    let fresh: HashMap<u32, Genome> = list
+        .into_iter()
+        .map(|(id, genes)| (id, genome_of(&genes)))
+        .filter(|(_, genome)| !genome.is_empty())
+        .collect();
     if let Ok(mut t) = table().lock() {
-        t.entry(id).or_insert(None);
+        *t = fresh;
     }
-}
-
-/// Проверялся ли уже этот моб.
-pub fn is_known(id: u32) -> bool {
-    table().lock().is_ok_and(|t| t.contains_key(&id))
 }
 
 pub fn genome(id: u32) -> Option<Genome> {
-    table().lock().ok()?.get(&id).copied().flatten()
+    table().lock().ok()?.get(&id).copied()
 }
 
-/// Забыть моба: его геном перечитается по меткам (после сплайсинга).
-pub fn forget(id: u32) {
-    if let Ok(mut t) = table().lock() {
-        t.remove(&id);
-    }
-}
-
-/// Метки генома: имя модификатора, по которому ген узнаётся на мобе.
-/// Тот же список, что в `runtime.rs` бинарника.
+/// Метки генома старого формата (до M11): имя модификатора с геном. Мод их
+/// больше не ставит; список держим, чтобы сверять его с миграцией бинарника.
 pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
@@ -797,16 +812,20 @@ mod tests {
     }
 
     #[test]
-    fn the_table_keeps_what_it_was_told() {
+    fn the_table_is_what_arrived() {
         let mut g = Genome::default();
         g.add(gene("bioluminescence", 3));
         remember(4242, g);
         assert_eq!(genome(4242), Some(g));
-        assert!(is_known(4242));
-        remember_plain(4243);
-        assert!(is_known(4243));
+        let horns = gene_index("horns").unwrap();
+        // Пришёл новый снимок: прежнее уходит, пустой геном не хранится.
+        replace_all(vec![(4243, vec![(horns, 2), (99, 1)]), (4244, vec![])]);
+        assert_eq!(genome(4242), None);
+        assert_eq!(genome(4243).map(|g| g.strength_of("horns")), Some(2));
+        assert_eq!(genome(4243).map(|g| g.count()), Some(1));
+        assert_eq!(genome(4244), None);
+        assert!(genome_of(&[(horns, 0), (horns, 4)]).is_empty());
+        replace_all(Vec::new());
         assert_eq!(genome(4243), None);
-        forget(4242);
-        assert!(!is_known(4242));
     }
 }

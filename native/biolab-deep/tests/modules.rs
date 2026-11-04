@@ -17,33 +17,160 @@ mod growths;
 #[path = "../mixins/biolab_deep/players.rs"]
 mod players;
 
-/// Гены игрока идут с сервера пакетом: собирает его `biolab-core`
-/// (`genes_packet`), разбирает и раскладывает по моделям `biolab_players`.
-/// Проверяем настоящим кодом обеих сторон (GDD 4.19, этап «игрок»).
+/// Данные на сущностях (M11): `biolab-core` и `biolab-deep` объявляют одни и
+/// те же типы у себя (`biolab_core_data`, `biolab_deep_data`). Ключ — пара
+/// «пространство имён, имя», и значение, записанное одним бандлом, второй
+/// читает как своё. Поэтому ключи, поля и биты обязаны совпадать до байта.
 #[test]
-fn the_genes_packet_from_core_reaches_the_player_models() {
-    use biolab_core::{PlayerState, Splice, genes_packet, splice_player};
-    assert_eq!(biolab_core::NET_GENES, players::CHANNEL);
-    assert_eq!(biolab_core::GENES_PACKET_VERSION, players::VERSION);
+fn core_and_deep_name_the_same_data() {
+    use biolab_core as c;
+    use biolab_deep as d;
+    assert_eq!(c::DATA_NAMESPACE, d::DATA_NAMESPACE);
+    assert_eq!(c::GENOME_DATA, d::GENOME_DATA);
+    assert_eq!(c::SURGERY_DATA, d::SURGERY_DATA);
+    assert_eq!(c::CHECKED_DATA, d::CHECKED_DATA);
+    assert_eq!(c::PLAYER_GENES_DATA, d::PLAYER_GENES_DATA);
+    assert_eq!(c::GENES_FIELD, d::GENES_FIELD);
+    assert_eq!(c::CHECKED_FIELD, d::CHECKED_FIELD);
+    assert_eq!(
+        [c::FLAYED_FIELD, c::TABLE_FIELD, c::ASLEEP_FIELD],
+        [d::FLAYED_FIELD, d::TABLE_FIELD, d::ASLEEP_FIELD]
+    );
+    assert_eq!([c::FLAYED_BITS, c::TABLE_BIT, c::ASLEEP_BIT], [d::FLAYED_BITS, d::TABLE_BIT, d::ASLEEP_BIT]);
+    // И отрисовка читает те же биты.
+    assert_eq!(
+        [surgery::FLAYED_BITS, surgery::TABLE_BIT, surgery::ASLEEP_BIT],
+        [d::FLAYED_BITS, d::TABLE_BIT, d::ASLEEP_BIT]
+    );
+    // Маска срезов операционной core ложится в нижние биты как есть.
+    assert_eq!(c::FLAYED_BITS, (1u8 << c::SURGERY_FLAYED.len()) - 1);
+    assert_eq!(c::STAT_MODIFIERS, d::STAT_MODIFIERS);
+    assert_eq!(d::STAT_MODIFIERS, mutants::STAT_MODIFIERS);
+}
+
+/// Форма данных одна: строку генома, записанную core (укол, чан, носилки,
+/// мутаген), deep читает теми же генами той же силы, и наоборот (бросок
+/// при рождении). Поля операционной — те же байты.
+#[test]
+fn core_and_deep_codecs_agree() {
+    // Все гены таблицы, разные силы, вперемешку и с повтором — обе стороны
+    // приводят строку к одному виду.
+    let core_genes: Vec<(&'static str, i32)> = biolab_core::GENES
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(i, g)| (g.name, 1 + (i % 3) as i32))
+        .chain([("horns", 1)])
+        .collect();
+    let from_core = biolab_core::genome_data(&core_genes);
+    let deep_genes = biolab_deep::genome_from_text(&from_core);
+    assert_eq!(deep_genes.len(), biolab_core::GENES.len());
+    assert_eq!(biolab_deep::genome_text(&deep_genes), from_core, "deep пишет ту же строку");
+    for (i, strength) in &deep_genes {
+        let name = biolab_deep::GENE_NAMES[*i];
+        let core_strength = biolab_core::genes_of_data(&from_core)
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, s)| *s);
+        assert_eq!(core_strength, Some(*strength), "{name}");
+    }
+    // Бросок deep → строка → core видит тот же геном.
+    for draw in 0..3000u32 {
+        let rolled = biolab_deep::roll_for("minecraft:zombie", draw.wrapping_mul(2_654_435_761));
+        let text = biolab_deep::genome_text(&rolled);
+        let seen: Vec<(String, i32)> = biolab_core::genes_of_data(&text)
+            .into_iter()
+            .map(|(n, s)| (n.to_owned(), s))
+            .collect();
+        let mut expected: Vec<(String, i32)> = rolled
+            .iter()
+            .map(|(i, s)| (biolab_deep::GENE_NAMES[*i].to_owned(), *s))
+            .collect();
+        expected.sort_by_key(|(n, _)| biolab_deep::GENE_NAMES.iter().position(|x| *x == n.as_str()));
+        assert_eq!(seen, expected, "бросок {draw}");
+        assert_eq!(biolab_core::genome_data(&biolab_core::genes_of_data(&text)), text);
+    }
+    for bits in 0..=(biolab_deep::FLAYED_BITS | biolab_deep::TABLE_BIT | biolab_deep::ASLEEP_BIT) {
+        assert_eq!(biolab_core::surgery_fields(bits), biolab_deep::surgery_fields(bits));
+        let fields = biolab_core::surgery_fields(bits);
+        let get = |name: &str| fields.iter().find(|(f, _)| *f == name).map(|(_, v)| *v);
+        assert_eq!(biolab_deep::surgery_from_fields(get), bits);
+        assert_eq!(biolab_core::surgery_from_fields(get), bits);
+        // Отрисовка понимает то, что записал core (стол, срезы), и «спит» от deep.
+        let s = surgery::Surgery::from_bits(bits);
+        assert_eq!(s.on_table, bits & biolab_core::TABLE_BIT != 0);
+        assert_eq!(s.asleep, bits & biolab_deep::ASLEEP_BIT != 0);
+        for limb in 0..4 {
+            assert_eq!(s.flayed[limb], bits & (1 << limb) != 0);
+        }
+    }
+    // Запись стола или среза в core не сбрасывает «спит», поставленный deep.
+    let asleep = biolab_deep::ASLEEP_BIT;
+    assert_eq!(biolab_core::surgery_bits(true, 0b11, asleep) & asleep, asleep);
+}
+
+/// Миграция старого мира: метки, которые писали прошлые версии core (укол,
+/// чан, стол, срез) и deep (бросок, отметка), deep переносит в данные, и core
+/// читает из них тот же геном и то же состояние стола.
+#[test]
+fn old_markers_migrate_into_the_same_data() {
+    let mut ids: Vec<&str> = Vec::new();
+    for (name, strength) in [("chitin", 2), ("horns", 3), ("membranes", 1)] {
+        ids.push(biolab_core::marker_for(name, strength).expect(name));
+    }
+    ids.push(biolab_core::SURGERY_TABLE);
+    ids.push(biolab_core::SURGERY_FLAYED[1]);
+    ids.push(biolab_core::SURGERY_FLAYED[3]);
+    ids.push(biolab_core::SURGERY_SLOW);
+    ids.push(biolab_deep::CHECKED_MARKER);
+    ids.push(biolab_core::STAT_MODIFIERS[0]);
+    let legacy = biolab_deep::read_legacy(ids.iter().copied()).expect("метки нашлись");
+    assert_eq!(biolab_core::genes_of_data(&legacy.genome), vec![("chitin", 2), ("horns", 3), ("membranes", 1)]);
+    assert_eq!(legacy.surgery, biolab_core::TABLE_BIT | 0b1010);
+    assert!(legacy.checked);
+    // Снимаются только метки; прибавки (скорость за срезы, здоровье генома)
+    // остаются модификаторами.
+    let kept: Vec<&str> = ids.iter().copied().filter(|id| !biolab_deep::is_legacy_marker(id)).collect();
+    assert_eq!(kept, vec![biolab_core::SURGERY_SLOW, biolab_core::STAT_MODIFIERS[0]]);
+    // Старые списки меток двух бандлов совпадают: миграция deep узнаёт всё,
+    // что когда-то ставил core.
+    assert_eq!(biolab_core::GENE_MARKERS, biolab_deep::GENE_MARKERS);
+    assert_eq!(biolab_core::SURGERY_FLAYED, biolab_deep::FLAYED_MARKERS);
+    assert_eq!(biolab_core::SURGERY_TABLE, biolab_deep::TABLE_MARKER);
+    for marker in biolab_core::GENE_MARKERS {
+        let (name, strength) = biolab_core::gene_of_marker(marker).unwrap();
+        let legacy = biolab_deep::read_legacy([marker]).unwrap();
+        assert_eq!(biolab_core::genes_of_data(&legacy.genome), vec![(name, strength)], "{marker}");
+    }
+}
+
+/// Гены игрока — данные `biolab:player_genes`: строку собирает core из
+/// состояния игрока, окно (`view_sync.rs`) разбирает её по именам и
+/// раскладывает по моделям (`biolab_players`). Проверяем настоящим кодом обеих
+/// сторон (GDD 4.19, этап «игрок»).
+#[test]
+fn player_genes_from_core_reach_the_player_models() {
+    use biolab_core::{PlayerState, Splice, splice_player};
     let mut me = PlayerState::default();
     assert_eq!(splice_player(&mut me, "tentacles", 2), Splice::Done);
     assert_eq!(splice_player(&mut me, "polymelia", 3), Splice::Done);
     let mut other = PlayerState::default();
     assert_eq!(splice_player(&mut other, "horns", 1), Splice::Done);
-    let data = genes_packet(&[(7, me), (8, other), (9, PlayerState::default())]);
+    let mine = biolab_core::genome_data(&biolab_core::player_genes(&me));
+    let theirs = biolab_core::genome_data(&biolab_core::player_genes(&other));
+    let none = biolab_core::genome_data(&biolab_core::player_genes(&PlayerState::default()));
 
-    let list = players::decode(&data).expect("пакет core разбирается");
-    assert_eq!(list.iter().map(|(u, _)| *u).collect::<Vec<_>>(), vec![7, 8, 9]);
-    // Сущности окна: у игрока 8 две (пересоздана), 9 без генов, 55 нет в пакете.
-    let entities = [(100, 8), (101, 8), (102, 9), (103, 55)];
-    let (own, others) = players::assign(list, &entities);
-    let own = own.expect("свои гены — первая запись");
+    // Так их раскладывает окно: свои — модели 0, чужие — по id сущности.
+    let named = |text: &str| biolab_deep::named(&biolab_deep::genome_from_text(text));
+    players::replace_all(named(&mine), vec![(100, named(&theirs)), (101, named(&theirs)), (102, named(&none))]);
+    let own = players::own().expect("свои гены");
     assert_eq!(own.strength_of("tentacles"), 2);
     assert_eq!(own.strength_of("polymelia"), 3);
     assert_eq!(own.strength_of("horns"), 0);
-    assert_eq!(others[&100].strength_of("horns"), 1);
-    assert_eq!(others[&101], others[&100]);
-    assert!(!others.contains_key(&102) && !others.contains_key(&103));
+    assert_eq!(players::of_model(players::OWN_MODEL).map(|g| g.strength_of("tentacles")), Some(2));
+    assert_eq!(players::of_model(100).map(|g| g.strength_of("horns")), Some(1));
+    assert_eq!(players::of_model(101), players::of_model(100));
+    assert!(players::of_model(102).is_none(), "без генов модель рисуется как есть");
 
     // Все черты наростов — гены, которые core знает по имени: иначе игроку
     // они не придут никогда.
@@ -53,18 +180,8 @@ fn the_genes_packet_from_core_reaches_the_player_models() {
     // Рука в кадре ищет в атласе ту же текстуру наростов, что и модель.
     assert_eq!(players::SPRITE, growths::SPRITE);
 
-    // Память окна: своя модель — id 0, чужие — по id сущности.
-    assert!(players::receive(&data, &entities));
-    assert_eq!(players::of_model(players::OWN_MODEL).map(|g| g.strength_of("tentacles")), Some(2));
-    assert_eq!(players::of_model(100).map(|g| g.strength_of("horns")), Some(1));
-    assert!(players::of_model(102).is_none());
-    assert_eq!(players::own().map(|g| g.strength_of("polymelia")), Some(3));
-    // Чужая версия или обрезанный пакет не трогают то, что уже известно.
-    assert!(!players::receive(&[players::VERSION + 1], &entities));
-    assert!(!players::receive(&data[..data.len() - 1], &entities));
-    assert!(players::own().is_some());
-    // Генов не стало — наросты снимаются: пакет приходит и пустым.
-    assert!(players::receive(&genes_packet(&[(7, PlayerState::default())]), &entities));
+    // Генов не стало — данные пустые, наросты снимаются.
+    players::replace_all(named(&none), Vec::new());
     assert!(players::own().is_none());
     assert!(players::of_model(players::OWN_MODEL).is_none());
     assert!(players::of_model(100).is_none());
@@ -95,12 +212,13 @@ fn growth_traits_name_real_genes() {
 }
 
 /// Поведение своих эффектов переехало в `biolab-core` (хуки API 56). Здесь
-/// остались модификатор скорости усыплённого (`mob_tick.rs`) и чтение генов
-/// по меткам (`spawn.rs`) — они должны понимать то, что пишет core:
+/// остались модификатор скорости усыплённого (`mob_tick.rs`) и бит «спит»
+/// (проход мутантов), а геном с M11 — данные; они должны понимать то, что
+/// пишет core:
 /// * id седации — тот же, что выдают шприц, дротик и стол;
-/// * ген, который мутаген core вписал по номеру в своей таблице и метке из
-///   `GENE_MARKERS`, lib читает как тот же ген той же силы и тем самым
-///   меняет геном.
+/// * ген, который мутаген core (`effect_actions.rs`) выбрал по номеру в своей
+///   таблице и вписал в строку данных, deep читает как тот же ген той же силы,
+///   и геном отрисовки от этого меняется.
 #[test]
 fn core_effects_speak_the_deep_genome() {
     assert_eq!(mutants::SEDATION, biolab_core::SEDATION_EFFECT);
@@ -108,36 +226,36 @@ fn core_effects_speak_the_deep_genome() {
     assert_eq!(biolab_core::GENES.len(), mutants::GENE_NAMES.len());
     for (i, gene) in biolab_core::GENES.iter().enumerate() {
         assert_eq!(gene.name, mutants::GENE_NAMES[i], "ген {i}");
+        assert_eq!(gene.cost, mutants::gene_cost(i), "{}", gene.name);
     }
     assert_eq!(biolab_core::GENE_MARKERS, mutants::GENE_MARKERS);
 
-    // Мутаген: геном lib → силы по меткам, как их собирает `effect_actions.rs`
-    // в core → выбор гена → метка → геном lib снова. Он обязан измениться.
-    let mut genome = mutants::Genome::default();
-    genome.add(mutants::Gene { index: mutants::gene_index("regeneration").unwrap(), strength: 2 });
-    genome.add(mutants::Gene { index: mutants::gene_index("acid_glands").unwrap(), strength: 3 });
+    // Мутаген: строка данных → силы по порядку `GENES`, как их собирает
+    // `effect_actions.rs` → выбор гена → строка данных → геном отрисовки.
+    // Он обязан измениться.
+    let start = biolab_core::genome_data(&[("regeneration", 2), ("acid_glands", 3)]);
+    let to_lib = |text: &str| mutants::genome_of(&biolab_deep::strengths(&biolab_deep::genome_from_text(text)));
+    let before = to_lib(&start);
     for seed in 0..2000u64 {
+        let have = biolab_core::genes_of_data(&start);
         let mut strengths = vec![0u8; biolab_core::GENES.len()];
-        for (i, marker) in biolab_core::GENE_MARKERS.iter().enumerate() {
-            let has = mutants::decode_marker(marker)
-                .is_some_and(|g| i32::from(genome.strength(g.index)) >= g.strength);
-            if has {
-                strengths[i / 3] = strengths[i / 3].max((i % 3 + 1) as u8);
-            }
+        for (name, strength) in &have {
+            let i = biolab_core::GENES.iter().position(|g| g.name == *name).unwrap();
+            strengths[i] = *strength as u8;
         }
         let (index, strength) = core_effects::mutation(&strengths, seed).expect("мутировать есть чему");
-        let marker = biolab_core::GENE_MARKERS[index * 3 + (strength - 1) as usize];
-        let gene = mutants::decode_marker(marker).expect(marker);
-        assert_eq!((gene.index, gene.strength), (index, strength));
-        let mut next = genome;
-        assert!(next.add(gene));
-        assert_ne!(next, genome, "мутация ничего не изменила: {gene:?}");
+        let mut genes = have;
+        genes.push((biolab_core::GENES[index].name, strength));
+        let after = to_lib(&biolab_core::genome_data(&genes));
+        assert_eq!(i32::from(after.strength(index)), strength.max(i32::from(before.strength(index))));
+        assert_ne!(after, before, "мутация ничего не изменила: ген {index}, сила {strength}");
     }
 }
 
-/// Геном выдаёт бинарник (`runtime.rs`), а читает по меткам lib
-/// (`mutants.rs`): имена генов, их цена и метки в обеих копиях должны
-/// совпадать, иначе мутант, записанный в сейв, перестанет узнаваться.
+/// Геном выдаёт и хранит бинарник (`runtime.rs`, данные), а что гены значат,
+/// знает lib (`mutants.rs`): имена генов, их цена и старые метки (для
+/// миграции) в обеих копиях должны совпадать, иначе мутант, записанный в
+/// сейв, перестанет узнаваться.
 #[test]
 fn binary_and_lib_genes_agree() {
     assert_eq!(biolab_deep::GENE_NAMES.len(), mutants::GENE_NAMES.len());
@@ -178,21 +296,24 @@ fn every_rolled_genome_fits_the_lib() {
     }
 }
 
-/// Лабораторный геном больше природного: метки, которые поставил укол или
-/// чан, lib читает все до одной, сколько бы их ни было (GDD 4.19).
+/// Лабораторный геном больше природного: гены, которые вписали укол или чан,
+/// доходят до отрисовки все до одного, сколько бы их ни было (GDD 4.19) —
+/// и из данных, и из старых меток при миграции.
 #[test]
 fn a_lab_genome_beyond_the_natural_limit_is_read_whole() {
-    let mut genome = mutants::Genome::default();
+    let mut lab = Vec::new();
     let mut markers = Vec::new();
     for gene in 0..biolab_deep::GENE_NAMES.len() {
         let strength = 1 + (gene % 3) as i32;
+        lab.push((biolab_deep::GENE_NAMES[gene], strength));
         markers.push(biolab_deep::marker(gene, strength).expect("метка есть"));
     }
-    // Так геном собирает `spawn.rs`: по меткам на мобе.
-    for marker in &markers {
-        let gene = mutants::decode_marker(marker).expect(marker);
-        assert!(genome.add(gene), "{marker}");
-    }
+    // Так геном доходит до окна: строка данных core → разбор deep → lib.
+    let text = biolab_core::genome_data(&lab);
+    let genome = mutants::genome_of(&biolab_deep::strengths(&biolab_deep::genome_from_text(&text)));
+    // Старый мир: метки → миграция → та же строка.
+    let migrated = biolab_deep::read_legacy(markers.iter().copied()).expect("метки есть");
+    assert_eq!(migrated.genome, text);
     assert_eq!(genome.count(), biolab_deep::GENE_NAMES.len());
     assert!(biolab_deep::cost(&genome.list().map(|g| (g.index, g.strength)).collect::<Vec<_>>()) > biolab_deep::STABILITY);
     for (gene, name) in biolab_deep::GENE_NAMES.iter().enumerate() {

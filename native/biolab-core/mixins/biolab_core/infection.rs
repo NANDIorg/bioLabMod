@@ -104,24 +104,32 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
-    // Кислотные железы мутанта жгут всех, кто подошёл близко.
+    // Кислотные железы мутанта жгут всех, кто подошёл близко. Геном — данные
+    // на мобе (`biolab_core_data`): внутри обхода мобов их не прочитать,
+    // поэтому сначала берём тех, кто достаточно близко для самой сильной
+    // ауры, а гены спрашиваем уже у них.
     if state.ticks % m::FLUID_EVERY == 0
         && let Some(player) = game.native_player()
     {
-        use horizon_client::mobs::finalize::{Attr, has_modifier};
-        let burned = game.mobs.iter().any(|mob| {
-            if !mob.alive() {
-                return false;
-            }
-            m::GENE_MARKERS.iter().any(|marker| {
-                let Some(radius) = m::aura_radius(marker) else {
-                    return false;
-                };
-                has_modifier(mob, Attr::FollowRange, marker)
-                    && (mob.position.x - player.x).abs() < radius
-                    && (mob.position.y - player.y).abs() < radius
-                    && (mob.position.z - player.z).abs() < radius
+        let reach = m::acid_radius(&[("acid_glands", 3)]).unwrap_or(0.0);
+        let near: Vec<(u32, [f64; 3])> = game
+            .mobs
+            .iter()
+            .filter(|mob| {
+                mob.alive()
+                    && (mob.position.x - player.x).abs() < reach
+                    && (mob.position.y - player.y).abs() < reach
+                    && (mob.position.z - player.z).abs() < reach
             })
+            .map(|mob| (mob.id, [mob.position.x, mob.position.y, mob.position.z]))
+            .collect();
+        let burned = near.into_iter().any(|(id, at)| {
+            let Some(radius) = m::acid_radius(&crate::game::biolab_core_data::genes(game, id)) else {
+                return false;
+            };
+            (at[0] - player.x).abs() < radius
+                && (at[1] - player.y).abs() < radius
+                && (at[2] - player.z).abs() < radius
         });
         if burned {
             game.add_player_effect(EffectInstance::new(m::FLUIDS[0].effect, 60, 0));
@@ -260,14 +268,10 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             m::NET_INFECTION,
             &m::pharma_packet(&after, journal),
         );
-        // Гены — клиенту, для наростов на модели игрока (GDD 4.19): свои
-        // первыми, за ними гены других игроков мира — их модели тоже видно.
-        // Принимает `biolab-deep`; без него пакет просто никто не слушает.
-        let _ = game.native_net_send_to_player(
-            uuid,
-            m::NET_GENES,
-            &m::genes_packet(&m::genes_view(&world, uuid, &after)),
-        );
+        // Гены — в данные игрока (`biolab:player_genes`, M11), для наростов
+        // на его модели (GDD 4.19). Данные с `sync` сами уходят ему и всем,
+        // кто его видит; рисует `biolab-deep`. Своего пакета больше нет.
+        crate::game::biolab_core_data::set_player_genes(game, uuid, &m::player_genes(&after));
 
         // Карта исследований: что игрок держит и что записано в журнале
         // зажигает узлы. Новое — в чат, вся маска — клиенту для экрана.

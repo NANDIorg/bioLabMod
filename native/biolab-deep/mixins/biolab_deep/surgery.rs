@@ -1,10 +1,9 @@
 // Операционная (GDD 4.17): как выглядит моб на столе и срезанные конечности.
 //
-// Логику (погрузка, стол, срез) ведёт `biolab_core`; он вешает на моба метки —
-// модификаторы дальности преследования с нулевой прибавкой, как метки генов.
-// Отрисовка узнаёт всё по меткам на самом мобе: в одиночной игре сервер и
-// отрисовка работают с одним и тем же списком мобов (`Game::mobs`), так что
-// поставленная сервером метка видна здесь в тот же кадр, без общей памяти.
+// Логику (погрузка, стол, срез) ведёт `biolab_core`; состояние хранится
+// данными на мобе `biolab:surgery` (attachment с `sync`, биты — `TABLE_BIT`,
+// `ASLEEP_BIT`, `FLAYED_BITS` в `runtime.rs` бинарника). Окно получает их с
+// сервера, и бинарник раз в тик переписывает сюда (`biolab_bridge::show`).
 //
 // Что здесь сделано:
 // * моб с меткой стола лежит: модель поворачивается на 90° (`lying`) так,
@@ -25,16 +24,13 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-/// Метка «моб лежит на операционном столе».
-pub const TABLE_MARKER: &str = "biolab:surgery/table";
-
-/// Метки срезанных конечностей: номер в имени — номер конечности.
-pub const FLAYED_MARKERS: [&str; 4] = [
-    "biolab:surgery/flayed/0",
-    "biolab:surgery/flayed/1",
-    "biolab:surgery/flayed/2",
-    "biolab:surgery/flayed/3",
-];
+/// Биты данных операционной (`biolab:surgery`): нижние четыре — срезанные
+/// конечности по номерам, потом «на столе» и «спит». Те же, что
+/// `FLAYED_BITS`, `TABLE_BIT`, `ASLEEP_BIT` бинарника (сверяет
+/// `tests/modules.rs`).
+pub const FLAYED_BITS: u8 = 0b1111;
+pub const TABLE_BIT: u8 = 1 << 4;
+pub const ASLEEP_BIT: u8 = 1 << 5;
 
 /// Конечности гуманоида по номерам (GDD 4.17).
 pub const HUMANOID_LIMBS: [&str; 4] = ["right_arm", "left_arm", "right_leg", "left_leg"];
@@ -271,11 +267,12 @@ pub fn set_bone_pass(on: bool) {
 
 // ---- Связь с игрой ----
 
-// Метки ставит сервер на своей копии моба, а модификатор `FollowRange`
-// клиенту не приходит: у моба, которого рисует окно, меток нет (проверено в
-// игре — корова на столе стояла). Поэтому, как геном (`biolab_mutants`),
-// состояние операционной сервер записывает в общую память процесса по id
-// моба на каждом его тике (`spawn.rs`), а отрисовка читает отсюда.
+// Состояние ставит сервер данными `biolab:surgery` на мобе; с `sync` они сами
+// приходят в окно (в одиночной игре тоже: окно подключено к своему серверу
+// как игрок). Отрисовка видит только `&Mob`, без `Game` и его данных, поэтому
+// раз в тик окна бинарник переписывает пришедшее сюда целиком
+// (`view_sync.rs` → `biolab_bridge::show` → `replace_all`), а отрисовка
+// читает отсюда. Сервер сюда больше не пишет.
 
 /// Состояние операционной моба: лежит ли на столе, спит ли под снотворным и
 /// какие конечности срезаны.
@@ -297,6 +294,15 @@ impl Surgery {
     pub fn lying(&self) -> bool {
         self.on_table || self.asleep
     }
+
+    /// Состояние из битов данных `biolab:surgery`.
+    pub fn from_bits(bits: u8) -> Self {
+        Self {
+            on_table: bits & TABLE_BIT != 0,
+            asleep: bits & ASLEEP_BIT != 0,
+            flayed: [0, 1, 2, 3].map(|i| bits & FLAYED_BITS & (1 << i) != 0),
+        }
+    }
 }
 
 fn states() -> &'static std::sync::Mutex<std::collections::HashMap<u32, Surgery>> {
@@ -316,23 +322,21 @@ pub fn remember(id: u32, state: Surgery) {
     }
 }
 
-pub fn state_of(id: u32) -> Surgery {
-    states().lock().ok().and_then(|t| t.get(&id).copied()).unwrap_or_default()
+/// Заменить все состояния окна тем, что пришло с сервера: снятое со стола
+/// и ушедшее пропадает само.
+pub fn replace_all(list: Vec<(u32, u8)>) {
+    let fresh: std::collections::HashMap<u32, Surgery> = list
+        .into_iter()
+        .map(|(id, bits)| (id, Surgery::from_bits(bits)))
+        .filter(|(_, state)| !state.is_plain())
+        .collect();
+    if let Ok(mut t) = states().lock() {
+        *t = fresh;
+    }
 }
 
-/// Состояние по меткам на самом мобе — так его читает сервер.
-#[cfg(not(test))]
-pub fn read_markers(m: &crate::mobs::Mob) -> Surgery {
-    use crate::mobs::finalize::{Attr, has_modifier};
-    Surgery {
-        on_table: has_modifier(m, Attr::FollowRange, TABLE_MARKER),
-        asleep: m
-            .extra
-            .effects
-            .iter()
-            .any(|(id, ticks, _)| &**id == "biolab:sedation" && *ticks != 0),
-        flayed: FLAYED_MARKERS.map(|marker| has_modifier(m, Attr::FollowRange, marker)),
-    }
+pub fn state_of(id: u32) -> Surgery {
+    states().lock().ok().and_then(|t| t.get(&id).copied()).unwrap_or_default()
 }
 
 /// Лежит ли моб на операционном столе. Модель игрока — не моб: у своей id 0,
@@ -580,11 +584,14 @@ mod tests {
     }
 
     #[test]
-    fn markers_follow_the_contract() {
-        for (i, marker) in FLAYED_MARKERS.iter().enumerate() {
-            assert_eq!(*marker, format!("biolab:surgery/flayed/{i}"));
-        }
-        assert_eq!(TABLE_MARKER, "biolab:surgery/table");
+    fn bits_follow_the_contract() {
+        assert_eq!(FLAYED_BITS & TABLE_BIT, 0);
+        assert_eq!(FLAYED_BITS & ASLEEP_BIT, 0);
+        assert_ne!(TABLE_BIT, ASLEEP_BIT);
+        let s = Surgery::from_bits(TABLE_BIT | 0b1001);
+        assert_eq!(s, Surgery { on_table: true, asleep: false, flayed: [true, false, false, true] });
+        assert!(Surgery::from_bits(ASLEEP_BIT).lying());
+        assert!(Surgery::from_bits(0).is_plain());
         assert!(THIN > 0.3 && THIN < 0.8, "тоньше, но не исчезает");
     }
 
@@ -739,7 +746,7 @@ mod memory_tests {
     use super::*;
 
     #[test]
-    fn the_server_state_reaches_the_renderer_by_id() {
+    fn the_synced_state_reaches_the_renderer_by_id() {
         let id = 9_000_001;
         assert_eq!(state_of(id), Surgery::default());
         let lying = Surgery { on_table: true, asleep: false, flayed: [true, false, false, false] };
@@ -749,5 +756,11 @@ mod memory_tests {
         assert_eq!(state_of(id), Surgery::default(), "обычного моба забываем");
         let asleep = Surgery { asleep: true, ..Surgery::default() };
         assert!(asleep.lying() && !asleep.is_plain(), "уснувший лежит");
+        // Снимок из окна заменяет всё: кого в нём нет, тот встал.
+        replace_all(vec![(id, TABLE_BIT | 1), (id + 1, 0)]);
+        assert_eq!(state_of(id), lying);
+        assert_eq!(state_of(id + 1), Surgery::default());
+        replace_all(Vec::new());
+        assert_eq!(state_of(id), Surgery::default());
     }
 }
