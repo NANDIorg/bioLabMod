@@ -430,6 +430,7 @@ bindings = [
   { name = "entity", ty = "Option<u32>", value = "entity" },
   { name = "at", ty = "[f64; 3]", value = "at" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
 
 # Поведение своих эффектов (GDD 4.7) по контракту платформы, API 56: урон
 # кислоты, токсикоза и кровотечения, седация и мутаген — одна таблица и один
