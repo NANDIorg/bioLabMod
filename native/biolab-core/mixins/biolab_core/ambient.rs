@@ -10,7 +10,6 @@
 fn biolab_core_ambient(game: &mut crate::game::Game<'_>) {
     use crate::game::biolab_core as m;
     use crate::game::biolab_particles as fx;
-    use horizon_client::mobs::finalize::{Attr, has_modifier};
     use horizon_world::nbt::Tag;
 
     if !game.native_on(m::ID) || game.ticks % fx::EVERY != 0 {
@@ -77,6 +76,16 @@ fn biolab_core_ambient(game: &mut crate::game::Game<'_>) {
             && (at[1] - me[1]).abs() < fx::REACH
             && (at[2] - me[2]).abs() < fx::REACH
     };
+    // Гены мобов рядом — из своих данных (attachments, GDD 3.10), а не из
+    // меток. Читать данные можно только с игрой целиком, поэтому собираем id
+    // заранее, до цикла, который держит `game.mobs` изменяемо.
+    let ids: Vec<u32> = game
+        .mobs
+        .iter()
+        .filter(|mob| mob.alive() && !mob.removed && near([mob.position.x, mob.position.y, mob.position.z]))
+        .map(|mob| mob.id)
+        .collect();
+    let genomes = crate::game::biolab_core_data::genes_by_id(game, &ids);
     for mob in game.mobs.iter_mut() {
         let feet = [mob.position.x, mob.position.y, mob.position.z];
         if !mob.alive() || mob.removed || !near(feet) {
@@ -101,16 +110,11 @@ fn biolab_core_ambient(game: &mut crate::game::Game<'_>) {
                 puffs.push((puff, fx::over_body(&puff, feet, height), seed ^ cycle));
             }
         }
-        let genes: Vec<(&'static str, i32)> = m::GENE_MARKERS
-            .iter()
-            .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-            .filter_map(|marker| m::gene_of_marker(marker))
-            .collect();
-        if genes.is_empty() {
+        let Some(genes) = genomes.get(&mob.id) else {
             continue;
-        }
+        };
         for (flag, puff) in fx::BEHAVIOURS {
-            if m::behaviour_strength(&genes, flag) > 0 && fx::due(seed, cycle, puff.one_in) {
+            if m::behaviour_strength(genes, flag) > 0 && fx::due(seed, cycle, puff.one_in) {
                 puffs.push((puff, fx::over_body(&puff, feet, height), seed ^ cycle));
             }
         }
