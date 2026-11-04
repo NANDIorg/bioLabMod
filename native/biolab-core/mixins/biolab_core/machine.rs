@@ -615,30 +615,13 @@ fn biolab_core_machine_tick(
         let Some(id) = game.native_spawn_mob(&dimension, m::CLONE_SPECIES, spot, &options) else {
             return;
         };
-        // Метка гена: по ней `biolab-deep` выдаст клону прибавки и внешность,
-        // а ванилла запишет ген в сейв вместе с остальными модификаторами.
-        if let Some(marker) = m::marker_for(name, strength)
-            && let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id)
-        {
-            use horizon_client::mobs::finalize::{Attr, Op, add_modifier, remove_modifier};
-            // Свежему зомби игра успевает выдать случайный геном раньше, чем
-            // чан впишет заказанный (проверено в игре: клон вышел с лишним
-            // геном и перебором стабильности). Поэтому сначала чистим.
-            for old in m::GENE_MARKERS {
-                remove_modifier(mob, Attr::FollowRange, old);
-            }
-            for (attr, name) in [
-                (Attr::MaxHealth, m::STAT_MODIFIERS[0]),
-                (Attr::MovementSpeed, m::STAT_MODIFIERS[1]),
-                (Attr::AttackDamage, m::STAT_MODIFIERS[2]),
-                (Attr::Armor, m::STAT_MODIFIERS[3]),
-                (Attr::KnockbackResistance, m::STAT_MODIFIERS[4]),
-            ] {
-                remove_modifier(mob, attr, name);
-            }
-            mob.health = mob.health.min(mob.attrs.max_health);
-            add_modifier(mob, Attr::FollowRange, marker, 0.0, Op::AddValue);
-        }
+        // Геном клона — данные на нём (`biolab:genome`, M11): по ним
+        // `biolab-deep` выдаст прибавки, окно нарисует внешность, и с мобом
+        // они уйдут в сейв. Свежему зомби игра успевает бросить случайный
+        // геном раньше, чем чан впишет заказанный (проверено в игре: клон
+        // выходил с лишним геном) — запись данных его просто заменяет, а
+        // прибавок бросок не ставит.
+        crate::game::biolab_core_data::set_genes(game, id, &[(name, strength)]);
         return;
     }
 

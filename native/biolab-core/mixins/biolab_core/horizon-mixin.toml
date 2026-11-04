@@ -593,3 +593,14 @@ helper = "research_frame.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
+
+# M11: геном моба, операционная и гены игрока — свои данные на сущностях
+# (attachments, API 317), а не метки-модификаторы. Типы и доступ — здесь, в
+# модуле игры: `Host` есть только у `Game`. Те же ключи и типы объявляет
+# `biolab-deep` (`biolab_deep_data`). Новых инъекций нет: данные читают и
+# пишут уже имеющиеся хуки (`inject.rs`, `surgery.rs`, `behaviour.rs` и др.).
+[[module]]
+id = "data"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_core_data"
+source = "data.rs"

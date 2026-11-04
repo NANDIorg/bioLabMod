@@ -11,7 +11,6 @@
 fn biolab_core_effect_actions(game: &mut crate::game::Game<'_>) {
     use crate::game::biolab_core as m;
     use crate::game::biolab_effects as fx;
-    use horizon_client::mobs::finalize::{Attr, Op, add_modifier, has_modifier, remove_modifier};
     if !game.native_on(m::ID) || game.remote.is_some() {
         return;
     }
@@ -28,6 +27,39 @@ fn biolab_core_effect_actions(game: &mut crate::game::Game<'_>) {
         ));
     }
     for (id, act) in due.mobs {
+        // Мутаген пишет геном в данные моба: для этого нужна вся игра, а не
+        // только моб, поэтому этот случай — до выбора моба.
+        if let fx::Act::Mutate = act {
+            let Some((mob_id, age)) = game
+                .mobs
+                .iter()
+                .find(|mob| mob.id == id && !mob.removed && mob.alive())
+                .map(|mob| (mob.id, mob.age))
+            else {
+                continue;
+            };
+            // Сила генов по порядку `GENES` — так их ждёт выбор гена.
+            let have = crate::game::biolab_core_data::genes(game, mob_id);
+            let mut strengths = vec![0u8; m::GENES.len()];
+            for (name, strength) in &have {
+                if let Some(i) = m::GENES.iter().position(|g| g.name == *name) {
+                    strengths[i] = (*strength).clamp(0, 3) as u8;
+                }
+            }
+            let seed = fx::mutation_seed(mob_id, u64::from(age));
+            let Some((index, strength)) = fx::mutation(&strengths, seed) else {
+                continue;
+            };
+            let Some(kind) = m::GENES.get(index) else {
+                continue;
+            };
+            // Ген добавляется или усиливается: строка данных хранит по гену
+            // одну, сильнейшую силу. Прибавки выставит `biolab-deep`.
+            let mut genes = have;
+            genes.push((kind.name, strength));
+            crate::game::biolab_core_data::set_genes(game, mob_id, &genes);
+            continue;
+        }
         let Some(mob) = game
             .mobs
             .iter_mut()
@@ -46,35 +78,8 @@ fn biolab_core_effect_actions(game: &mut crate::game::Game<'_>) {
             // заставляет модификатор скорости — он в `biolab-deep`
             // (`mob_tick.rs`): у прибавок к атрибутам стабильного API нет.
             fx::Act::Calm => mob.ai.target = None,
-            // Мутаген набрал нагрузку: добавляется ген. Метку вешаем здесь,
-            // а прибавки к атрибутам выставит `biolab-deep` (`spawn.rs`) — он
-            // замечает, что метки моба изменились. Метки — по три на ген в
-            // порядке `GENES` (как в `marker_for`).
-            fx::Act::Mutate => {
-                let mut strengths = vec![0u8; m::GENES.len()];
-                for (i, marker) in m::GENE_MARKERS.iter().enumerate() {
-                    if has_modifier(mob, Attr::FollowRange, marker)
-                        && let Some(slot) = strengths.get_mut(i / 3)
-                    {
-                        *slot = (*slot).max((i % 3 + 1) as u8);
-                    }
-                }
-                let seed = fx::mutation_seed(mob.id, u64::from(mob.age));
-                let Some((index, strength)) = fx::mutation(&strengths, seed) else {
-                    continue;
-                };
-                let Some(marker) = m::GENE_MARKERS.get(index * 3 + (strength - 1) as usize).copied() else {
-                    continue;
-                };
-                // Усиление: слабая метка того же гена уходит, чтобы ген не
-                // числился дважды.
-                for weaker in 1..strength {
-                    if let Some(old) = m::GENE_MARKERS.get(index * 3 + (weaker - 1) as usize).copied() {
-                        remove_modifier(mob, Attr::FollowRange, old);
-                    }
-                }
-                add_modifier(mob, Attr::FollowRange, marker, 0.0, Op::AddValue);
-            }
+            // Мутаген разобран выше: он пишет геном в данные моба.
+            fx::Act::Mutate => {}
         }
     }
 }

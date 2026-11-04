@@ -1,26 +1,22 @@
 // Гены игроков для отрисовки наростов (GDD 4.19, этап «игрок»).
 //
 // Гены игрока живут на сервере (`PlayerState.genes` в `biolab-core`), а рисует
-// окно. У мобов геном видно по меткам-модификаторам или из общей памяти
-// процесса по id моба, у игрока ни того ни другого: меток на нём нет, а
-// модель своего игрока — отдельный моб окна с id 0, к серверу отношения не
-// имеющий. Поэтому гены приходят пакетом сервер → клиент: `biolab-core` раз в
-// секунду шлёт его каналом `biolab_core:genes` (`genes_packet`), бинарник
-// `biolab-deep` ловит его перехватом `native_net_from_server` (`genes_net.rs`)
-// и отдаёт сюда вместе со списком «id сущности → uuid», который знает только
-// окно (`persist.uuids`).
+// окно. С M11 сервер кладёт их в данные игрока `biolab:player_genes`
+// (attachment на `Holder::Player(uuid)` с `sync` и `copy_on_death`), и они
+// сами приходят в окно — тому игроку и всем, кто его видит. Своего пакета и
+// канала больше нет.
 //
-// Здесь гены раскладываются по моделям:
-// * свой игрок — первая запись пакета; его модель (`player_model` окна, она
-//   же в инвентаре) всегда моб с id 0 (`OWN_MODEL`), рука в кадре — тоже его;
-// * другие игроки — модели в списке мобов окна, найденные по uuid. Так их
-//   видно в многопользовательской игре (выделенный сервер, LAN): у каждого
-//   клиента свой пакет, в нём гены всех игроков мира с генами.
+// Отрисовка видит только `&Mob`, без `Game` и его данных, поэтому раз в тик
+// окна бинарник (`view_sync.rs` → `biolab_bridge::show`) переписывает сюда
+// пришедшее целиком:
+// * свой игрок — по своему uuid; его модель (`player_model` окна, она же в
+//   инвентаре) всегда моб с id 0 (`OWN_MODEL`), рука в кадре — тоже его;
+// * другие игроки — модели в списке мобов окна, uuid которых окно знает
+//   (`persist.uuids`). Так их видно в многопользовательской игре.
 //
 // Модуль открыт наружу (`visibility = "pub"`): его зовёт бинарник. Поэтому в
-// открытых функциях — только открытые типы игры. Чистая часть (разбор пакета,
-// раскладка по моделям) — под тестами; функции, которым нужна игра,
-// отгорожены `#[cfg(not(test))]`.
+// открытых функциях — только открытые типы игры. Чистая часть — под тестами;
+// функции, которым нужна игра, отгорожены `#[cfg(not(test))]`.
 //
 // Этот файл подключается как модуль `crate::biolab_players` крейта
 // horizon-client (lib).
@@ -28,10 +24,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-/// Канал пакета генов: тот же, что `NET_GENES` в `biolab-core`.
-pub const CHANNEL: &str = "biolab_core:genes";
-/// Версия формата пакета (первый байт), как `GENES_PACKET_VERSION` в core.
-pub const VERSION: u8 = 1;
 /// Id модели своего игрока: окно создаёт её `Mob::new(0, …)`
 /// (`tick_player_model`), копия для инвентаря — тот же моб.
 pub const OWN_MODEL: u32 = 0;
@@ -71,80 +63,33 @@ impl PlayerGenes {
     }
 }
 
-/// Разбор пакета генов (формат — `genes_packet` в `biolab-core`): uuid
-/// игрока и его гены, получатель первым. `None` — чужая версия или пакет
-/// обрезан: тогда старое состояние лучше не трогать.
-pub fn decode(data: &[u8]) -> Option<Vec<(u128, PlayerGenes)>> {
-    let (&version, mut rest) = data.split_first()?;
-    if version != VERSION {
-        return None;
-    }
-    let mut out = Vec::new();
-    while !rest.is_empty() {
-        let uuid = u128::from_be_bytes(rest.get(..16)?.try_into().ok()?);
-        let count = *rest.get(16)?;
-        rest = &rest[17..];
-        let mut genes = Vec::with_capacity(usize::from(count));
-        for _ in 0..count {
-            let len = usize::from(*rest.first()?);
-            let name = std::str::from_utf8(rest.get(1..1 + len)?).ok()?;
-            let strength = *rest.get(1 + len)?;
-            genes.push((name.to_owned(), strength));
-            rest = &rest[2 + len..];
-        }
-        out.push((uuid, PlayerGenes::new(genes)));
-    }
-    Some(out)
-}
-
-/// Кому какие гены: свой игрок (первая запись) и модели других игроков —
-/// id сущностей окна, чей uuid есть в пакете. `entities` — пары (id
-/// сущности, uuid) из памяти окна; у одного uuid может оказаться несколько id
-/// (сущность пересоздана), гены получают все. Игроки без генов не
-/// записываются: их модели рисуются как есть.
-pub fn assign(
-    players: Vec<(u128, PlayerGenes)>,
-    entities: &[(u32, u128)],
-) -> (Option<PlayerGenes>, HashMap<u32, PlayerGenes>) {
-    let mut players = players.into_iter();
-    let own = players.next().map(|(_, genes)| genes);
-    let mut others = HashMap::new();
-    for (uuid, genes) in players {
-        if genes.is_empty() {
-            continue;
-        }
-        for (id, _) in entities.iter().filter(|(_, u)| *u == uuid) {
-            others.insert(*id, genes.clone());
-        }
-    }
-    (own, others)
-}
-
 #[derive(Default)]
 struct Store {
     own: Option<PlayerGenes>,
     others: HashMap<u32, PlayerGenes>,
 }
 
-/// Память окна: разобранный последний пакет. Пишет перехват сети, читает
+/// Память окна: гены, пришедшие с сервера. Пишет тик окна, читает
 /// отрисовка — в одиночной игре это разные потоки одного процесса.
 fn store() -> &'static Mutex<Store> {
     static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
     STORE.get_or_init(Default::default)
 }
 
-/// Пакет пришёл: запомнить гены, заменив прежние целиком (снятый ген или
-/// ушедший игрок пропадают сами). Ложь — пакет не разобран.
-pub fn receive(data: &[u8], entities: &[(u32, u128)]) -> bool {
-    let Some(players) = decode(data) else {
-        return false;
-    };
-    let (own, others) = assign(players, entities);
+/// Заменить гены целиком: свои и моделей других игроков по id сущности окна.
+/// Снятый ген или ушедший игрок пропадают сами; игроки без генов не
+/// записываются — их модели рисуются как есть.
+pub fn replace_all(own: Vec<(String, u8)>, others: Vec<(u32, Vec<(String, u8)>)>) {
+    let own = Some(PlayerGenes::new(own)).filter(|g| !g.is_empty());
+    let others: HashMap<u32, PlayerGenes> = others
+        .into_iter()
+        .map(|(id, genes)| (id, PlayerGenes::new(genes)))
+        .filter(|(_, genes)| !genes.is_empty())
+        .collect();
     if let Ok(mut s) = store().lock() {
-        s.own = own.filter(|g| !g.is_empty());
+        s.own = own;
         s.others = others;
     }
-    true
 }
 
 /// Гены своего игрока: для руки в кадре.

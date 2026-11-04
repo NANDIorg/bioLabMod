@@ -26,18 +26,15 @@ fn biolab_core_interact_entity(
             }
         });
     }
-    /// Гены моба по меткам на нём.
-    fn read_genome(game: &crate::game::Game<'_>, entity: i32) -> Vec<(&'static str, i32)> {
-        use crate::game::biolab_core as m;
-        use horizon_client::mobs::finalize::{Attr, has_modifier};
-        let Some(mob) = game.mobs.iter().find(|mob| mob.id as i32 == entity) else {
+    /// Гены моба — из данных на нём (`biolab:genome`, M11).
+    fn read_genome(game: &mut crate::game::Game<'_>, entity: i32) -> Vec<(&'static str, i32)> {
+        let Ok(id) = u32::try_from(entity) else {
             return Vec::new();
         };
-        m::GENE_MARKERS
-            .iter()
-            .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-            .filter_map(|marker| m::gene_of_marker(marker))
-            .collect()
+        if !game.mobs.iter().any(|mob| mob.id == id) {
+            return Vec::new();
+        }
+        crate::game::biolab_core_data::genes(game, id)
     }
 
     /// Ген, записанный во фрагмент.
@@ -143,7 +140,6 @@ fn biolab_core_interact_entity(
     // Носилки. Пустые грузят усыплённого моба — и снимают его со стола: там
     // он тоже спит. Занятые укладывают пациента на стол (`place_fluid.rs`).
     if &*stack.item == m::STRETCHER_ID {
-        use horizon_client::mobs::finalize::{Attr, has_modifier};
         // Клик забираем всегда: носилки в лицо жителю не открывают торговлю.
         *claimed = true;
         if patient_in(stack).is_some() {
@@ -158,32 +154,25 @@ fn biolab_core_interact_entity(
             return;
         };
         let kind = m::full_kind(&mob.kind.id);
-        if !m::can_carry(&kind) {
-            game.native_chat("Такого на носилках не унести");
-            return;
-        }
         let asleep = mob
             .extra
             .effects
             .iter()
             .any(|(id, ticks, _)| *id == m::SEDATION_EFFECT && *ticks != 0);
+        let (id, health, name) = (mob.id, mob.health, mob.custom_name.clone());
+        let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
+        if !m::can_carry(&kind) {
+            game.native_chat("Такого на носилках не унести");
+            return;
+        }
         if !asleep {
             game.native_chat("Сначала усыпите: шприц или дротик со снотворным");
             return;
         }
-        let patient = m::Patient {
-            kind,
-            genes: m::GENE_MARKERS
-                .iter()
-                .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-                .filter_map(|marker| m::gene_of_marker(marker))
-                .collect(),
-            health: mob.health,
-            flayed: m::flayed_mask(|marker| has_modifier(mob, Attr::FollowRange, marker)),
-            name: mob.custom_name.clone(),
-        };
-        let id = mob.id;
-        let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
+        // Геном и срезы — из данных моба (M11): с ними пациент и ляжет на стол.
+        let genes = crate::game::biolab_core_data::genes(game, id);
+        let flayed = crate::game::biolab_core_data::surgery(game, id) & m::FLAYED_BITS;
+        let patient = m::Patient { kind, genes, health, flayed, name };
         // Моб уходит из мира без смерти и добычи: теперь он в носилках.
         // Вольер, державший его, сам освободит место, не найдя моба.
         let dimension = game.dim.id().to_string();
@@ -213,20 +202,25 @@ fn biolab_core_interact_entity(
 
     // Скальпель: с мутанта на операционном столе — по конечности за клик.
     if &*stack.item == m::SCALPEL_ID {
-        use horizon_client::mobs::finalize::{Attr, Op, add_modifier, has_modifier};
-        let Some(mob) = game
+        let Some((id, kind, health, at)) = game
             .mobs
             .iter()
             .find(|mob| mob.id as i32 == entity && mob.alive())
+            .map(|mob| {
+                (
+                    mob.id,
+                    m::full_kind(&mob.kind.id),
+                    mob.health,
+                    [mob.position.x, mob.position.y + 0.5, mob.position.z],
+                )
+            })
         else {
             return;
         };
-        let genes: Vec<(&'static str, i32)> = m::GENE_MARKERS
-            .iter()
-            .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-            .filter_map(|marker| m::gene_of_marker(marker))
-            .collect();
-        if !has_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE) {
+        // Геном и операционная — данные моба (M11).
+        let genes = crate::game::biolab_core_data::genes(game, id);
+        let bits = crate::game::biolab_core_data::surgery(game, id);
+        if bits & m::TABLE_BIT == 0 {
             // Обычный моб не на столе — клик ванилле: житель торгует и со
             // скальпелем в руке. Мутанту подсказываем, как быть.
             if !genes.is_empty() {
@@ -241,23 +235,15 @@ fn biolab_core_interact_entity(
             game.native_chat("Мутаций нет: из обычной плоти ген не достать");
             return;
         }
-        let kind = m::full_kind(&mob.kind.id);
-        let mask = m::flayed_mask(|marker| has_modifier(mob, Attr::FollowRange, marker));
+        let mask = bits & m::FLAYED_BITS;
         let Some(cut) = m::next_cut(mask, m::cuts_of(&kind)) else {
             game.native_chat("Плоти не осталось");
             return;
         };
-        let id = mob.id;
-        let health = mob.health;
-        let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
+        // Срез — бит в данных операционной; окно получит его само и
+        // нарисует кость.
+        crate::game::biolab_core_data::set_surgery(game, id, true, mask | (1 << cut));
         if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
-            add_modifier(
-                mob,
-                Attr::FollowRange,
-                m::SURGERY_FLAYED[usize::from(cut)],
-                0.0,
-                Op::AddValue,
-            );
             mob.add_effect(m::BLEEDING, m::BLEEDING_TICKS, 0);
         }
         // Срез — всплеск крови сразу; дальше капает кровотечение (`ambient.rs`).
@@ -283,8 +269,8 @@ fn biolab_core_interact_entity(
         return;
     }
 
-    // Фрагмент ДНК: вживляем ген мобу. Метку читает `biolab-deep` — он же
-    // выдаёт прибавки и внешность.
+    // Фрагмент ДНК: вживляем ген мобу — в данные `biolab:genome`. По ним
+    // `biolab-deep` выдаёт прибавки, а окно рисует внешность.
     if &*stack.item == m::FRAGMENT_ID {
         let Some(text) = gene_in(stack) else {
             game.native_chat("Фрагмент пустой: ген не прочитан");
@@ -298,32 +284,19 @@ fn biolab_core_interact_entity(
         // Клик по мобу ловят оба хука: без этой отметки фрагмент достанется
         // ещё и самому игроку (проверено в игре — ген вживлялся обоим).
         m::remember_injection(game.ticks);
+        let target = game
+            .mobs
+            .iter()
+            .find(|mob| mob.id as i32 == entity && mob.alive())
+            .map(|mob| mob.id);
         if result == m::Splice::Done
-            && let Some(marker) = m::marker_for(name, strength)
-            && let Some(mob) = game
-                .mobs
-                .iter_mut()
-                .find(|mob| mob.id as i32 == entity && mob.alive())
+            && let Some(id) = target
         {
-            // Усиление: слабая метка того же гена уходит, иначе микроскоп
-            // показывал бы ген дважды (лимита генов больше нет, и раньше это
-            // пряталось за ним).
-            for weaker in 1..strength {
-                if let Some(old) = m::marker_for(name, weaker) {
-                    horizon_client::mobs::finalize::remove_modifier(
-                        mob,
-                        horizon_client::mobs::finalize::Attr::FollowRange,
-                        old,
-                    );
-                }
-            }
-            horizon_client::mobs::finalize::add_modifier(
-                mob,
-                horizon_client::mobs::finalize::Attr::FollowRange,
-                marker,
-                0.0,
-                horizon_client::mobs::finalize::Op::AddValue,
-            );
+            // Усиление того же гена заменяет его силу: строка данных держит
+            // по гену одну, сильнейшую (`genome_data`).
+            let mut genes = have.clone();
+            genes.push((name, strength));
+            crate::game::biolab_core_data::set_genes(game, id, &genes);
             let slot = game.selected as i32;
             if let Some(carried) = game.native_carried_stack(slot)
                 && &*carried.item == m::FRAGMENT_ID

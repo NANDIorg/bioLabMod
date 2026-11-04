@@ -13,13 +13,12 @@ fn biolab_core_right_click_block(
 
     // Пульт наблюдения: кто в вольерах, чем болен и что ему вводили.
     if game.native_block(pos) == m::CONSOLE {
-        use horizon_client::mobs::finalize::{Attr, has_modifier};
         let centre = [
             f64::from(pos[0]) + 0.5,
             f64::from(pos[1]) + 0.5,
             f64::from(pos[2]) + 0.5,
         ];
-        let subjects: Vec<(String, f32, f32, Vec<(&'static str, i32)>, bool)> = game
+        let near: Vec<(u32, String, f32, f32, bool)> = game
             .mobs
             .iter()
             .filter(|mob| {
@@ -29,23 +28,19 @@ fn biolab_core_right_click_block(
                     && (mob.position.z - centre[2]).abs() < m::CONSOLE_RANGE
             })
             .map(|mob| {
-                let genes = m::GENE_MARKERS
-                    .iter()
-                    .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-                    .filter_map(|marker| m::gene_of_marker(marker))
-                    .collect();
                 let sick = mob
                     .extra
                     .effects
                     .iter()
                     .any(|(id, ticks, _)| &**id == m::INFECTION_EFFECT && *ticks != 0);
-                (
-                    mob.kind.id.to_string(),
-                    mob.health,
-                    mob.attrs.max_health,
-                    genes,
-                    sick,
-                )
+                (mob.id, mob.kind.id.to_string(), mob.health, mob.attrs.max_health, sick)
+            })
+            .collect();
+        // Геном — данные на мобе (M11): читаем после обхода мобов.
+        let subjects: Vec<(String, f32, f32, Vec<(&'static str, i32)>, bool)> = near
+            .into_iter()
+            .map(|(id, kind, health, max, sick)| {
+                (kind, health, max, crate::game::biolab_core_data::genes(game, id), sick)
             })
             .collect();
         let world = game.world_root.clone();

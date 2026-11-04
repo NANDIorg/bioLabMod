@@ -4098,10 +4098,11 @@ pub fn just_injected(ticks: u64) -> bool {
 //
 // Ген — признак с силой 1–3. У мобов он меняет характеристики, вид и
 // поведение (это делает `biolab-deep`), у игрока — даёт постоянный эффект и
-// свою побочку. Сам ген живёт в предмете-фрагменте, в мобе — меткой
-// (модификатором атрибута с именем гена), а у игрока — в состоянии мира.
+// свою побочку. Сам ген живёт в предмете-фрагменте, в мобе — данными
+// `biolab:genome` (attachment, M11; до M11 — меткой-модификатором), а у
+// игрока — в состоянии мира и копией в данных игрока для окна.
 //
-// Имена генов, их цена и формат метки — общий контракт с `biolab-deep`:
+// Имена генов, их цена и форма данных — общий контракт с `biolab-deep`:
 // менять их можно только в обоих бандлах сразу, иначе мутанты из старых
 // миров перестанут узнаваться.
 
@@ -4191,8 +4192,10 @@ pub fn takes_in_humans(kind: &GeneKind) -> bool {
     kind.player.is_some() || player_mechanic(kind.name).is_some()
 }
 
-/// Метки генов на мобе: модификатор дальности преследования с нулевой
-/// прибавкой, чьё имя и есть ген. Тот же список, что в `biolab-deep`.
+/// Метки генов старого формата (до M11): модификатор дальности преследования
+/// с нулевой прибавкой, чьё имя и есть ген. Мод их больше не ставит и не
+/// читает — старые миры переносит в данные `biolab-deep` (`data.rs`,
+/// `migrate`). Список остаётся для подсказок и сверки двух бандлов.
 pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
@@ -4337,6 +4340,113 @@ pub fn gene_of_marker(marker: &str) -> Option<(&'static str, i32)> {
     let kind = gene(name)?;
     let strength = strength.parse::<i32>().ok()?;
     (1..=3).contains(&strength).then_some((kind.name, strength))
+}
+
+// ---- Данные на сущностях (attachments, M11) ----
+//
+// Геном моба, состояние операционной и гены игрока хранятся своими данными
+// мода на носителе (`docs/native-mods.md` пина, «Server attachments»), а не
+// метками-модификаторами. Типы объявлены в модуле игры
+// `crate::game::biolab_core_data` (`data.rs`): `Host` есть только у `Game`.
+// Здесь — чистая часть контракта. Тот же ключ и тот же тип значения
+// объявляет `biolab-deep` (`crate::game::biolab_deep_data`): ключ — пара
+// «пространство имён, имя», и значение, прочитанное одним бандлом, второй
+// видит как своё, только если тип совпадает (`String`, `u8`). Поэтому
+// ключи, поля и форма строки здесь и в `biolab-deep` обязаны совпадать — это
+// сверяет `biolab-deep/tests/modules.rs`.
+
+/// Пространство имён наших данных.
+pub const DATA_NAMESPACE: &str = "biolab";
+/// Геном моба (`Holder::Entity`, `String`, с `sync`).
+pub const GENOME_DATA: &str = "genome";
+/// Операционная моба (`Holder::Entity`, `u8`, с `sync`).
+pub const SURGERY_DATA: &str = "surgery";
+/// «Бросок мутации уже был» (`Holder::Entity`, `bool`). Ставит `biolab-deep`.
+pub const CHECKED_DATA: &str = "mutation_checked";
+/// Гены игрока (`Holder::Player`, `String`, с `sync` и `copy_on_death`).
+pub const PLAYER_GENES_DATA: &str = "player_genes";
+/// Поле строки генов в сохранённой форме: `{genes: "chitin:2,horns:1"}`.
+pub const GENES_FIELD: &str = "genes";
+/// Поле отметки броска: `{checked: 1b}`.
+pub const CHECKED_FIELD: &str = "checked";
+/// Поля операционной: `{flayed: 5b, table: 1b, asleep: 0b}`.
+pub const FLAYED_FIELD: &str = "flayed";
+pub const TABLE_FIELD: &str = "table";
+pub const ASLEEP_FIELD: &str = "asleep";
+/// Биты операционной в значении: нижние четыре — срезанные конечности (как
+/// `flayed_mask`), потом «на столе» и «спит». «Спит» ставит `biolab-deep` по
+/// снотворному, мы его только сохраняем при записи.
+pub const FLAYED_BITS: u8 = 0b1111;
+pub const TABLE_BIT: u8 = 1 << 4;
+pub const ASLEEP_BIT: u8 = 1 << 5;
+
+/// Геном строкой данных: гены в порядке `GENES`, у каждого — сильнейшая из
+/// названных сил; незнакомое и вне 1–3 отброшено. Один геном — одна строка:
+/// «изменилось ли» решается сравнением строк, лишних записей (и рассылки
+/// клиентам) нет.
+pub fn genome_data(genes: &[(&str, i32)]) -> String {
+    let mut best = [0i32; GENES.len()];
+    for (name, strength) in genes {
+        if let Some(i) = GENES.iter().position(|g| g.name == *name)
+            && (1..=3).contains(strength)
+        {
+            best[i] = best[i].max(*strength);
+        }
+    }
+    best.iter()
+        .enumerate()
+        .filter(|(_, s)| **s > 0)
+        .map(|(i, s)| gene_text(GENES[i].name, *s))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Гены из строки данных, в порядке `GENES`. Незнакомое пропускаем: мир от
+/// новой версии мода не должен ломать старую.
+pub fn genes_of_data(text: &str) -> Vec<(&'static str, i32)> {
+    let mut best = [0i32; GENES.len()];
+    for (name, strength) in genome_from_text(text) {
+        if let Some(i) = GENES.iter().position(|g| g.name == name) {
+            best[i] = best[i].max(strength);
+        }
+    }
+    best.iter()
+        .enumerate()
+        .filter(|(_, s)| **s > 0)
+        .map(|(i, s)| (GENES[i].name, *s))
+        .collect()
+}
+
+/// Операционная полями сохранённой формы.
+pub fn surgery_fields(bits: u8) -> [(&'static str, i8); 3] {
+    [
+        (FLAYED_FIELD, (bits & FLAYED_BITS) as i8),
+        (TABLE_FIELD, i8::from(bits & TABLE_BIT != 0)),
+        (ASLEEP_FIELD, i8::from(bits & ASLEEP_BIT != 0)),
+    ]
+}
+
+/// Операционная из полей; нет поля — ноль.
+pub fn surgery_from_fields(field: impl Fn(&str) -> Option<i8>) -> u8 {
+    let flag = |name: &str, bit: u8| if field(name).unwrap_or(0) != 0 { bit } else { 0 };
+    (field(FLAYED_FIELD).unwrap_or(0) as u8 & FLAYED_BITS)
+        | flag(TABLE_FIELD, TABLE_BIT)
+        | flag(ASLEEP_FIELD, ASLEEP_BIT)
+}
+
+/// Биты операционной: стол и маска срезов. «Спит» — из `keep` (его ставит
+/// `biolab-deep`, и запись стола или среза его не сбрасывает).
+pub fn surgery_bits(on_table: bool, flayed: u8, keep: u8) -> u8 {
+    (flayed & FLAYED_BITS) | if on_table { TABLE_BIT } else { 0 } | (keep & ASLEEP_BIT)
+}
+
+/// Радиус кислотной ауры мутанта; None — желёз нет. Тот же расчёт, что
+/// `aura_radius` по метке и `mutants::acid_aura` в `biolab-deep`.
+pub fn acid_radius(genes: &[(&'static str, i32)]) -> Option<f64> {
+    genes
+        .iter()
+        .find(|(name, _)| *name == "acid_glands")
+        .map(|(_, strength)| 2.0 + f64::from(*strength))
 }
 
 /// Предметы генетики.
@@ -4495,97 +4605,12 @@ pub fn world_player_gene(world: &std::path::Path, uuid: u128, name: &str) -> i32
 // ---- Гены игроков — клиенту, для наростов (GDD 4.19, этап «игрок») ----
 //
 // Гены игрока живут в состоянии мира на сервере (`PlayerState.genes`), а
-// наросты рисует окно. Меток-модификаторов у игрока нет, а общая память
-// процесса есть только в одиночной игре, поэтому гены идут тем же путём, что
-// и состояние анализатора: пакетом с сервера (`native_net_send_to_player`).
-// Принимает его `biolab-deep` (свой перехват `native_net_from_server`) и
-// раскладывает по моделям игроков.
-//
-// Гены в пакете — по именам, а не по номерам таблицы: пакет не зависит от
-// порядка генов в двух бандлах. Формат (версия 1):
-//   [версия]
-//   по игроку: [uuid, 16 байт big-endian][n], n раз [длина имени][имя][сила 1–3]
-// Первая запись — сам получатель, даже без генов: так клиент узнаёт, что
-// наросты пора снять. Дальше — другие игроки этого мира, у которых есть хоть
-// один ген: их видно в многопользовательской игре.
-
-/// Канал генов игроков. Слушает `biolab-deep` (`biolab_players::CHANNEL`).
-pub const NET_GENES: &str = "biolab_core:genes";
-/// Версия формата пакета генов: первый байт.
-pub const GENES_PACKET_VERSION: u8 = 1;
-/// Предел полезной нагрузки сообщения мода (`native_net_send_to_player`).
-pub const NET_MAX_BYTES: usize = 30_000;
-
-/// Пакет генов: получатель первым, потом другие игроки. Игрок, который уже
-/// не влезает в предел сообщения, отбрасывается целиком (и все после него):
-/// лучше без чужих наростов, чем обрезанный пакет, который клиент не разберёт.
-pub fn genes_packet(players: &[(u128, PlayerState)]) -> Vec<u8> {
-    let mut data = vec![GENES_PACKET_VERSION];
-    for (uuid, state) in players {
-        let genes = player_genes(state);
-        let mut entry = uuid.to_be_bytes().to_vec();
-        entry.push(genes.len() as u8);
-        for (name, strength) in genes {
-            entry.push(name.len() as u8);
-            entry.extend_from_slice(name.as_bytes());
-            entry.push(strength.clamp(1, 3) as u8);
-        }
-        if data.len() + entry.len() > NET_MAX_BYTES {
-            break;
-        }
-        data.extend_from_slice(&entry);
-    }
-    data
-}
-
-/// Разбор пакета генов. Клиент разбирает его своей копией в `biolab-deep`
-/// (`biolab_players::decode`), здесь — эталон формата для тестов.
-/// `None` — чужая версия или обрезанный пакет.
-pub fn genes_from_packet(data: &[u8]) -> Option<Vec<(u128, Vec<(String, u8)>)>> {
-    let (&version, mut rest) = data.split_first()?;
-    if version != GENES_PACKET_VERSION {
-        return None;
-    }
-    let mut out = Vec::new();
-    while !rest.is_empty() {
-        let uuid = u128::from_be_bytes(rest.get(..16)?.try_into().ok()?);
-        let count = *rest.get(16)?;
-        rest = &rest[17..];
-        let mut genes = Vec::new();
-        for _ in 0..count {
-            let len = usize::from(*rest.first()?);
-            let name = std::str::from_utf8(rest.get(1..1 + len)?).ok()?;
-            let strength = *rest.get(1 + len)?;
-            genes.push((name.to_owned(), strength));
-            rest = &rest[2 + len..];
-        }
-        out.push((uuid, genes));
-    }
-    Some(out)
-}
-
-/// Кого класть в пакет генов для игрока `uuid`: его самого первым (`own` —
-/// его состояние после этого тика), потом других игроков этого мира с генами,
-/// по порядку uuid. Чужие состояния — из памяти сервера: там все, кто заходил
-/// в мир за сессию; вышедший не мешает — модели с его uuid у клиента нет.
-pub fn genes_view(world: &std::path::Path, uuid: u128, own: &PlayerState) -> Vec<(u128, PlayerState)> {
-    let mut others: Vec<(u128, PlayerState)> = states()
-        .lock()
-        .map(|table| {
-            table
-                .iter()
-                .filter(|((w, id), state)| {
-                    w.as_path() == world && *id != uuid && state.genes.iter().any(|g| *g > 0)
-                })
-                .map(|((_, id), state)| (*id, *state))
-                .collect()
-        })
-        .unwrap_or_default();
-    others.sort_by_key(|(id, _)| *id);
-    let mut out = vec![(uuid, *own)];
-    out.extend(others);
-    out
-}
+// наросты рисует окно. С M11 своего пакета (`biolab_core:genes`) больше нет:
+// раз в секунду гены кладутся в данные игрока `biolab:player_genes`
+// (`infection.rs` → `biolab_core_data::set_player_genes`, строка
+// `genome_data`), а данные с `sync` сами едут этому игроку и всем, кто его
+// видит, и переживают смерть (`copy_on_death`). Окно раскладывает их по
+// моделям игроков в `biolab-deep` (`view_sync.rs`).
 
 /// Сообщение о генотерапии.
 pub fn splice_message(result: Splice, name: &str, strength: i32) -> String {
@@ -6298,71 +6323,55 @@ mod tests {
         assert!(blood_lines(&[DrugState::default(); DRUG_COUNT]).is_empty());
     }
 
-    /// Гены игрока доходят до клиента по именам и с силой; получатель —
-    /// первым, даже без генов (так клиент снимает наросты).
+    /// Гены игрока уходят в окно данными `biolab:player_genes`: строкой по
+    /// именам, в порядке таблицы. Пустая строка — генов нет, наросты снять.
     #[test]
-    fn the_genes_packet_survives_the_wire() {
+    fn player_genes_become_data() {
         let mut me = PlayerState::default();
         assert_eq!(splice_player(&mut me, "tail", 2), Splice::Done);
         assert_eq!(splice_player(&mut me, "polymelia", 3), Splice::Done);
-        let mut other = PlayerState::default();
-        assert_eq!(splice_player(&mut other, "horns", 1), Splice::Done);
-        let data = genes_packet(&[(7, me), (u128::MAX - 1, other), (9, PlayerState::default())]);
-        assert_eq!(data[0], GENES_PACKET_VERSION);
-        let back = genes_from_packet(&data).expect("пакет разбирается");
-        assert_eq!(back.len(), 3);
-        assert_eq!(back[0].0, 7);
-        let mut mine = back[0].1.clone();
-        mine.sort();
-        assert_eq!(mine, vec![("polymelia".to_owned(), 3), ("tail".to_owned(), 2)]);
-        assert_eq!(back[1], (u128::MAX - 1, vec![("horns".to_owned(), 1)]));
-        assert_eq!(back[2], (9, Vec::new()), "без генов — пустая запись");
-        // Чужая версия и обрезанный пакет не разбираются, а не врут.
-        assert!(genes_from_packet(&[GENES_PACKET_VERSION + 1]).is_none());
-        assert!(genes_from_packet(&data[..data.len() - 1]).is_none());
-        assert!(genes_from_packet(&[]).is_none());
-        assert_eq!(genes_from_packet(&[GENES_PACKET_VERSION]), Some(Vec::new()));
-    }
-
-    /// Пакет не выходит за предел сообщения мода: лишние игроки отбрасываются
-    /// целиком, получатель остаётся.
-    #[test]
-    fn the_genes_packet_fits_a_mod_message() {
+        let text = genome_data(&player_genes(&me));
+        assert_eq!(text, "polymelia:3,tail:2");
+        assert_eq!(genes_of_data(&text), vec![("polymelia", 3), ("tail", 2)]);
+        assert_eq!(genome_data(&player_genes(&PlayerState::default())), "");
+        // Весь геном влезает и читается обратно.
         let mut full = PlayerState::default();
-        for (i, kind) in GENES.iter().enumerate() {
+        for i in 0..GENES.len() {
             full.genes[i] = 1 + (i % 3) as u8;
-            assert!(kind.name.len() < 256);
         }
-        let players: Vec<(u128, PlayerState)> = (0..200).map(|i| (i, full)).collect();
-        let data = genes_packet(&players);
-        assert!(data.len() <= NET_MAX_BYTES, "{}", data.len());
-        let back = genes_from_packet(&data).unwrap();
-        assert!(!back.is_empty() && back.len() < 200);
-        assert_eq!(back[0].0, 0);
-        assert_eq!(back[0].1.len(), GENES.len());
+        assert_eq!(genes_of_data(&genome_data(&player_genes(&full))), player_genes(&full));
     }
 
-    /// В пакет игроку идут он сам и другие игроки этого мира с генами; чужие
-    /// миры и игроки без генов — нет.
+    /// Строка генома данных одна на геном: порядок таблицы, сильнейшая сила,
+    /// мусор отброшен — иначе каждая запись уходила бы клиентам заново.
     #[test]
-    fn the_genes_view_lists_the_world_players() {
-        let world = std::env::temp_dir().join(format!("biolab-genes-view-{}", std::process::id()));
-        let elsewhere = world.join("other");
-        let _ = std::fs::remove_dir_all(&world);
-        assert_eq!(splice_world_player(&world, 30, "tentacles", 2), Some(Splice::Done));
-        assert_eq!(splice_world_player(&world, 20, "horns", 1), Some(Splice::Done));
-        assert!(player_tick(&world, 25).is_some(), "без генов");
-        assert_eq!(splice_world_player(&elsewhere, 40, "tail", 3), Some(Splice::Done));
-        let me = PlayerState::default();
-        let view = genes_view(&world, 10, &me);
-        let ids: Vec<u128> = view.iter().map(|(id, _)| *id).collect();
-        assert_eq!(ids, vec![10, 20, 30]);
-        assert_eq!(view[0].1, me);
-        assert_eq!(player_gene(&view[2].1, "tentacles"), 2);
-        // Сам игрок с генами — один раз и первым.
-        let mine = genes_view(&world, 30, &view[2].1);
-        assert_eq!(mine.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![30, 20]);
-        let _ = std::fs::remove_dir_all(&world);
+    fn genome_data_is_canonical() {
+        let text = genome_data(&[("horns", 1), ("chitin", 2), ("horns", 3), ("ghost", 1), ("tail", 9)]);
+        assert_eq!(text, "chitin:2,horns:3");
+        assert_eq!(genome_data(&genes_of_data(&text)), text);
+        assert_eq!(genes_of_data("ghost:1,horns:2,tail,chitin:x"), vec![("horns", 2)]);
+        assert!(genes_of_data("").is_empty());
+        assert_eq!(acid_radius(&genes_of_data("acid_glands:2")), Some(4.0));
+        assert_eq!(acid_radius(&genes_of_data("horns:2")), None);
+        // Кислотная аура по данным — та же, что раньше по метке.
+        for strength in 1..=3 {
+            let marker = marker_for("acid_glands", strength).unwrap();
+            assert_eq!(acid_radius(&[("acid_glands", strength)]), aura_radius(marker));
+        }
+    }
+
+    /// Операционная в данных: маска срезов, стол и «спит» — байтами; запись
+    /// стола или среза не сбрасывает «спит», который ставит `biolab-deep`.
+    #[test]
+    fn surgery_data_round_trips() {
+        for bits in 0..=(FLAYED_BITS | TABLE_BIT | ASLEEP_BIT) {
+            let fields = surgery_fields(bits);
+            let back = surgery_from_fields(|name| fields.iter().find(|(f, _)| *f == name).map(|(_, v)| *v));
+            assert_eq!(back, bits);
+        }
+        assert_eq!(surgery_bits(true, 0b0101, ASLEEP_BIT), TABLE_BIT | ASLEEP_BIT | 0b0101);
+        assert_eq!(surgery_bits(false, 0b1_0000, TABLE_BIT), 0, "чужие биты в маску не проходят");
+        assert_eq!(flayed_mask(|m| m == SURGERY_FLAYED[1]) & FLAYED_BITS, 0b10);
     }
 
     #[test]

@@ -5,9 +5,8 @@
 // обрабатывается один раз (`surgery_pass_due`).
 fn biolab_core_surgery_tick(game: &mut crate::game::Game<'_>) {
     use crate::game::biolab_core as m;
-    use horizon_client::mobs::finalize::{
-        Attr, Op, add_modifier, has_modifier, modifier_amount, remove_modifier,
-    };
+    use crate::game::biolab_core_data as data;
+    use horizon_client::mobs::finalize::{Attr, Op, add_modifier, has_modifier, modifier_amount, remove_modifier};
 
     if !game.native_on(m::ID) {
         return;
@@ -18,44 +17,41 @@ fn biolab_core_surgery_tick(game: &mut crate::game::Game<'_>) {
     }
 
     // Только мобы операционной: на столе, со срезами или с замедлением,
-    // которое пора снять. Остальных пропускаем по дешёвой проверке меток.
-    let patients: Vec<(u32, [f64; 3], bool, u8, bool)> = game
+    // которое пора снять. Стол и срезы — данные на мобе (`biolab:surgery`,
+    // M11): их читаем после обхода мобов, по собранным id.
+    let alive: Vec<(u32, [f64; 3], bool)> = game
         .mobs
         .iter()
         .filter(|mob| mob.alive() && !mob.removed)
-        .filter_map(|mob| {
-            let on_table = has_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE);
-            let mask = m::flayed_mask(|marker| has_modifier(mob, Attr::FollowRange, marker));
-            let slowed = has_modifier(mob, Attr::MovementSpeed, m::SURGERY_SLOW);
-            if !on_table && mask == 0 && !slowed {
-                return None;
-            }
-            let genes: Vec<(&'static str, i32)> = m::GENE_MARKERS
-                .iter()
-                .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-                .filter_map(|marker| m::gene_of_marker(marker))
-                .collect();
-            let regen = m::behaviour_strength(&genes, "regen") > 0;
-            Some((
+        .map(|mob| {
+            (
                 mob.id,
                 [mob.position.x, mob.position.y, mob.position.z],
-                on_table,
-                mask,
-                regen,
-            ))
+                has_modifier(mob, Attr::MovementSpeed, m::SURGERY_SLOW),
+            )
         })
         .collect();
+    let mut patients: Vec<(u32, [f64; 3], bool, u8, bool)> = Vec::new();
+    for (id, at, slowed) in alive {
+        let bits = data::surgery(game, id);
+        let on_table = bits & m::TABLE_BIT != 0;
+        let mask = bits & m::FLAYED_BITS;
+        if !on_table && mask == 0 && !slowed {
+            continue;
+        }
+        let regen = m::behaviour_strength(&data::genes(game, id), "regen") > 0;
+        patients.push((id, at, on_table, mask, regen));
+    }
 
     let dimension = game.dim.id().to_string();
-    for (id, at, on_table, mut mask, regen) in patients {
+    for (id, at, mut on_table, mut mask, regen) in patients {
         // Регенерация: раз в минуту отрастает последняя срезанная конечность.
         if regen
             && m::regrow_due(ticks, id)
             && let Some(limb) = m::regrown(mask)
-            && let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id)
         {
-            remove_modifier(mob, Attr::FollowRange, m::SURGERY_FLAYED[usize::from(limb)]);
             mask &= !(1 << limb);
+            data::set_surgery(game, id, on_table, mask);
         }
 
         // Стол держит пациента телепортом, как вольер: скорость ванильный
@@ -98,9 +94,8 @@ fn biolab_core_surgery_tick(game: &mut crate::game::Game<'_>) {
                     }
                 }
                 None => {
-                    if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
-                        remove_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE);
-                    }
+                    on_table = false;
+                    data::set_surgery(game, id, on_table, mask);
                 }
             }
         }

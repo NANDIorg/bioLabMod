@@ -1,22 +1,12 @@
 // Тик мира: мутанты ведут себя так, как велит геном. Этот хук видит всех
 // мобов сразу, поэтому здесь живёт то, чего не сделать из тика одного моба:
-// охота, лояльность, стая и ауры.
+// охота, лояльность, стая и ауры. Геном — данные на мобе
+// (`biolab_core_data`, M11): читаем их один раз за проход, до обхода мобов.
 fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     use crate::game::biolab_core as m;
-    use horizon_client::mobs::finalize::{Attr, has_modifier};
+    use crate::game::biolab_core_data as data;
     use horizon_client::mobs::species::Species;
     use horizon_client_core::who::Who;
-
-    /// Гены моба по меткам на нём.
-    fn genes_of(mob: &horizon_client::mobs::Mob) -> Vec<(&'static str, i32)> {
-        use crate::game::biolab_core as m;
-        use horizon_client::mobs::finalize::{Attr, has_modifier};
-        m::GENE_MARKERS
-            .iter()
-            .filter(|marker| has_modifier(mob, Attr::FollowRange, marker))
-            .filter_map(|marker| m::gene_of_marker(marker))
-            .collect()
-    }
 
     if !game.native_on(m::ID) {
         return;
@@ -27,20 +17,25 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
 
     // Кто есть кто: собираем один раз, дальше работаем с числами.
     let player = game.native_player().map(|p| [p.x, p.y, p.z]);
-    let mobs: Vec<(u32, [f64; 3], Species, bool, Vec<(&'static str, i32)>)> = game
+    let alive: Vec<(u32, [f64; 3], Species)> = game
         .mobs
         .iter()
         .filter(|mob| mob.alive())
-        .map(|mob| {
-            (
-                mob.id,
-                [mob.position.x, mob.position.y, mob.position.z],
-                mob.species(),
-                m::GENE_MARKERS
-                    .iter()
-                    .any(|marker| has_modifier(mob, Attr::FollowRange, marker)),
-                genes_of(mob),
-            )
+        .map(|mob| (mob.id, [mob.position.x, mob.position.y, mob.position.z], mob.species()))
+        .collect();
+    let ids: Vec<u32> = alive.iter().map(|(id, _, _)| *id).collect();
+    let mut genomes = data::genes_by_id(game, &ids);
+    // Пациенты операционного стола: их не берёт вольер (ниже).
+    let patients: Vec<u32> = ids
+        .iter()
+        .copied()
+        .filter(|id| data::surgery(game, *id) & m::TABLE_BIT != 0)
+        .collect();
+    let mobs: Vec<(u32, [f64; 3], Species, bool, Vec<(&'static str, i32)>)> = alive
+        .into_iter()
+        .map(|(id, at, species)| {
+            let genes = genomes.remove(&id).unwrap_or_default();
+            (id, at, species, !genes.is_empty(), genes)
         })
         .collect();
 
@@ -128,15 +123,8 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     // стороне игрока может не быть вовсе, и тогда клетки «исчезали».
     // Пациента операционного стола вольер не берёт: иначе стол и вольер по
     // соседству перетягивали бы его телепортами (GDD 4.17).
-    fn on_table(game: &crate::game::Game<'_>, id: u32) -> bool {
-        use crate::game::biolab_core as m;
-        use horizon_client::mobs::finalize::{Attr, has_modifier};
-        game.mobs
-            .iter()
-            .any(|mob| mob.id == id && has_modifier(mob, Attr::FollowRange, m::SURGERY_TABLE))
-    }
     for (id, at, _, _, _) in &mobs {
-        if on_table(game, *id) {
+        if patients.contains(id) {
             continue;
         }
         let base = [at[0].floor() as i32, at[1].floor() as i32, at[2].floor() as i32];
@@ -164,7 +152,7 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     // что скорость ванильный тик моба перезаписывает своей.
     let dimension = game.dim.id().to_string();
     for (pen, id) in m::all_subjects() {
-        if game.native_block(pen) != m::PEN || on_table(game, id) {
+        if game.native_block(pen) != m::PEN || patients.contains(&id) {
             m::release_subject(pen);
             continue;
         }
@@ -381,10 +369,14 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
         .collect();
 
     for (id, target, effects, _) in orders {
+        let genes = mobs
+            .iter()
+            .find(|(other, _, _, _, _)| *other == id)
+            .map(|(_, _, _, _, genes)| genes.clone())
+            .unwrap_or_default();
         let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) else {
             continue;
         };
-        let genes = genes_of(mob);
         // Лояльный мутант не трогает людей: цель-игрок просто забывается.
         if m::behaviour_strength(&genes, "loyal") > 0 && mob.ai.target == Some(Who::Player) {
             mob.ai.target = None;

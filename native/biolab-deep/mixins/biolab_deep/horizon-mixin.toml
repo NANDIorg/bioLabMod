@@ -26,15 +26,9 @@ file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_mutants"
 source = "mutants.rs"
 
-# Геном для отрисовки: на тике моба узнаём его по метке на самом мобе.
-[[injection]]
-id = "mutate-on-spawn"
-kind = "HEAD"
-target = "horizon_client_lib::mobs::ai::base_tick"
-helper = "spawn.rs"
-bindings = [
-  { name = "m", ty = "&mut crate::mobs::Mob", value = "&mut *m" },
-]
+# Геном для отрисовки окно берёт из данных, пришедших с сервера (M11,
+# `view_sync.rs` → `biolab_bridge`), а не с тика моба: перехват `base_tick`
+# (`spawn.rs`) удалён вместе с метками.
 
 # Внешность: оттенок всего тела.
 [[injection]]
@@ -59,8 +53,9 @@ bindings = [
 ]
 
 # Операционная (GDD 4.17): моб на столе лежит, срезанные конечности — тонкие
-# кости. Модуль — в lib-крейте, где живут `mobs` и отрисовка мобов. Метки
-# (`biolab:surgery/table`, `biolab:surgery/flayed/N`) ставит `biolab_core`.
+# кости. Модуль — в lib-крейте, где живут `mobs` и отрисовка мобов. Состояние
+# — данные `biolab:surgery` на мобе (ставит `biolab_core`, бит «спит» —
+# проход мутантов), окну их переписывает `view_sync.rs`.
 [[module]]
 id = "surgery"
 file = "crates/horizon-client/src/client_lib.rs"
@@ -104,19 +99,9 @@ name = "biolab_players"
 source = "players.rs"
 visibility = "pub"
 
-# Пакет генов от сервера. Стабильный хук API 40; core ловит здесь же свои
-# каналы (`net.rs`), каждый перехват берёт свой канал. `persist.uuids` (id
-# сущности → uuid) — чтобы найти модели других игроков.
-[[injection]]
-id = "player-genes-net"
-kind = "HEAD"
-target = "horizon_client::game::native_hooks::Game<'_>::native_net_from_server"
-helper = "genes_net.rs"
-bindings = [
-  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
-  { name = "channel", ty = "&str", value = "channel" },
-  { name = "data", ty = "&[u8]", value = "data" },
-]
+# Гены игроков больше не ходят своим пакетом (`genes_net.rs` удалён): с M11
+# это данные игрока `biolab:player_genes` с `sync`, их переписывает в
+# `biolab_players` тик окна (`view_sync.rs`).
 
 # Рука в кадре: когти, перепонка, хитин, шипы, кость — на той руке, которую
 # рисует игра (пустая рука, руки под картой). HEAD: в теле — замыкание позы.
@@ -148,10 +133,10 @@ bindings = [
   { name = "out", ty = "&mut Vec<horizon_client::mesher::Vertex>", value = "&mut *out" },
 ]
 
-# Тик эффектов моба (`m.extra.effects`): то, на что стабильного API нет, —
-# модификатор скорости усыплённого и поведение мутанта по генам (огонь, яды,
-# планирование, регенерация). Урон и поведение самих эффектов — в
-# `biolab-core` (API 56).
+# Тик эффектов моба (`m.extra.effects`): модификатор скорости усыплённого —
+# на него стабильного API нет. Поведение мутанта по генам с M11 — в проходе
+# мутантов (`mutant_tick.rs`, в конце файла): геном теперь данные, их видит
+# только бинарник. Урон и поведение самих эффектов — в `biolab-core` (API 56).
 [[injection]]
 id = "mob-effect-tick"
 kind = "HEAD"
@@ -161,8 +146,9 @@ bindings = [
   { name = "m", ty = "&mut crate::mobs::Mob", value = "&mut *m" },
 ]
 
-# Мобы появились в мире: новым мобам — геном по шансу вида, загруженным мутантам — их
-# модификаторы обратно из сырого NBT. Бинарник: здесь виден `persist.raw`.
+# Новые мобы в мире: геном по шансу вида — данными на мобе; призванный с
+# метками старого формата сначала переносит их в данные. Бинарник: здесь
+# видны и данные (`Host`), и `persist.raw`.
 [[injection]]
 id = "mobs-joined"
 kind = "HEAD"
@@ -173,17 +159,10 @@ bindings = [
   { name = "from", ty = "usize", value = "from" },
 ]
 
-# Загруженные мобы: Horizon не читает модификаторы из сейва и не зовёт для
-# них `native_mobs_joined`. Возвращаем наши метки и прибавки на тике игрока,
-# каждому мобу один раз (`restore.rs`).
-[[injection]]
-id = "restore-loaded"
-kind = "HEAD"
-target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
-helper = "restore.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-]
+# Загруженные мобы: `restore.rs` (метки обратно из `persist.raw` на каждом
+# тике игрока) удалён. Данные мутанта грузятся с мобом сами, а прибавки и
+# миграцию старых меток делает `loaded.rs` на `native_entities_load` (в
+# конце файла).
 
 # Карта исследований (журнал лаборанта) отсюда ушла: с M11 это свой экран
 # мода на стабильных хуках в `biolab_core` (`research_*.rs`, GDD 4.13).
@@ -263,4 +242,63 @@ bindings = [
   { name = "light", ty = "u32", value = "light" },
   { name = "data", ty = "&crate::mobs::MobData", value = "data" },
   { name = "out", ty = "&mut Vec<crate::mesher::Vertex>", value = "&mut *out" },
+]
+
+# ---- M11: данные мутанта на сущностях (attachments) вместо меток ----
+#
+# Геном (`biolab:genome`), операционная (`biolab:surgery`), отметка броска
+# (`biolab:mutation_checked`) и гены игрока (`biolab:player_genes`) — свои
+# данные на носителе с кодеком (сохраняются с мобом); геном, операционная и
+# гены игрока — с `sync` (сами едут в окно). Прибавки к атрибутам остаются
+# модификаторами: у них стабильного API нет. GDD 3.10.
+
+# Типы данных и доступ к ним: в бинарнике, рядом с `Game` (`Host`).
+[[module]]
+id = "data"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_deep_data"
+source = "data.rs"
+
+# Мост бинарник ↔ lib: что гены значат и таблицы отрисовки живут в lib, а
+# данные видит только бинарник. Открыт наружу — только std и `mobs::Mob`.
+[[module]]
+id = "bridge"
+file = "crates/horizon-client/src/client_lib.rs"
+name = "biolab_bridge"
+source = "bridge.rs"
+visibility = "pub"
+
+# Проход мутантов на сервере перед тиком мобов: прибавки по геному, бит
+# «спит», поведение по генам. Стабильный хук API 146: игра спрашивает его на
+# сервере перед каждым семейством сущностей; `listened` не ставим.
+[[injection]]
+id = "mutant-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_entity_tick_listened"
+helper = "mutant_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Мобы чанка загрузились: миграция старых меток в данные, прибавки по
+# геному и здоровье из сейва. Стабильный хук API 210.
+[[injection]]
+id = "entities-loaded"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_entities_load"
+helper = "loaded.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "chunk", ty = "[i32; 2]", value = "chunk" },
+]
+
+# Окно: пришедшие с сервера данные — в таблицы отрисовки, раз в тик окна.
+# Стабильный хук (тик каждого `Game`; у окна — из `tick_remote`).
+[[injection]]
+id = "view-sync"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+helper = "view_sync.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
