@@ -83,6 +83,8 @@
  "item.biolab.spray_stimulant": "Stimulant Spray",
  "item.biolab.dart_sedative": "Sedative Dart",
  "item.biolab.dart_venom": "Venom Dart",
+ "entity.biolab.dart_sedative": "Sedative Dart",
+ "entity.biolab.dart_venom": "Venom Dart",
  "item.biolab.bandage": "Bandage",
  "item.biolab.scalpel": "Scalpel",
  "gene.biolab.rending_claws": "Rending Claws",

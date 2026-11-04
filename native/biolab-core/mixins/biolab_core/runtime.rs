@@ -152,8 +152,8 @@ pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
     ("biolab:syringe_sedative", &["Седация и замедление", "ПКМ — себе, по мобу — усыпить"]),
     ("biolab:syringe_venom", &["Токсикоз", "ПКМ — себе, по мобу — отравить"]),
     ("biolab:syringe", &["Наполняется экстрактом на столе"]),
-    ("biolab:dart_sedative", &["ПКМ — выстрел в моба под прицелом", "Усыпляет и замедляет, до 24 блоков"]),
-    ("biolab:dart_venom", &["ПКМ — выстрел в моба под прицелом", "Отравляет, до 24 блоков"]),
+    ("biolab:dart_sedative", &["ПКМ — бросить в моба, как снежок", "Усыпляет и замедляет, рукой — до 8 блоков"]),
+    ("biolab:dart_venom", &["ПКМ — бросить в моба, как снежок", "Отравляет, рукой — до 8 блоков"]),
     ("biolab:bandage", &["ПКМ — остановить кровотечение"]),
     ("biolab:scalpel", &["ПКМ по мутанту на операционном столе", "Срезает плоть, удар — кровоточащая рана"]),
     // Генетика.
@@ -1557,6 +1557,8 @@ pub const SOUNDS: [(Cue, Sound); 18] = [
     (Cue::SyringeSelf, player("biolab:item.syringe.inject", 0.5, 1.1)),
     (Cue::SyringeMob, player("biolab:item.syringe.inject", 0.6, 0.9)),
     // Дротик — свой пневматический хлопок со свистом пролёта (у лука — тетива).
+    // Пока не звучит: рукой дротик бросают, и игра сама играет бросок снежка
+    // (снаряд — копия снежка, `dart_hit.rs`); хлопок ждёт духовую трубку (4.20).
     // Попадание — ванильная стрела, выше обычного: дротик меньше, а «тук»
     // в цель у них одинаковый.
     (Cue::DartShot, player("biolab:item.dart_gun.shoot", 0.5, 1.0)),
@@ -3575,16 +3577,11 @@ pub const MEDICINES: [Medicine; 12] = [
     Medicine { item: "biolab:spray_stimulant", drug: 2, form: FORM_SPRAY, dose: 45 },
 ];
 
-/// Дротики: те же вещества, но вводятся издали, по мобу под прицелом.
+/// Дротики: те же вещества, но вводятся издали — дротик бросают в моба.
 pub const DARTS: [(&str, &str); 2] = [
     ("biolab:dart_sedative", "biolab:syringe_sedative"),
     ("biolab:dart_venom", "biolab:syringe_venom"),
 ];
-
-/// Дальность, на которой дротик достаёт цель.
-pub const DART_RANGE: f64 = 24.0;
-/// Насколько узкий у дротика прицел: косинус угла между взглядом и целью.
-pub const DART_AIM: f64 = 0.96;
 
 /// Чем снаряжён дротик: шприц с тем же веществом.
 pub fn dart_syringe(item: &str) -> Option<&'static str> {
@@ -3592,6 +3589,94 @@ pub fn dart_syringe(item: &str) -> Option<&'static str> {
         .iter()
         .find(|(dart, _)| *dart == item)
         .map(|(_, syringe)| *syringe)
+}
+
+/// Дротик — настоящий снаряд (GDD 4.20): у каждого свой тип сущности мода,
+/// `data/biolab/horizon/entity_type/<дротик>.json`, копия снежка. Летит, как
+/// снежок, и рисуется моделью своего предмета. Тип назван так же, как
+/// предмет, поэтому хук попадания (`dart_hit.rs`) узнаёт дротик по типу
+/// снаряда. Типов два, а не один общий: движок разрешает предмету бросать
+/// только свой тип, а своих данных на снаряде нет — вещество едет в типе.
+pub fn dart_projectile(kind: &str) -> Option<&'static str> {
+    DARTS.iter().find(|(dart, _)| *dart == kind).map(|(dart, _)| *dart)
+}
+
+/// Дальность броска рукой. Летит дротик дальше (баллистика снежка — до двух
+/// десятков блоков), но дальше этой точки игла входит на излёте и вещество
+/// не доходит. Дальний выстрел — дело оружия (трубка, арбалет, 4.20), со
+/// своей дальностью.
+pub const DART_THROW_RANGE: f64 = 8.0;
+
+/// Сколько тиков помним бросок, если о дротике больше ничего не слышно
+/// (улетел из прогруженных чанков, мир закрыли): минута полёта — с запасом.
+pub const DART_FLIGHT_MAX: u64 = 1200;
+
+/// Что делает попадание дротика.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DartImpact {
+    /// Не дротик или не в моба: остальное игра делает сама — дротик
+    /// ломается о блок, как снежок, крошками своего предмета.
+    Nothing,
+    /// Игла вошла: мобу — вещество этого шприца (`mob_injection`).
+    Inject(&'static str),
+    /// В моба попал, но на излёте: дальше `DART_THROW_RANGE` от броска.
+    Spent,
+}
+
+/// Попадание снаряда типа `kind`: в моба ли (`on_mob`), откуда его бросили
+/// (`thrown_from`, глаза бросавшего; None — бросок не слышали: дротик из
+/// `/summon` или из сохранения) и где он встретил цель (`at`). Без точки
+/// броска дальность не проверить, и такой дротик действует: лучше лишний
+/// укол, чем дротик, который молча не работает.
+pub fn dart_impact(kind: &str, on_mob: bool, thrown_from: Option<[f64; 3]>, at: [f64; 3]) -> DartImpact {
+    let Some(dart) = dart_projectile(kind) else {
+        return DartImpact::Nothing;
+    };
+    if !on_mob {
+        return DartImpact::Nothing;
+    }
+    if let Some(from) = thrown_from {
+        let far = (0..3).map(|i| (at[i] - from[i]).powi(2)).sum::<f64>().sqrt();
+        if far > DART_THROW_RANGE {
+            return DartImpact::Spent;
+        }
+    }
+    match dart_syringe(dart) {
+        Some(syringe) => DartImpact::Inject(syringe),
+        None => DartImpact::Nothing,
+    }
+}
+
+/// Броски дротиков, что ещё летят: id снаряда, точка броска, тик броска.
+/// Хук попадания точку броска не знает, а хук запуска знает игрока, —
+/// поэтому запуск её запоминает, а попадание забирает.
+fn dart_launches() -> &'static std::sync::Mutex<Vec<(u32, [f64; 3], u64)>> {
+    static LAUNCHES: std::sync::Mutex<Vec<(u32, [f64; 3], u64)>> = std::sync::Mutex::new(Vec::new());
+    &LAUNCHES
+}
+
+/// Запомнить бросок дротика `projectile` из точки `from` на тике `tick`.
+/// Заодно забываем давние: о дротике не слышно дольше `DART_FLIGHT_MAX` —
+/// он уже не прилетит. Разница по модулю, потому что после перезахода в мир
+/// тики идут заново, а давний бросок не должен висеть вечно.
+pub fn remember_dart_launch(projectile: u32, from: [f64; 3], tick: u64) {
+    let Ok(mut launches) = dart_launches().lock() else {
+        return;
+    };
+    launches.retain(|&(id, _, at)| id != projectile && at.abs_diff(tick) <= DART_FLIGHT_MAX);
+    launches.push((projectile, from, tick));
+}
+
+/// Забрать точку броска дротика `projectile`: попадание у снаряда одно.
+pub fn take_dart_launch(projectile: u32) -> Option<[f64; 3]> {
+    let mut launches = dart_launches().lock().ok()?;
+    let at = launches.iter().position(|&(id, _, _)| id == projectile)?;
+    Some(launches.swap_remove(at).1)
+}
+
+/// Сообщение, когда дротик долетел на излёте.
+pub fn dart_spent_message() -> String {
+    format!("Дротик на излёте: игла не вошла (рукой — до {} блоков)", DART_THROW_RANGE as i32)
 }
 
 /// Пустой шприц: остаётся в руке после инъекции.
@@ -5593,10 +5678,10 @@ mod tests {
             let on_mob = mob_injection(&item).is_some();
             assert_eq!(hint(&item).contains("по мобу"), on_mob, "{item}: {}", hint(&item));
         }
-        // Дротик бьёт по мобу под прицелом на свою дальность.
+        // Дротик бросают, и подсказка называет дальность броска рукой.
         for (dart, _) in &DARTS {
-            assert!(hint(dart).contains("прицел"), "{dart}");
-            assert!(hint(dart).contains(&format!("до {} блоков", DART_RANGE as i32)), "{dart}");
+            assert!(hint(dart).contains("бросить"), "{dart}");
+            assert!(hint(dart).contains(&format!("до {} блоков", DART_THROW_RANGE as i32)), "{dart}");
         }
         // Ведро разливает лужу по блоку (`place_fluid.rs`).
         // Вылитое ведро пустеет (`emptied_bucket`), и подсказка это говорит.
@@ -6902,6 +6987,86 @@ mod tests {
             assert!(mob_injection(syringe).is_some(), "{syringe} ничего не делает мобу");
         }
         assert_eq!(dart_syringe("biolab:syringe_venom"), None);
+    }
+
+    /// Каждый дротик бросается своим типом сущности — копией снежка, — и тип
+    /// назван как предмет: по этому имени хук попадания узнаёт дротик.
+    #[test]
+    fn every_dart_flies_as_its_own_snowball() {
+        let dir = content_dir().join("data/biolab/horizon/entity_type");
+        let mut types = Vec::new();
+        for entry in std::fs::read_dir(&dir).expect("нет entity_type/") {
+            let path = entry.unwrap().path();
+            let id = format!("biolab:{}", path.file_stem().unwrap().to_string_lossy());
+            let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            // Движок пина копирует только снежок (`ENTITY_TEMPLATES`).
+            assert_eq!(json.get("template").and_then(Json::str), Some("minecraft:snowball"), "{id}");
+            assert_eq!(json.get("item").and_then(Json::str), Some(id.as_str()), "{id}: бросает не свой предмет");
+            assert_eq!(dart_projectile(&id), Some(DARTS.iter().find(|(d, _)| *d == id).expect("тип не дротик").0));
+            types.push(id);
+        }
+        types.sort();
+        let mut darts: Vec<String> = DARTS.iter().map(|(d, _)| d.to_string()).collect();
+        darts.sort();
+        assert_eq!(types, darts, "у дротика нет своего снаряда");
+        // Летящий дротик назван так же, как дротик в руке.
+        for (lang_name, lang) in [("ru_ru", lang("ru_ru")), ("en_us", lang("en_us"))] {
+            for (dart, _) in DARTS {
+                let short = dart.trim_start_matches("biolab:");
+                let entity = lang.get(&format!("entity.biolab.{short}")).and_then(Json::str);
+                let item = lang.get(&format!("item.biolab.{short}")).and_then(Json::str);
+                assert!(entity.is_some() && entity == item, "{dart}: имя снаряда в {lang_name}");
+            }
+        }
+        assert_eq!(dart_projectile("minecraft:snowball"), None);
+        assert_eq!(dart_projectile("biolab:syringe_sedative"), None);
+    }
+
+    #[test]
+    fn a_dart_injects_its_syringe_within_a_throw() {
+        let from = [0.0, 65.62, 0.0];
+        let near = [5.0, 65.0, 3.0];
+        let far = [DART_THROW_RANGE + 0.5, 65.62, 0.0];
+        for (dart, syringe) in DARTS {
+            // В моба на дальности броска — то же, что укол шприцем.
+            assert_eq!(dart_impact(dart, true, Some(from), near), DartImpact::Inject(syringe));
+            // Ровно на границе ещё входит.
+            let edge = [DART_THROW_RANGE, 65.62, 0.0];
+            assert_eq!(dart_impact(dart, true, Some(from), edge), DartImpact::Inject(syringe));
+            // Дальше — на излёте.
+            assert_eq!(dart_impact(dart, true, Some(from), far), DartImpact::Spent);
+            // Бросок не слышали (`/summon`, сохранение) — дротик всё равно действует.
+            assert_eq!(dart_impact(dart, true, None, far), DartImpact::Inject(syringe));
+            // Мимо, в блок: дротик ломается сам, мы ничего не делаем.
+            assert_eq!(dart_impact(dart, false, Some(from), near), DartImpact::Nothing);
+        }
+        // Чужой снаряд — не наше дело.
+        assert_eq!(dart_impact("minecraft:snowball", true, Some(from), near), DartImpact::Nothing);
+        assert_eq!(dart_impact("minecraft:arrow", true, None, near), DartImpact::Nothing);
+        assert!(dart_spent_message().contains(&format!("до {} блоков", DART_THROW_RANGE as i32)));
+    }
+
+    /// Одним тестом: таблица бросков общая на процесс, а тесты идут потоками.
+    #[test]
+    fn a_dart_launch_is_remembered_until_its_hit() {
+        let base = 4_000_000;
+        remember_dart_launch(base + 1, [1.0, 2.0, 3.0], 100);
+        remember_dart_launch(base + 2, [4.0, 5.0, 6.0], 110);
+        // Попадание забирает точку броска, второе попадание её уже не найдёт.
+        assert_eq!(take_dart_launch(base + 1), Some([1.0, 2.0, 3.0]));
+        assert_eq!(take_dart_launch(base + 1), None);
+        // Тот же id снова брошен — помним последний бросок.
+        remember_dart_launch(base + 2, [7.0, 8.0, 9.0], 120);
+        assert_eq!(take_dart_launch(base + 2), Some([7.0, 8.0, 9.0]));
+        assert_eq!(take_dart_launch(base + 2), None);
+        // Давний бросок забывается при следующем — и вперёд по тикам, и назад
+        // (после перезахода в мир тики идут заново).
+        remember_dart_launch(base + 3, [0.0; 3], 200);
+        remember_dart_launch(base + 4, [0.0; 3], 200 + DART_FLIGHT_MAX + 1);
+        assert_eq!(take_dart_launch(base + 3), None);
+        remember_dart_launch(base + 5, [0.0; 3], 10);
+        assert_eq!(take_dart_launch(base + 4), None);
+        assert_eq!(take_dart_launch(base + 5), Some([0.0; 3]));
     }
 
     #[test]

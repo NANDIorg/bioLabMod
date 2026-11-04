@@ -390,3 +390,44 @@ bindings = [
   { name = "stack", ty = "&crate::items::ItemStack", value = "&*stack" },
   { name = "may_place", ty = "&mut bool", value = "&mut *may_place" },
 ]
+
+# Дротик — настоящий снаряд (GDD 4.20, m11-12). Летит он копией снежка: тип
+# сущности мода `data/biolab/horizon/entity_type/<дротик>.json`, и игра сама
+# бросает его по ПКМ (`remedy.rs` клик не забирает). Здесь — вещество мобу
+# при попадании и дальность броска рукой. Стабильные хуки сервера: попадание
+# и «слушаю попадания» — API 136, запуск снаряда — API 293.
+[[injection]]
+id = "dart-hears"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_hears_projectile_impacts"
+helper = "dart_hears.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
+  { name = "hears", ty = "&mut bool", value = "&mut *hears" },
+]
+
+[[injection]]
+id = "dart-launch"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_projectile_launch"
+helper = "dart_launch.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "player", ty = "Option<u128>", value = "player" },
+  { name = "entity", ty = "u32", value = "entity" },
+  { name = "kind", ty = "&str", value = "kind" },
+]
+
+[[injection]]
+id = "dart-hit"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_projectile_impact"
+helper = "dart_hit.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "projectile", ty = "u32", value = "projectile" },
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "entity", ty = "Option<u32>", value = "entity" },
+  { name = "at", ty = "[f64; 3]", value = "at" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]

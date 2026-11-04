@@ -65,75 +65,12 @@ fn biolab_core_use_item(
         return;
     }
 
-    // Дротик: то же вещество, что в шприце, но по цели под прицелом.
-    if let Some(syringe) = m::dart_syringe(&stack.item) {
-        let Some((effects, ticks, amplifier)) = m::mob_injection(syringe) else {
-            return;
-        };
-        let Some(player) = game.native_player() else {
-            return;
-        };
-        // Куда смотрит игрок: вектор взгляда из его углов.
-        let pitch = f64::from(player.pitch).to_radians();
-        let yaw = f64::from(player.yaw).to_radians();
-        let look = [
-            -yaw.sin() * pitch.cos(),
-            -pitch.sin(),
-            yaw.cos() * pitch.cos(),
-        ];
-        let eye = [player.x, player.y + 1.62, player.z];
-        let mut best: Option<(u32, f64)> = None;
-        for mob in game.mobs.iter().filter(|mob| mob.alive()) {
-            let to = [
-                mob.position.x - eye[0],
-                mob.position.y + 0.9 - eye[1],
-                mob.position.z - eye[2],
-            ];
-            let far = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
-            if far < 1.0 || far > m::DART_RANGE {
-                continue;
-            }
-            let aim = (to[0] * look[0] + to[1] * look[1] + to[2] * look[2]) / far;
-            if aim < m::DART_AIM {
-                continue;
-            }
-            if best.is_none_or(|(_, nearest)| far < nearest) {
-                best = Some((mob.id, far));
-            }
-        }
-        // Выстрел слышен и при промахе: дротик всё равно улетел.
-        play(game, m::Cue::DartShot);
-        let Some((target, _)) = best else {
-            game.native_chat("Дротик ушёл в пустоту: цели на прицеле нет");
-            *claimed = true;
-            return;
-        };
-        let name = game
-            .mobs
-            .iter()
-            .find(|mob| mob.id == target)
-            .map(|mob| mob.kind.id.to_string())
-            .unwrap_or_default();
-        let mut hit = None;
-        if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == target) {
-            for effect in effects {
-                mob.add_effect(effect, ticks, amplifier);
-            }
-            hit = Some([mob.position.x, mob.position.y + 0.9, mob.position.z]);
-        }
-        if let Some(at) = hit {
-            play_at(game, m::Cue::DartHit, at);
-        }
-        game.native_chat(&m::injection_message(syringe, &name));
-        let world = game.world_root.clone();
-        m::record_trial(&world, &m::trial_record(syringe, &name));
-        let slot = game.selected as i32;
-        if let Some(carried) = game.native_carried_stack(slot)
-            && &*carried.item == &*stack.item
-        {
-            carried.count = carried.count.saturating_sub(1);
-        }
-        *claimed = true;
+    // Дротик здесь не забираем: клик проходит дальше, и игра бросает его
+    // сама, как снежок, — у дротика свой тип сущности (`entity_type/`).
+    // Вещество мобу вводит хук попадания (`dart_hit.rs`). Раньше здесь был
+    // мгновенный «выстрел» в моба под прицелом; снаряд честнее: виден полёт,
+    // нужно упреждение, промах ломает дротик о блок.
+    if m::dart_syringe(&stack.item).is_some() {
         return;
     }
 

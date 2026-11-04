@@ -83,6 +83,8 @@
  "item.biolab.spray_stimulant": "Стимулятор, аэрозоль",
  "item.biolab.dart_sedative": "Седативное, дротик",
  "item.biolab.dart_venom": "Яд, дротик",
+ "entity.biolab.dart_sedative": "Седативное, дротик",
+ "entity.biolab.dart_venom": "Яд, дротик",
  "item.biolab.bandage": "Бинт",
  "item.biolab.scalpel": "Скальпель",
  "gene.biolab.rending_claws": "Рвущие когти",
