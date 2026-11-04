@@ -1,12 +1,14 @@
-// Карта исследований рисуется вместо ванильной книги, когда её экран открыл
-// журнал лаборанта (`research_open.rs`): вкладки наук слева, тёмное поле с
-// узлами и связями, подсказка у курсора, запись на пергаменте поверх поля.
-fn biolab_deep_research_draw(
+// Карта исследований на своём экране мода (`native_mod_screen_open`):
+// вкладки наук слева, тёмное поле с узлами и связями, подсказка у курсора,
+// запись на пергаменте поверх поля. Сам экран мода ничего не рисует — только
+// мир за ним, — поэтому всё здесь, в `native_screen_render_post` (API 78),
+// поверх него. Хук на чтение: вид карты берём из общей памяти модуля.
+fn biolab_core_research_draw(
     game: &crate::game::Game<'_>,
     batch: &mut horizon_client::hud::HudBatch,
-) -> std::ops::ControlFlow<()> {
+    screen: &crate::game::native_hooks::NativeScreenView<'_>,
+) {
     use crate::game::biolab_core as m;
-    use std::ops::ControlFlow;
 
     const PAPER: u32 = 0xFF_E9DCBC;
     const PAPER_EDGE: u32 = 0xFF_5C4026;
@@ -57,19 +59,16 @@ fn biolab_deep_research_draw(
         game.native_fill(batch, [x + w, y, 1.0, h], color);
     }
 
-    let view = m::research_view();
-    let ours = matches!(
-        &game.book,
-        Some(crate::game::books::BookScreen::View { pages, lectern: None, .. }) if pages.is_empty()
-    );
-    if !view.open || !ours {
-        return ControlFlow::Continue(());
+    // У всех экранов модов один id `mod`: свой ли открыт — спрашиваем игру.
+    if screen.id != "mod" || game.native_mod_screen() != Some(m::ID) {
+        return;
     }
+    let view = m::research_view();
 
     let mask = m::shown_research();
     let (width, height) = (batch.width, batch.height);
     let l = m::research_layout(width, height);
-    let cursor = game.native_cursor();
+    let cursor = screen.mouse;
     // Доступные узлы мерцают: рамка меняет оттенок раз в 0,6 с.
     let pulse = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -192,8 +191,7 @@ fn biolab_deep_research_draw(
                 }
             }
 
-            let hint = "Щелчок — открыть запись · 1–5 науки · Esc — закрыть";
-            game.native_text(batch, hint, [x + 6.0, y + h - 11.0], m::RESEARCH_TEXT_DIM, false);
+            game.native_text(batch, m::RESEARCH_HINT, [x + 6.0, y + h - 11.0], m::RESEARCH_TEXT_DIM, false);
 
             // Подсказка у курсора — поверх всего.
             if let Some(i) = hovered {
@@ -334,5 +332,4 @@ fn biolab_deep_research_draw(
             }
         }
     }
-    ControlFlow::Break(())
 }

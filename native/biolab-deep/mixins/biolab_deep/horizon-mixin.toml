@@ -185,63 +185,10 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
 
-# Карта исследований вместо ванильной книги. Журнал лаборанта открывает
-# пустой экран книги: он даёт свободный курсор, мышь и клавиши, а рисуем и
-# отвечаем мы. Узлы и записи — в `biolab_core` (карта исследований).
-[[injection]]
-id = "research-open"
-kind = "HEAD"
-cancellable = true
-target = "horizon_client::game::remote::Game<'_>::remote_use_item"
-helper = "research_open.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "hand", ty = "horizon_client::first_person::Hand", value = "hand" },
-]
-
-[[injection]]
-id = "research-open-local"
-kind = "HEAD"
-cancellable = true
-target = "horizon_client::game::books::Game<'_>::use_book"
-helper = "research_open_local.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
-]
-
-[[injection]]
-id = "research-draw"
-kind = "HEAD"
-cancellable = true
-target = "horizon_client::game::books::Game<'_>::draw_book"
-helper = "research_draw.rs"
-bindings = [
-  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
-  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
-]
-
-[[injection]]
-id = "research-click"
-kind = "HEAD"
-cancellable = true
-target = "horizon_client::game::books::Game<'_>::book_click"
-helper = "research_click.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "size", ty = "[u32; 2]", value = "size" },
-]
-
-[[injection]]
-id = "research-key"
-kind = "HEAD"
-cancellable = true
-target = "horizon_client::game::books::Game<'_>::book_input"
-helper = "research_key.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "key", ty = "Option<winit::keyboard::KeyCode>", value = "key" },
-]
+# Карта исследований (журнал лаборанта) отсюда ушла: с M11 это свой экран
+# мода на стабильных хуках в `biolab_core` (`research_*.rs`, GDD 4.13).
+# Перехваты ванильной книги (`remote_use_item`, `use_book`, `draw_book`,
+# `book_click`, `book_input`) больше не нужны.
 
 # Кости срезанных конечностей и наросты мутантов рисуются вторым проходом
 # поверх модели. Раньше оба прохода висели RETURN'ом на `render_visible`, но
