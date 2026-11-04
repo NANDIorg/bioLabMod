@@ -15,8 +15,11 @@ fn biolab_deep_mob_effects(m: &mut crate::mobs::Mob) {
     // снотворное, и снимается, как только оно кончилось. Цель снимает
     // `biolab-core`; модификатор — прибавка к атрибуту, для неё стабильного
     // API нет, поэтому она здесь.
+    // Паралич кураре (GDD 4.20) держит на месте тем же модификатором: моб
+    // не спит и не лежит, но и не ходит. Свой модификатор ему не нужен —
+    // сон и паралич вместе всё равно дают «стоять».
     const STILL: &str = "biolab:sedation_still";
-    if crate::biolab_bridge::sedated(m) {
+    if crate::biolab_bridge::sedated(m) || crate::biolab_bridge::paralysed(m) {
         if !has_modifier(m, Attr::MovementSpeed, STILL) {
             add_modifier(m, Attr::MovementSpeed, STILL, -1.0, Op::AddMultipliedTotal);
         }

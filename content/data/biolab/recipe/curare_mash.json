@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:vine",
+  "minecraft:spider_eye",
+  "biolab:flask"
+ ],
+ "result": {
+  "id": "biolab:curare_mash",
+  "count": 1
+ },
+ "time": 60
+}

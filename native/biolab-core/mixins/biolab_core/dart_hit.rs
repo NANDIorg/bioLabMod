@@ -43,6 +43,12 @@ fn biolab_core_projectile_impact(
         m::DartImpact::Nothing => {}
         m::DartImpact::Spent(range) => game.native_chat(&m::dart_spent_message(range)),
         m::DartImpact::Inject(syringe) => {
+            // Снотворное — по силе против массы (GDD 4.20, `biolab_sleep`).
+            if let Some(target) = target
+                && crate::game::biolab_sleep::dart(game, target, syringe, at)
+            {
+                return;
+            }
             let (Some(target), Some((effects, ticks, amplifier))) = (target, m::mob_injection(syringe)) else {
                 return;
             };

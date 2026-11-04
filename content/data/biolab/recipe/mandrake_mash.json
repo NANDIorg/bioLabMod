@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:mandrake_root",
+  "biolab:belladonna_berries",
+  "biolab:spirit"
+ ],
+ "result": {
+  "id": "biolab:mandrake_mash",
+  "count": 1
+ },
+ "time": 60
+}

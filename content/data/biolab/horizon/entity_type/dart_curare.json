@@ -1,0 +1,5 @@
+{
+ "template": "minecraft:snowball",
+ "item": "biolab:dart_curare",
+ "damage": 0.0
+}

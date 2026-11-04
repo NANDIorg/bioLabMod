@@ -631,6 +631,45 @@ bindings = [
   { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
 ]
 
+# Снотворные (GDD 4.20, M5): сила вещества против массы моба, сон после
+# задержки, вялость, газовые облака и вспышка эфира. Правила и числа — в
+# `runtime.rs` под тестами; исполнение на игре — модуль `biolab_sleep`: его
+# зовут несколько хуков (`inject.rs`, `dart_hit.rs`, `surgery.rs` и новые
+# ниже), а вложенную функцию хелпера из другого хелпера не позвать. Масса
+# читает гены из данных моба, поэтому модулю нужна вся игра — он в game.rs,
+# как `biolab_core_data`.
+[[module]]
+id = "sleep"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_sleep"
+source = "sleep.rs"
+
+# Тик снотворных: сон после задержки, вялость, облака по мобам и вдох газа
+# игроком. На тике игрока, как операционная: `native_level_tick_post` в
+# одиночной игре не вызывается. Стабильный хук API 31.
+[[injection]]
+id = "sleep-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "sleep_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Аэрозоль эфира и хлороформа: ПКМ — облачко перед собой. Третий перехват
+# `native_use_item` (стабильный API 13) рядом с `remedy.rs` и
+# `research_open.rs`: газ себе не принимают, `remedy.rs` его не знает.
+[[injection]]
+id = "gas-use"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_use_item"
+helper = "gas_use.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
+]
+
 # Дикие заросли стоят на траве, подзоле и иле, а не только на пашне.
 # Стабильный хук API 70, уровень сервера, только для чтения.
 [[injection]]
@@ -769,4 +808,20 @@ helper = "weapon_zoom.rs"
 bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "zoom", ty = "&mut Option<horizon_client::mod_api::NativeZoom>", value = "&mut *zoom" },
+]
+
+# Газовая граната разбилась — облако. Вторая инъекция на попадание снаряда
+# (стабильный API 136) рядом с дротиком (`dart_hit.rs`); слушать попадания
+# уже включает `dart_hears.rs`.
+[[injection]]
+id = "grenade-hit"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_projectile_impact"
+helper = "grenade_hit.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "at", ty = "[f64; 3]", value = "at" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]

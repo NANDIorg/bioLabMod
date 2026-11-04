@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:extract_curare"
+ ],
+ "result": {
+  "id": "biolab:syringe_curare",
+  "count": 1
+ },
+ "time": 40
+}

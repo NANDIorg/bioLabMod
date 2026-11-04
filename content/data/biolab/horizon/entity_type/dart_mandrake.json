@@ -1,0 +1,5 @@
+{
+ "template": "minecraft:snowball",
+ "item": "biolab:dart_mandrake",
+ "damage": 0.0
+}

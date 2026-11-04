@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:extract_caffeine",
+  "biolab:pill_antidote"
+ ],
+ "result": {
+  "id": "biolab:syringe_wake",
+  "count": 1
+ },
+ "time": 40
+}

@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "biolab:mandrake_mash",
+ "result": {
+  "id": "biolab:tincture_mandrake",
+  "count": 1
+ },
+ "time": 200
+}

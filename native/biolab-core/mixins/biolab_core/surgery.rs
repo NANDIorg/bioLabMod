@@ -58,6 +58,20 @@ fn biolab_core_surgery_tick(game: &mut crate::game::Game<'_>) {
         // тик моба перезаписывает своей. Снотворное подновляем, чтобы он не
         // проснулся посреди операции. Стола под ним нет — свободен.
         let mut held = false;
+        // Стол подновляет то вещество, которым пациента усыпили (GDD 4.20).
+        // Вживили на столе устойчивость, и его не хватает, — пациент
+        // просыпается и уходит со стола; скажем один раз, в этот же тик.
+        if on_table {
+            let slept = m::sleep_book().lock().ok().and_then(|book| book.slept_with(id));
+            if let Some((kind, mass)) = crate::game::biolab_sleep::mass_of(game, id)
+                && m::table_sleeper(slept, mass).is_none()
+                && let Some(s) = slept.and_then(m::sleeper)
+            {
+                on_table = false;
+                data::set_surgery(game, id, on_table, mask);
+                game.native_chat(&m::table_wakes_message(s, &kind, mass));
+            }
+        }
         if on_table {
             match m::nearest_table(at, |spot| game.native_block(spot) == m::OPERATING_TABLE) {
                 Some(table) => {

@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:spirit",
+  "biolab:element_sulfur",
+  "biolab:flask"
+ ],
+ "result": {
+  "id": "biolab:ether_mix",
+  "count": 1
+ },
+ "time": 60
+}

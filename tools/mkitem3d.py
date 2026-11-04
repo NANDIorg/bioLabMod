@@ -910,6 +910,34 @@ ITEMS = {
     # Поясок баллона: синий у полного, серый у пустого.
     "co2_canister": ("canister", "#4f8fd0"),
     "co2_canister_empty": ("canister", "#7a7a7a"),
+    # Линейка снотворных (GDD 4.20, M5): готовые формы, новых нет. Колба —
+    # жидкости и смеси в стекле (спирт, эфир, хлороформ, отвар, граната:
+    # бросают ту же колбу), банка — сусла и экстракты, тряпка — бинт.
+    "spirit": ("flask", "#e6eef2"),
+    "calming_brew": ("flask", "#b8904a"),
+    "syringe_calming": ("syringe", "#b8904a"),
+    "mandrake_mash": ("jar", "#7a8a4a"),
+    "tincture_mandrake": ("jar", "#6a3e7a"),
+    "syringe_mandrake": ("syringe", "#6a3e7a"),
+    "dart_mandrake": ("dart", "#6a3e7a"),
+    "ether_mix": ("flask", "#d8cc6a"),
+    "ether": ("flask", "#dff2f6"),
+    "spray_ether": ("spray", "#dff2f6"),
+    "grenade_ether": ("flask", "#c8e6a0"),
+    "chloroform_mix": ("flask", "#b8d870"),
+    "chloroform": ("flask", "#cfe8dc"),
+    "spray_chloroform": ("spray", "#cfe8dc"),
+    "rag_chloroform": ("bandage", None),
+    "grenade_chloroform": ("flask", "#9ccfb4"),
+    "curare_mash": ("jar", "#4e6a2e"),
+    "curare_raw": ("jar", "#3c4a28"),
+    "extract_curare": ("jar", "#2e2a1a"),
+    "syringe_curare": ("syringe", "#2e2a1a"),
+    "dart_curare": ("dart", "#2e2a1a"),
+    "tranquilizer": ("jar", "#b0403a"),
+    "syringe_tranquilizer": ("syringe", "#b0403a"),
+    "dart_tranquilizer": ("dart", "#b0403a"),
+    "syringe_wake": ("syringe", "#e8c040"),
 }
 
 # Объёмные и в инвентаре: GDD 4.12 называет колбу, шприц и тюбик мази вещами,

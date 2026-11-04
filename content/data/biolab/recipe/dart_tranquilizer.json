@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:syringe_tranquilizer",
+  "minecraft:feather",
+  "minecraft:stick"
+ ],
+ "result": {
+  "id": "biolab:dart_tranquilizer",
+  "count": 1
+ },
+ "time": 40
+}

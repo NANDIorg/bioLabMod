@@ -223,6 +223,12 @@ fn growth_traits_name_real_genes() {
 fn core_effects_speak_the_deep_genome() {
     assert_eq!(mutants::SEDATION, biolab_core::SEDATION_EFFECT);
     assert_eq!(mutants::SEDATION, core_effects::SEDATION);
+    // Паралич кураре (M5): моб стоит тем же модификатором, что усыплённый.
+    assert_eq!(mutants::PARALYSIS, biolab_core::PARALYSIS_EFFECT);
+    assert_eq!(mutants::PARALYSIS, core_effects::PARALYSIS);
+    // Ген устойчивости к снотворному — тот, чью силу core прибавляет к массе.
+    assert!(mutants::gene_index(biolab_core::RESISTANCE_GENE).is_some());
+    assert_eq!(mutants::GENE_STATS[mutants::gene_index(biolab_core::RESISTANCE_GENE).unwrap()], [0.0; 5]);
     assert_eq!(biolab_core::GENES.len(), mutants::GENE_NAMES.len());
     for (i, gene) in biolab_core::GENES.iter().enumerate() {
         assert_eq!(gene.name, mutants::GENE_NAMES[i], "ген {i}");

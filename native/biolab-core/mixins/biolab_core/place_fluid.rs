@@ -53,6 +53,12 @@ fn biolab_core_use_item_on(
             game.native_chat("Носилки пусты: ПКМ по усыплённому мобу — погрузить");
             return;
         };
+        // Паралич кураре — не сон: на стол кладут только спящего (GDD 4.20).
+        // Носилки остаются занятыми: пациента можно положить на землю.
+        if let Some(why) = m::table_refuses(&patient) {
+            game.native_chat(&why);
+            return;
+        }
         // Стол — весь ряд секций, в который входит та, по которой кликнули.
         let row = m::table_row(pos, |at| game.native_block(at) == m::OPERATING_TABLE);
         // Стороны секций — по соседям: ванилла гриба не открывает сторону
@@ -122,6 +128,12 @@ fn biolab_core_use_item_on(
         // геному), так что снимать нечего.
         crate::game::biolab_core_data::set_genes(game, id, &patient.genes);
         crate::game::biolab_core_data::set_surgery(game, id, true, patient.flayed);
+        // Чем пациента усыпили, едет с ним: стол подновит то же вещество.
+        if let Some(s) = patient.sleeper.and_then(m::sleeper)
+            && let Ok(mut book) = m::sleep_book().lock()
+        {
+            book.fell_asleep(id, s.id);
+        }
         if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
             // Пристёгнут и спит с первого тика: иначе зомби успел бы ударить.
             mob.add_effect(m::SEDATION_EFFECT, m::TABLE_SEDATION_TICKS, 0);
@@ -160,6 +172,73 @@ fn biolab_core_use_item_on(
             "На столе: {}. Скальпель — ПКМ по пациенту",
             m::patient_title(&patient)
         ));
+        return;
+    }
+    // Занятые носилки по любому другому блоку — положить пациента на землю
+    // (GDD 4.20): парализованного кураре на стол не уложить, а донести и
+    // выгрузить — в вольер, к столу после снотворного — надо. Ложится он на
+    // блок по ту сторону грани, в своём сне или параличе ещё несколько секунд.
+    if &*stack.item == m::STRETCHER_ID {
+        use horizon_world::nbt::Tag;
+        let text = stack.extra.as_ref().and_then(|extra| {
+            extra
+                .other
+                .iter()
+                .find(|(key, _)| key == "minecraft:custom_data")
+                .and_then(|(_, data)| match data.get(m::PATIENT_KEY) {
+                    Some(Tag::String(s)) => Some(s.to_string_lossy()),
+                    _ => None,
+                })
+        });
+        let Some(patient) = text.as_deref().and_then(m::patient_from_text) else {
+            return;
+        };
+        *claimed = true;
+        let at = [pos[0] + face[0], pos[1] + face[1], pos[2] + face[2]];
+        if !m::is_air(&game.native_block(at)) || !m::is_air(&game.native_block([at[0], at[1] + 1, at[2]])) {
+            game.native_chat("Здесь не положить: нужно два блока пустоты");
+            return;
+        }
+        let spot = [f64::from(at[0]) + 0.5, f64::from(at[1]), f64::from(at[2]) + 0.5];
+        let dimension = game.dim.id().to_string();
+        let options = crate::game::native_mobs::NativeSpawn {
+            name: patient.name.clone(),
+            health: Some(patient.health),
+            ..Default::default()
+        };
+        let Some(id) = game.native_spawn_mob(&dimension, &patient.kind, spot, &options) else {
+            game.native_chat("Не удалось положить: на мирной сложности враждебные не появляются");
+            return;
+        };
+        crate::game::biolab_core_data::set_genes(game, id, &patient.genes);
+        crate::game::biolab_core_data::set_surgery(game, id, false, patient.flayed);
+        let effect = if patient.paralysed { m::PARALYSIS_EFFECT } else { m::SEDATION_EFFECT };
+        if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
+            mob.add_effect(effect, m::UNLOAD_TICKS, 0);
+            mob.ai.target = None;
+        }
+        if let Some(s) = patient.sleeper.and_then(m::sleeper)
+            && let Ok(mut book) = m::sleep_book().lock()
+        {
+            book.fell_asleep(id, s.id);
+        }
+        m::settle_health(id, patient.health, game.ticks + m::HEALTH_SETTLE_TICKS);
+        let main = game.selected as i32;
+        let slot = if game
+            .native_carried_stack(main)
+            .is_some_and(|held| &*held.item == m::STRETCHER_ID)
+        {
+            main
+        } else {
+            -106
+        };
+        if let Some(held) = game.native_carried_stack(slot)
+            && &*held.item == m::STRETCHER_ID
+        {
+            held.extra = None;
+        }
+        play_at(game, m::Cue::Stretcher, spot);
+        game.native_chat(&format!("На земле: {}", m::patient_title(&patient)));
         return;
     }
     // Грядка: фрагментом ДНК или урожаем сажают, пустой рукой собирают.
