@@ -3176,7 +3176,7 @@ pub fn journal_lines(world: &std::path::Path) -> Vec<String> {
 // карту исследований (см. «Карта исследований» ниже).
 
 /// Книга мода: свой предмет. Открывает карту исследований — свой экран
-/// в `biolab-deep` на месте ванильной книги.
+/// мода (см. «Карта исследований»).
 pub const MANUAL_ID: &str = "biolab:lab_manual";
 /// Сколько страниц бывает у одной записи.
 pub const MANUAL_MAX_PAGES: usize = 100;
@@ -7875,11 +7875,19 @@ mod tests {
 // связанные линиями. Узел загорается сам, когда игрок сделал что-то новое:
 // получил предмет, опознал вещество, заразился, принял лекарство. Здесь
 // только данные и чистая логика: таблица узлов, условия, раскладка экрана,
-// попадание мышью и разбор страниц. Рисует и ловит мышь экран в `biolab-deep`,
-// который подменяет собой ванильную книгу.
+// попадание мышью, клавиши, колесо и разбор страниц. Экран — свой экран мода
+// (`native_mod_screen_open`, API 111) на стабильных хуках: открывает его
+// `research_open.rs` / `research_net.rs`, рисует `research_draw.rs`, мышь,
+// колесо и клавиши — `research_click.rs`, `research_release.rs`,
+// `research_scroll.rs`, `research_key.rs`, отложенное (закрыть, щелчок) —
+// `research_frame.rs`.
 
 /// Канал, по которому сервер раз в секунду сообщает клиенту изученные узлы.
 pub const NET_RESEARCH: &str = "biolab_core:research";
+/// Канал «открой журнал»: сервер шлёт его игроку, применившему журнал. Решает
+/// сервер, как у ванильной книги: блок под прицелом (машина, сундук) успевает
+/// забрать щелчок раньше, и тогда журнал не открывается.
+pub const NET_JOURNAL: &str = "biolab_core:journal";
 /// Тексты записей: по блоку на узел, правятся без пересборки.
 pub const RESEARCH_PATH: &str = "data/biolab/research/ru.txt";
 
@@ -8554,6 +8562,160 @@ pub fn research_key(view: ResearchView, key: &str, pages: usize) -> (ResearchVie
     }
 }
 
+/// Сколько страниц у открытой записи (1 — на карте): кнопкам, клавишам и
+/// колесу, чтобы не листать за последнюю.
+pub fn research_page_count(view: &ResearchView, text: &str) -> usize {
+    view.page.map_or(1, |(node, _)| research_pages(text, node).len())
+}
+
+/// Имя клавиши для `research_key` из ванильного (`key.keyboard.e`, как его
+/// отдаёт `native_screen_key_pressed_pre`). None — клавиша журналу не нужна:
+/// её не глотаем, пусть делает своё (F2, F11 и прочее работают и над экраном).
+pub fn research_key_name(vanilla: &str) -> Option<&'static str> {
+    let key = vanilla.strip_prefix("key.keyboard.")?;
+    // Цифры с цифрового блока — те же науки.
+    let key = key.strip_prefix("keypad.").unwrap_or(key);
+    Some(match key {
+        "escape" => "escape",
+        "backspace" => "backspace",
+        "e" => "e",
+        "left" => "left",
+        "a" => "a",
+        "right" => "right",
+        "d" => "d",
+        "1" => "1",
+        "2" => "2",
+        "3" => "3",
+        "4" => "4",
+        "5" => "5",
+        _ => return None,
+    })
+}
+
+/// Что сделать с нажатой клавишей: новый вид, отменить ли её дальше и
+/// закрыть ли экран.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResearchKeyPress {
+    pub view: ResearchView,
+    /// Клавиша наша: дальше её не пускать.
+    pub cancel: bool,
+    /// Закрыть экран мода. Хук клавиш получает игру только на чтение, так что
+    /// закрывает кадровый хук (`research_frame.rs`) по просьбе отсюда.
+    pub close: bool,
+}
+
+pub fn research_key_press(view: ResearchView, vanilla: &str, pages: usize) -> ResearchKeyPress {
+    let Some(name) = research_key_name(vanilla) else {
+        return ResearchKeyPress { view, cancel: false, close: false };
+    };
+    let (next, close) = research_key(view, name, pages);
+    // Escape на карте закрывает свой экран мода сама игра — не мешаем ей: так
+    // экран закроется, даже если кадровый хук почему-то не сработает.
+    if close && name == "escape" {
+        return ResearchKeyPress { view: next, cancel: false, close: false };
+    }
+    ResearchKeyPress { view: next, cancel: true, close }
+}
+
+/// Шаг колеса: на записи листает страницы (вверх — назад), на карте —
+/// науки, как вкладки сверху вниз. `steps` больше нуля — колесо вверх.
+pub fn research_scroll(view: ResearchView, steps: i32, pages: usize) -> ResearchView {
+    let mut view = view;
+    for _ in 0..steps.unsigned_abs() {
+        let up = steps > 0;
+        view = match view.page {
+            Some(_) => {
+                let hit = if up { ResearchHit::PagePrevious } else { ResearchHit::PageNext };
+                research_click(view, hit, 0, pages)
+            }
+            None => {
+                let science = if up {
+                    view.science.saturating_sub(1)
+                } else {
+                    (view.science + 1).min(SCIENCES.len() - 1)
+                };
+                ResearchView { science, ..view }
+            }
+        };
+    }
+    view
+}
+
+/// Ввод экрана журнала между хуками. Хуки экрана получают игру только на
+/// чтение (`&self`): закрыть экран и щёлкнуть звуком они не могут, поэтому
+/// просят об этом, а делает кадровый хук. Здесь же — какие кнопки мыши
+/// нажаты над журналом и остаток колеса.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ResearchInput {
+    /// Кнопки, нажатие которых журнал отменил: только их отпускание и
+    /// отменяем. Нажатие, начатое до экрана (тот самый правый щелчок, что
+    /// открыл журнал), отпускается как обычно — иначе игра сочтёт кнопку
+    /// зажатой.
+    pub held: u8,
+    /// Дробный остаток колеса: тачпад шлёт доли щелчка (пиксели / 30), и без
+    /// остатка запись листалась бы на каждое касание.
+    pub wheel: f64,
+    /// Закрыть экран в следующем кадре.
+    pub close: bool,
+    /// Щёлкнуть звуком кнопки в следующем кадре.
+    pub click: bool,
+}
+
+impl ResearchInput {
+    pub fn press(&mut self, button: i32) {
+        if (0..8).contains(&button) {
+            self.held |= 1 << button;
+        }
+    }
+
+    /// Отпущена кнопка: true — её нажатие было наше, отпускание тоже глотаем.
+    pub fn release(&mut self, button: i32) -> bool {
+        if !(0..8).contains(&button) {
+            return false;
+        }
+        let bit = 1 << button;
+        let ours = self.held & bit != 0;
+        self.held &= !bit;
+        ours
+    }
+
+    /// Колесо на `dy`: сколько целых шагов набралось (вверх — больше нуля).
+    pub fn scroll(&mut self, dy: f64) -> i32 {
+        if !dy.is_finite() {
+            return 0;
+        }
+        // Колесо повернули в другую сторону — старый остаток не в счёт.
+        if self.wheel * dy < 0.0 {
+            self.wheel = 0.0;
+        }
+        self.wheel += dy;
+        let steps = self.wheel.trunc();
+        self.wheel -= steps;
+        steps.clamp(-8.0, 8.0) as i32
+    }
+
+    /// Просьбы к кадру: (закрыть, щёлкнуть). Забирает их.
+    pub fn take(&mut self) -> (bool, bool) {
+        let asked = (self.close, self.click);
+        self.close = false;
+        self.click = false;
+        asked
+    }
+}
+
+fn research_input_cell() -> &'static std::sync::Mutex<ResearchInput> {
+    static INPUT: std::sync::OnceLock<std::sync::Mutex<ResearchInput>> = std::sync::OnceLock::new();
+    INPUT.get_or_init(Default::default)
+}
+
+/// Поменять ввод журнала под замком.
+pub fn with_research_input<R>(f: impl FnOnce(&mut ResearchInput) -> R) -> Option<R> {
+    research_input_cell().lock().ok().map(|mut input| f(&mut input))
+}
+
+/// Подпись внизу карты.
+pub const RESEARCH_HINT: &str = "Щелчок — запись · 1–5, колесо — науки · Esc — закрыть";
+
 // Цвета экрана: ARGB для заливок, RGB для текста.
 pub const RESEARCH_SHADE: u32 = 0xD0_08050C;
 pub const RESEARCH_GOLD: u32 = 0xFF_C9A45A;
@@ -9053,6 +9215,87 @@ mod research_tests {
         assert!(research_key(back_to_map, "escape", 1).1);
         assert_eq!(research_key(view, "5", 1).0.science, 4);
         assert_eq!(research_key(view, "9", 1).0, view);
+    }
+
+    /// Клавиши приходят ванильными именами (`native_screen_key_pressed_pre`):
+    /// наши глотаем, чужие пропускаем, Escape на карте закрывает сама игра.
+    #[test]
+    fn keys_of_the_screen_come_by_vanilla_names() {
+        let map = ResearchView { open: true, science: 0, page: None };
+        let record = ResearchView { page: Some((1, 0)), ..map };
+        assert_eq!(research_key_name("key.keyboard.e"), Some("e"));
+        assert_eq!(research_key_name("key.keyboard.keypad.3"), Some("3"));
+        assert_eq!(research_key_name("key.keyboard.left"), Some("left"));
+        assert_eq!(research_key_name("key.keyboard.f2"), None);
+        assert_eq!(research_key_name("key.mouse.left"), None);
+
+        // Escape: на записи — назад к карте, глотаем; на карте — не мешаем
+        // игре закрыть экран.
+        let back = research_key_press(record, "key.keyboard.escape", 1);
+        assert_eq!(back, ResearchKeyPress { view: map, cancel: true, close: false });
+        let esc = research_key_press(map, "key.keyboard.escape", 1);
+        assert!(!esc.cancel && !esc.close);
+        // E и Backspace на карте закрывают экран нашими руками.
+        let e = research_key_press(map, "key.keyboard.e", 1);
+        assert!(e.cancel && e.close && !e.view.open);
+        // Цифры и стрелки — наши; F2 (снимок) и прочее идут дальше.
+        assert_eq!(research_key_press(map, "key.keyboard.2", 1).view.science, 1);
+        assert!(research_key_press(map, "key.keyboard.2", 1).cancel);
+        let turned = research_key_press(record, "key.keyboard.right", 3);
+        assert_eq!((turned.view.page, turned.cancel), (Some((1, 1)), true));
+        assert_eq!(research_key_press(map, "key.keyboard.f2", 1), ResearchKeyPress { view: map, cancel: false, close: false });
+    }
+
+    #[test]
+    fn the_wheel_turns_pages_and_sciences() {
+        let map = ResearchView { open: true, science: 0, page: None };
+        // На карте: вниз — следующая наука, без выхода за края.
+        assert_eq!(research_scroll(map, -1, 1).science, 1);
+        assert_eq!(research_scroll(map, 1, 1).science, 0);
+        assert_eq!(research_scroll(map, -20, 1).science, SCIENCES.len() - 1);
+        // На записи: вниз — следующая страница, вверх — предыдущая.
+        let record = ResearchView { page: Some((2, 0)), ..map };
+        assert_eq!(research_scroll(record, -2, 3).page, Some((2, 2)));
+        assert_eq!(research_scroll(record, -5, 3).page, Some((2, 2)));
+        assert_eq!(research_scroll(research_scroll(record, -2, 3), 1, 3).page, Some((2, 1)));
+        assert_eq!(research_scroll(record, 0, 3), record);
+
+        // Тачпад шлёт доли щелчка: шаг набирается из них, разворот колеса
+        // сбрасывает остаток.
+        let mut input = ResearchInput::default();
+        assert_eq!(input.scroll(0.4), 0);
+        assert_eq!(input.scroll(0.4), 0);
+        assert_eq!(input.scroll(0.4), 1);
+        assert_eq!(input.scroll(-0.5), 0);
+        assert_eq!(input.scroll(-0.6), -1);
+        assert_eq!(input.scroll(-3.0), -3);
+        assert_eq!(input.scroll(f64::NAN), 0);
+    }
+
+    #[test]
+    fn only_the_buttons_pressed_on_the_screen_are_released_by_it() {
+        let mut input = ResearchInput::default();
+        // Правый щелчок открыл журнал до экрана: его отпускание — игры.
+        assert!(!input.release(1));
+        input.press(0);
+        assert!(input.release(0));
+        assert!(!input.release(0), "второй раз — уже не наше");
+        input.press(40);
+        assert!(!input.release(40), "кнопка за пределами маски");
+        input.close = true;
+        input.click = true;
+        assert_eq!(input.take(), (true, true));
+        assert_eq!(input.take(), (false, false));
+    }
+
+    #[test]
+    fn the_hint_fits_under_the_map() {
+        let l = research_layout(427.0, 240.0);
+        assert!(estimated_text_width(RESEARCH_HINT) + 12.0 <= l.field[2], "{}", estimated_text_width(RESEARCH_HINT));
+        let text = "= manual\n# Один\n---\n# Два\n";
+        let map = ResearchView { open: true, science: 0, page: None };
+        assert_eq!(research_page_count(&map, text), 1);
+        assert_eq!(research_page_count(&ResearchView { page: Some((0, 0)), ..map }, text), 2);
     }
 
     #[test]
