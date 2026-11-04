@@ -670,3 +670,103 @@ bindings = [
   { name = "context", ty = "&horizon_client::mod_api::NativeLootDrops<'_>", value = "&*context" },
   { name = "drops", ty = "&mut Vec<horizon_client::items::ItemStack>", value = "&mut *drops" },
 ]
+
+# Оружие для дротиков (GDD 4.20): духовая трубка, арбалет-транквилизатор,
+# пневматическое ружьё. Решения — в `runtime.rs` («Оружие для дротиков»),
+# исполнение на типах игры — модуль `crate::game::biolab_weapons`: стек
+# оружия, дротики в инвентаре и запуск снаряда-дротика со своей скоростью
+# (`Projectile::new` + `shoot_from_rotation` + `add_projectile`, как
+# `throw_item` у снежка). Клик — `use-item` (`remedy.rs`), остальное — ниже.
+[[module]]
+id = "weapons"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_weapons"
+source = "weapons.rs"
+
+# Арбалет и ружьё держатся по зажатому ПКМ: натяжение и прицел. Обе стороны,
+# стабильный API 90.
+[[injection]]
+id = "weapon-duration"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_use_duration"
+helper = "weapon_duration.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "duration", ty = "&mut i32", value = "&mut *duration" },
+]
+
+# Поза руки: натяжение — как лук, заряженный и в прицеле — неподвижно.
+# Клиент, стабильный API 90.
+[[injection]]
+id = "weapon-pose"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_use_animation"
+helper = "weapon_pose.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "animation", ty = "&mut horizon_world::consumable::UseAnimation", value = "&mut *animation" },
+]
+
+# Отказ начать: заряженный арбалет и пустое ружьё — кликом, без дротиков —
+# нечем. Обе стороны одним решением, стабильный API 90.
+[[injection]]
+id = "weapon-start"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_start"
+helper = "weapon_start.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "entity", ty = "Option<i32>", value = "entity" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# Натяжение арбалета: тик использования. Стабильный API 131.
+[[injection]]
+id = "weapon-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_on_use_tick"
+helper = "weapon_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "entity", ty = "Option<i32>", value = "entity" },
+  { name = "remaining", ty = "i32", value = "remaining" },
+]
+
+# Выстрел ружья: отпущен прицел. Стабильный API 131.
+[[injection]]
+id = "weapon-release"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_release_using"
+helper = "weapon_release.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "entity", ty = "Option<i32>", value = "entity" },
+]
+
+# Магазин ружья и заряд арбалета — полоской под иконкой. Клиент, API 60.
+[[injection]]
+id = "weapon-bar"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_item_bar"
+helper = "weapon_bar.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "bar", ty = "&mut Option<(i32, u32)>", value = "&mut *bar" },
+]
+
+# Приближение прицела ружья. Клиент, стабильный хук `zoom`.
+[[injection]]
+id = "weapon-zoom"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_zoom"
+helper = "weapon_zoom.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "zoom", ty = "&mut Option<horizon_client::mod_api::NativeZoom>", value = "&mut *zoom" },
+]

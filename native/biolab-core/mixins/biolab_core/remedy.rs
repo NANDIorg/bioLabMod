@@ -65,6 +65,17 @@ fn biolab_core_use_item(
         return;
     }
 
+    // Оружие для дротиков (GDD 4.20): трубка и заряженный арбалет стреляют,
+    // пустое ружьё заряжается, нечем — осечка (`weapons.rs`). Натяжение
+    // арбалета и прицел ружья клик не забирают: это использование со временем
+    // (`weapon_start.rs`, `weapon_tick.rs`, `weapon_release.rs`).
+    if let Some(weapon) = m::dart_weapon(&stack.item) {
+        if crate::game::biolab_weapons::click(game, weapon, stack) {
+            *claimed = true;
+        }
+        return;
+    }
+
     // Дротик здесь не забираем: клик проходит дальше, и игра бросает его
     // сама, как снежок, — у дротика свой тип сущности (`entity_type/`).
     // Вещество мобу вводит хук попадания (`dart_hit.rs`). Раньше здесь был

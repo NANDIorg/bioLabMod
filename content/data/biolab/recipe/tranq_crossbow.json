@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:crossbow",
+  "biolab:syringe",
+  "minecraft:iron_ingot"
+ ],
+ "result": {
+  "id": "biolab:tranq_crossbow",
+  "count": 1
+ },
+ "time": 100
+}

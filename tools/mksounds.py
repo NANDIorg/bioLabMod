@@ -321,9 +321,57 @@ def spray_use():
     return fs, finish(out, fs, 0.7)
 
 
-def dart_shoot():
-    # Пневматический выстрел дротика: хлопок воздуха, свист пролёта (тон
-    # падает — дротик удаляется) и шипение остатка воздуха в стволе.
+def blowpipe_shoot():
+    # Духовая трубка (GDD 4.20): короткий резкий выдох — шумовой «пф» в
+    # средних частотах, — тихий гулкий тон трубки и шорох пролёта дротика.
+    # Без хлопка: трубка — тихое оружие.
+    fs, length = HI, 0.3
+    rnd = random.Random(81)
+    n = int(length * fs)
+    breath = Band(fs, 1400, 0.8)
+    tube = Osc(fs)
+    swish = Band(fs, 4200, 2.0)
+    out = []
+    for i in range(n):
+        t = i / fs
+        x = rnd.uniform(-1, 1)
+        v = 1.0 * breath(x) * env_ar(t, 0.004, 0.06, 0.09) * (t < 0.09)
+        # Труба гудит на своей длине: метр бамбука — около 170 Гц.
+        v += 0.25 * tube(170) * decay(t, 0.03)
+        s = swish(x)
+        if 0.03 <= t < 0.25:
+            v += 0.3 * s * env_ar(t - 0.03, 0.03, 0.12, 0.22)
+        out.append(v)
+    return fs, finish(out, fs, 0.7)
+
+
+def tranq_crossbow_shoot():
+    # Арбалет: сухой щелчок спуска, гул сорвавшейся тетивы (низкий тон с
+    # обертонами, быстро гаснет и чуть уходит вниз) и свист пролёта дротика.
+    fs, length = HI, 0.45
+    rnd = random.Random(91)
+    n = int(length * fs)
+    click = Band(fs, 3800, 2.5)
+    o1, o2, o3 = Osc(fs), Osc(fs), Osc(fs)
+    whistle = Osc(fs)
+    out = []
+    for i in range(n):
+        t = i / fs
+        x = rnd.uniform(-1, 1)
+        v = 1.0 * click(x) * decay(t, 0.004)
+        f = 150 - 40 * min(t, 0.2)
+        v += (0.6 * o1(f) + 0.25 * o2(2 * f) + 0.1 * o3(3.02 * f)) * decay(t - 0.005, 0.07) * (t >= 0.005)
+        if 0.02 <= t < 0.2:
+            u = t - 0.02
+            v += 0.12 * whistle(2400 - 5000 * u) * env_ar(u, 0.01, 0.1, 0.18)
+        out.append(v)
+    return fs, finish(out, fs, 0.8)
+
+
+def air_rifle_shoot():
+    # Пневматическое ружьё: хлопок воздуха, свист пролёта (тон падает —
+    # дротик удаляется) и шипение остатка газа в стволе. Тот же хлопок, что
+    # был у «dart_gun» до оружия.
     fs, length = HI, 0.4
     rnd = random.Random(71)
     n = int(length * fs)
@@ -431,7 +479,9 @@ SOUNDS = [
     ("item.syringe.inject", "syringe_inject", syringe_inject),
     ("item.scalpel.cut", "scalpel_cut", scalpel_cut),
     ("item.spray.use", "spray_use", spray_use),
-    ("item.dart_gun.shoot", "dart_shoot", dart_shoot),
+    ("item.blowpipe.shoot", "blowpipe_shoot", blowpipe_shoot),
+    ("item.tranq_crossbow.shoot", "tranq_crossbow_shoot", tranq_crossbow_shoot),
+    ("item.air_rifle.shoot", "air_rifle_shoot", air_rifle_shoot),
     ("item.bandage.apply", "bandage_apply", bandage_apply),
     ("item.gene_therapy.use", "gene_therapy_use", gene_therapy_use),
     ("item.dosimeter.click", "dosimeter_click", dosimeter_click),

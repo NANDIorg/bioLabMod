@@ -16,6 +16,13 @@ fn biolab_core_tooltip(
     ) {
         use crate::game::biolab_core as m;
         use horizon_world::nbt::Tag;
+        // Оружие для дротиков (GDD 4.20): чем заряжен арбалет, магазин и газ ружья.
+        if m::dart_weapon(&stack.item).is_some() {
+            for line in m::weapon_tooltip(&stack.item, &crate::game::biolab_weapons::state_of(stack)) {
+                lines.push((horizon_client::text::Text::literal(&line), 0xAA_AAAA));
+            }
+            return;
+        }
         // Носилки: кто на них, здоровье, геном и срезы. Пустые — «Пусто».
         if &*stack.item == m::STRETCHER_ID {
             let text = stack

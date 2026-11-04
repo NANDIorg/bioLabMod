@@ -41,7 +41,7 @@ fn biolab_core_projectile_impact(
     let target = entity.filter(|id| game.mobs.iter().any(|mob| mob.id == *id && mob.alive()));
     match m::dart_impact(kind, target.is_some(), from, at) {
         m::DartImpact::Nothing => {}
-        m::DartImpact::Spent => game.native_chat(&m::dart_spent_message()),
+        m::DartImpact::Spent(range) => game.native_chat(&m::dart_spent_message(range)),
         m::DartImpact::Inject(syringe) => {
             let (Some(target), Some((effects, ticks, amplifier))) = (target, m::mob_injection(syringe)) else {
                 return;

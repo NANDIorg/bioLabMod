@@ -1,0 +1,14 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:bamboo",
+  "minecraft:bamboo",
+  "minecraft:bamboo",
+  "minecraft:string"
+ ],
+ "result": {
+  "id": "biolab:blowpipe",
+  "count": 1
+ },
+ "time": 60
+}

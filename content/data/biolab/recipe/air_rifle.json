@@ -1,0 +1,16 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:iron_ingot",
+  "minecraft:iron_ingot",
+  "minecraft:copper_ingot",
+  "minecraft:copper_ingot",
+  "minecraft:spyglass",
+  "biolab:co2_canister_empty"
+ ],
+ "result": {
+  "id": "biolab:air_rifle",
+  "count": 1
+ },
+ "time": 160
+}
