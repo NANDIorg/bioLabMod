@@ -8,6 +8,24 @@ fn biolab_core_interact_entity(
     claimed: &mut bool,
 ) {
     use crate::game::biolab_core as m;
+    /// Всплеск своих частиц в точке `at` (`native_send_particles`, API 103).
+    /// Шлёт сервер, как и звук: у окна без своего сервера очереди нет.
+    fn puff_at(
+        game: &mut crate::game::Game<'_>,
+        puff: crate::game::biolab_particles::Puff,
+        at: [f64; 3],
+        seed: u64,
+    ) {
+        if game.serving.is_none() && game.options.dedicated.is_none() {
+            return;
+        }
+        let options = horizon_client::particles::ParticleOptions::named(puff.name);
+        let _ = game.with_level(|_, level, _| {
+            for s in crate::game::biolab_particles::sends(&puff, at, seed) {
+                let _ = level.native_send_particles(&options, None, s.at, s.spread, s.speed, s.count);
+            }
+        });
+    }
     /// Гены моба по меткам на нём.
     fn read_genome(game: &crate::game::Game<'_>, entity: i32) -> Vec<(&'static str, i32)> {
         use crate::game::biolab_core as m;
@@ -258,6 +276,9 @@ fn biolab_core_interact_entity(
             );
             mob.add_effect(m::BLEEDING, m::BLEEDING_TICKS, 0);
         }
+        // Срез — всплеск крови сразу; дальше капает кровотечение (`ambient.rs`).
+        let seed = u64::from(id) ^ game.ticks;
+        puff_at(game, crate::game::biolab_particles::CUT, at, seed);
         // Урон — через помощник API 37: он сам отправит здоровье клиентам.
         let dimension = game.dim.id().to_string();
         game.native_set_mob_health(&dimension, id, m::after_cut(health));
