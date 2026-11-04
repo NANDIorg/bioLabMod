@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:tincture_mandrake"
+ ],
+ "result": {
+  "id": "biolab:syringe_mandrake",
+  "count": 1
+ },
+ "time": 40
+}

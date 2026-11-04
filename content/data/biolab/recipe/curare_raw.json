@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "biolab:curare_mash",
+ "result": {
+  "id": "biolab:curare_raw",
+  "count": 1
+ },
+ "time": 200
+}

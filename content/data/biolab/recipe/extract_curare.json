@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "biolab:curare_raw",
+ "result": {
+  "id": "biolab:extract_curare",
+  "count": 1
+ },
+ "time": 120
+}

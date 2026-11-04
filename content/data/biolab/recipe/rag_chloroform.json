@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:chloroform",
+  "minecraft:white_wool"
+ ],
+ "result": {
+  "id": "biolab:rag_chloroform",
+  "count": 2
+ },
+ "time": 40
+}

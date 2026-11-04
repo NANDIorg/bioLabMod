@@ -1,0 +1,12 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/jar",
+    "tints": [
+      {
+        "type": "minecraft:constant",
+        "value": 8030794
+      }
+    ]
+  }
+}

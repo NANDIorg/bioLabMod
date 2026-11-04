@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:chloroform",
+  "biolab:flask"
+ ],
+ "result": {
+  "id": "biolab:grenade_chloroform",
+  "count": 1
+ },
+ "time": 40
+}

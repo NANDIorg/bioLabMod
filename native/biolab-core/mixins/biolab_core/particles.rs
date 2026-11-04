@@ -31,11 +31,13 @@ pub const STEAM: &str = "biolab:steam";
 pub const SLEEP: &str = "biolab:sleep";
 /// Капли крови: кровотечение и срез скальпелем.
 pub const BLOOD: &str = "biolab:blood";
+/// Газ снотворного: облако аэрозоля и газовой гранаты (GDD 4.20).
+pub const GAS: &str = "biolab:gas";
 
 /// Все частицы мода. На каждую нужен `particles/<имя>.json` и его текстуры —
 /// это проверяет `tests/particles.rs`. Частица без файла у клиента просто не
 /// рисуется, ошибки нигде не будет, поэтому проверка важна.
-pub const ALL: [&str; 8] = [SPORE, MUTAGEN_SPORE, ACID_FUME, FOAM, BUBBLE, STEAM, SLEEP, BLOOD];
+pub const ALL: [&str; 9] = [SPORE, MUTAGEN_SPORE, ACID_FUME, FOAM, BUBBLE, STEAM, SLEEP, BLOOD, GAS];
 
 /// Как частица движется. Своего поведения у типа мода в пине нет, есть
 /// только направление стартовой скорости.
@@ -119,6 +121,26 @@ pub const BEHAVIOURS: [(&str, Puff); 2] = [
 
 /// Всплеск крови в момент среза скальпелем — разово, сверх кровотечения.
 pub const CUT: Puff = Puff { name: BLOOD, drift: Drift::Sink, y: 0.6, spread: [0.3, 0.25, 0.3], count: 8, one_in: 1 };
+
+/// Газовое облако (GDD 4.20): клубы по всему шару, пока облако висит. Висят
+/// и оседают (`Sink`) — газ тяжелее воздуха и не должен улетать вверх, как
+/// дым. `spread` — доля радиуса облака: точки разбрасывает `sends` в кубе
+/// `spread × радиус` (`cloud_puff`).
+pub const CLOUD: Puff = Puff { name: GAS, drift: Drift::Sink, y: 0.0, spread: [0.8, 0.5, 0.8], count: 6, one_in: 1 };
+
+/// Хлопок разбитой гранаты — разом, гуще облака.
+pub const BURST: Puff = Puff { name: GAS, drift: Drift::Float, y: 0.0, spread: [0.6, 0.4, 0.6], count: 16, one_in: 1 };
+
+/// Затяжка облака радиуса `radius`: разброс — доля радиуса, частиц больше у
+/// большого облака.
+pub fn cloud_puff(radius: f64) -> Puff {
+    let r = radius.clamp(0.5, 8.0);
+    Puff {
+        spread: [CLOUD.spread[0] * r, CLOUD.spread[1] * r, CLOUD.spread[2] * r],
+        count: (CLOUD.count as f64 * r / 2.0).round().max(2.0) as i32,
+        ..CLOUD
+    }
+}
 
 pub fn of_puddle(block: &str) -> Option<Puff> {
     PUDDLES.iter().find(|(b, _)| *b == block).map(|(_, p)| *p)
@@ -218,14 +240,16 @@ mod tests {
     #[test]
     fn every_source_names_a_known_particle() {
         let all = PUDDLES.iter().chain(&MACHINES).chain(&EFFECTS).chain(&BEHAVIOURS).map(|(_, p)| p);
-        for puff in all.chain(std::iter::once(&CUT)) {
+        let once = [CUT, CLOUD, BURST];
+        for puff in all.chain(&once) {
             assert!(ALL.contains(&puff.name), "{} нет в ALL", puff.name);
             assert!(puff.count >= 1 && puff.one_in >= 1);
         }
         // И наоборот: в ALL нет частиц, которые никто не шлёт.
         for name in ALL {
             let used = PUDDLES.iter().chain(&MACHINES).chain(&EFFECTS).chain(&BEHAVIOURS)
-                .any(|(_, p)| p.name == name);
+                .any(|(_, p)| p.name == name)
+                || once.iter().any(|p| p.name == name);
             assert!(used, "{name} никто не шлёт");
         }
     }
@@ -293,6 +317,19 @@ mod tests {
         let phase = |pos| (0..2).find(|c| due(block_seed(pos), *c, 2));
         let phases: Vec<_> = (0..8).map(|x| phase([x, 64, 0])).collect();
         assert!(phases.iter().any(|p| *p != phases[0]), "{phases:?}");
+    }
+
+    #[test]
+    fn a_cloud_fills_its_radius() {
+        let small = cloud_puff(2.0);
+        let big = cloud_puff(3.0);
+        assert_eq!(small.name, GAS);
+        assert!(big.count > small.count && big.spread[0] > small.spread[0]);
+        assert!(big.spread[0] <= 3.0, "клубы не дальше радиуса");
+        let out = sends(&big, [0.0, 64.0, 0.0], 5);
+        assert_eq!(out.len(), big.count as usize);
+        assert!(out.iter().all(|s| (s.at[0]).abs() <= big.spread[0] + 1e-9));
+        assert!(cloud_puff(f64::NAN).count >= 2, "битый радиус не роняет облако");
     }
 
     #[test]

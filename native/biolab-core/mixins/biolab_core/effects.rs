@@ -38,6 +38,17 @@ pub const TOXICOSIS: &str = "biolab:toxicosis";
 pub const BLEEDING: &str = "biolab:bleeding";
 pub const SEDATION: &str = "biolab:sedation";
 pub const MUTAGENESIS: &str = "biolab:mutagenesis";
+/// Паралич кураре (GDD 4.20, M5): держит без цели, как седация, и душит —
+/// «без антидота может задохнуться».
+pub const PARALYSIS: &str = "biolab:paralysis";
+/// Ключ очереди для удушья паралича: одно срабатывание эффекта даёт два
+/// действия (цель и урон), а очередь не пускает второе с тем же ключом.
+const PARALYSIS_CHOKE: &str = "biolab:paralysis/choke";
+
+/// Удушье паралича: раз в 5 секунд, удар в полсердца. Не в `HURTING`: тот
+/// бьёт только по ритму, а паралич ещё и каждый тик держит моба без цели.
+pub const CHOKE_PERIOD: u64 = 100;
+pub const CHOKE_DAMAGE: f32 = 1.0;
 
 /// Эффект, который бьёт по здоровью: как часто и насколько сильно.
 #[derive(Debug)]
@@ -99,13 +110,13 @@ pub fn acts(effect: &str, clock: u64, amplifier: i32) -> bool {
     if let Some(h) = hurting(effect) {
         return clock % effect_period(h, amplifier) as u64 == 0;
     }
-    matches!(effect, SEDATION | MUTAGENESIS)
+    matches!(effect, SEDATION | MUTAGENESIS | PARALYSIS)
 }
 
-/// Снимает ли эффект с моба цель (седация): `native_mob_effect_added`
+/// Снимает ли эффект с моба цель (седация, паралич): `native_mob_effect_added`
 /// сбрасывает её сразу, не дожидаясь первого тика эффекта.
 pub fn calms(effect: &str) -> bool {
-    effect == SEDATION
+    effect == SEDATION || effect == PARALYSIS
 }
 
 /// Кто носит эффект: игрок по uuid (None — игрок без своего uuid в хуке,
@@ -184,6 +195,17 @@ impl Effects {
             // У игрока седация — ванильное замедление, цели у него нет.
             SEDATION if matches!(who, Who::Mob { .. }) => {
                 self.push(clock, who, SEDATION, Act::Calm);
+                true
+            }
+            // Паралич: моб без цели каждый тик, и все — моб и игрок —
+            // задыхаются раз в `CHOKE_PERIOD` по часам игры.
+            PARALYSIS => {
+                if clock % CHOKE_PERIOD == 0 {
+                    self.push(clock, who.clone(), PARALYSIS_CHOKE, Act::Hurt(CHOKE_DAMAGE));
+                }
+                if matches!(who, Who::Mob { .. }) {
+                    self.push(clock, who, PARALYSIS, Act::Calm);
+                }
                 true
             }
             MUTAGENESIS => {
@@ -349,6 +371,38 @@ mod tests {
             assert!(acts(MUTAGENESIS, clock, 0));
         }
         assert!(calms(SEDATION) && !calms(MUTAGENESIS) && !calms(ACID_BURN));
+    }
+
+    #[test]
+    fn paralysis_holds_every_tick_and_chokes_every_five_seconds() {
+        assert!((0..30).all(|clock| acts(PARALYSIS, clock, 0)));
+        assert!(calms(PARALYSIS));
+        let mut fx = Effects::default();
+        let mut hurts = 0;
+        let mut calms_seen = 0;
+        for clock in 1..=(CHOKE_PERIOD * 3) {
+            assert!(fx.apply(clock, mob(4), PARALYSIS, 0), "паралич не снимается сам");
+            // Двойной вызов в тот же тик ничего не добавляет.
+            fx.apply(clock, mob(4), PARALYSIS, 0);
+            for (_, act) in fx.take(clock, None, "minecraft:overworld").mobs {
+                match act {
+                    Act::Hurt(amount) => {
+                        assert_eq!(amount, CHOKE_DAMAGE);
+                        hurts += 1;
+                    }
+                    Act::Calm => calms_seen += 1,
+                    Act::Mutate => panic!("паралич не мутирует"),
+                }
+            }
+        }
+        assert_eq!(hurts, 3, "раз в 5 секунд");
+        assert_eq!(calms_seen, CHOKE_PERIOD * 3, "цель снимается каждый тик");
+        // Игрок задыхается так же, но цели у него нет.
+        let mut fx = Effects::default();
+        fx.apply(CHOKE_PERIOD, Who::Player(Some(1)), PARALYSIS, 0);
+        let due = fx.take(CHOKE_PERIOD, Some(1), "minecraft:overworld");
+        assert_eq!(due.hurts, vec![CHOKE_DAMAGE]);
+        assert!(due.mobs.is_empty());
     }
 
     #[test]

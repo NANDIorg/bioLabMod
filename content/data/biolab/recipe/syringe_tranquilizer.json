@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:tranquilizer"
+ ],
+ "result": {
+  "id": "biolab:syringe_tranquilizer",
+  "count": 1
+ },
+ "time": 40
+}

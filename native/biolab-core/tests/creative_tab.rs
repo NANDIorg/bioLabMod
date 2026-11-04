@@ -77,8 +77,12 @@ fn group(item: &str) -> usize {
         _ if name.starts_with("element_") => 3,
         "culture" | "culture_weakened" | "mold" | "nutrient_broth" | "mutagen" => 4,
         _ if name.starts_with("extract_") => 4,
-        _ if ["pill_", "syringe_", "spray_", "dart_", "ointment_"].iter().any(|p| name.starts_with(p))
-            || name == "remedy" =>
+        // Препараты; с M5 — ещё гранаты, тряпка и отвар (GDD 4.20).
+        _ if ["pill_", "syringe_", "spray_", "dart_", "ointment_", "grenade_", "rag_"]
+            .iter()
+            .any(|p| name.starts_with(p))
+            || name == "remedy"
+            || name == "calming_brew" =>
         {
             5
         }

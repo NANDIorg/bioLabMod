@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:chloroform",
+  "minecraft:copper_ingot"
+ ],
+ "result": {
+  "id": "biolab:spray_chloroform",
+  "count": 1
+ },
+ "time": 40
+}

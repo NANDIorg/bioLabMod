@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "minecraft:sugar",
+ "result": {
+  "id": "biolab:spirit",
+  "count": 1
+ },
+ "time": 160
+}

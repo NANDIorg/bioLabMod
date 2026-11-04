@@ -1,0 +1,14 @@
+{
+ "type": "biolab:synthesizer",
+ "ingredients": [
+  "biolab:extract_sedative",
+  "biolab:tincture_mandrake",
+  "biolab:element_gold"
+ ],
+ "catalyst": "biolab:element_gold",
+ "result": {
+  "id": "biolab:tranquilizer",
+  "count": 1
+ },
+ "time": 200
+}

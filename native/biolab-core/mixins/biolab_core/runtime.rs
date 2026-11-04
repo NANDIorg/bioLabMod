@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 85] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -149,10 +149,10 @@ pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
     ("biolab:spray_stimulant", &["Скорость и спешка, потом ломка", "ПКМ — вдохнуть"]),
     ("biolab:pill_antidote", &["Выводит из крови остальные вещества", "ПКМ — принять"]),
     ("biolab:syringe_vaccine", &["Иммунитет к заражению", "ПКМ — ввести себе"]),
-    ("biolab:syringe_sedative", &["Седация и замедление", "ПКМ — себе, по мобу — усыпить"]),
+    ("biolab:syringe_sedative", &["Сила 2: зомби, скелет, свинья", "ПКМ — себе, по мобу — усыпить"]),
     ("biolab:syringe_venom", &["Токсикоз", "ПКМ — себе, по мобу — отравить"]),
     ("biolab:syringe", &["Наполняется экстрактом на столе"]),
-    ("biolab:dart_sedative", &["ПКМ — бросить в моба, как снежок", "Усыпляет и замедляет, рукой — до 8 блоков"]),
+    ("biolab:dart_sedative", &["ПКМ — бросить в моба, как снежок", "Сила 2: зомби, свинья; рукой — до 8 блоков"]),
     ("biolab:dart_venom", &["ПКМ — бросить в моба, как снежок", "Отравляет, рукой — до 8 блоков"]),
     ("biolab:bandage", &["ПКМ — остановить кровотечение"]),
     ("biolab:scalpel", &["ПКМ по мутанту на операционном столе", "Срезает плоть, удар — кровоточащая рана"]),
@@ -169,6 +169,32 @@ pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
     ("biolab:mutagen_bucket", &["ПКМ по блоку — разлить лужу мутагена", "Ведро остаётся пустым"]),
     // Книга.
     ("biolab:lab_manual", &["ПКМ — открыть карту исследований"]),
+    // Снотворные (GDD 4.20): первой строкой — сила и кого берёт.
+    ("biolab:spirit", &["Брожение сахара: основа настойки и газов", "Стол: с серой — эфир, с хлором — хлороформ"]),
+    ("biolab:calming_brew", &["Сила 1: курица, кролик; прочих — вялость", "ПКМ — выпить, по мобу — напоить"]),
+    ("biolab:syringe_calming", &["Сила 1: курица, кролик; прочих — вялость", "ПКМ — себе, по мобу — усыпить"]),
+    ("biolab:mandrake_mash", &["Ферментер сделает настойку мандрагоры"]),
+    ("biolab:tincture_mandrake", &["Со шприцем на столе — инъекция, сила 3", "В синтезаторе — основа транквилизатора"]),
+    ("biolab:syringe_mandrake", &["Сила 3: корова, паук; себе — тошнота", "ПКМ — себе, по мобу — усыпить"]),
+    ("biolab:dart_mandrake", &["ПКМ — бросить в моба, как снежок", "Сила 3: корова, паук; рукой — до 8 блоков"]),
+    ("biolab:ether_mix", &["Реактор над костром, 250–320° — эфир"]),
+    ("biolab:ether", &["Сила 3, газ: стол — аэрозоль, граната", "Огнеопасен: у огня облако вспыхнет"]),
+    ("biolab:spray_ether", &["Сила 3: облачко газа перед собой", "ПКМ — распылить; огонь рядом — вспышка"]),
+    ("biolab:grenade_ether", &["ПКМ — бросить: облако радиусом 3 на 5 с", "Сила 3, усыпляет стаю; огонь — вспышка"]),
+    ("biolab:chloroform_mix", &["Реактор над магмой или костром душ"]),
+    ("biolab:chloroform", &["Сила 4, газ: передозировка с массы + 2", "Стол — аэрозоль, тряпка, граната"]),
+    ("biolab:spray_chloroform", &["Сила 4: облачко газа, мелочь убьёт", "ПКМ — распылить; без противогаза задевает"]),
+    ("biolab:rag_chloroform", &["Сила 4: ПКМ по мобу вплотную — усыпить", "Мелочь и зомби не выдержат"]),
+    ("biolab:grenade_chloroform", &["ПКМ — бросить: облако радиусом 3 на 5 с", "Сила 4, валит крупных; мелочь убьёт"]),
+    ("biolab:curare_mash", &["Ферментер сделает сырец кураре"]),
+    ("biolab:curare_raw", &["Перегонный куб выпарит экстракт кураре"]),
+    ("biolab:extract_curare", &["Со шприцем на столе — инъекция кураре"]),
+    ("biolab:syringe_curare", &["Сила 4: паралич, не сон; душит раз в 5 с", "ПКМ — себе, по мобу — парализовать"]),
+    ("biolab:dart_curare", &["ПКМ — бросить в моба, как снежок", "Сила 4, паралич; рукой — до 8 блоков"]),
+    ("biolab:tranquilizer", &["Сила 5: гигант, разоритель, мутанты", "Со шприцем на столе — инъекция"]),
+    ("biolab:syringe_tranquilizer", &["Сила 5: берёт любого, уснёт до 8 с", "ПКМ — себе, по мобу — усыпить"]),
+    ("biolab:dart_tranquilizer", &["ПКМ — бросить в моба, как снежок", "Сила 5, любого; рукой — до 8 блоков"]),
+    ("biolab:syringe_wake", &["Снимает сон и паралич; себе — бодрость", "ПКМ — себе, по мобу — разбудить"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -788,10 +814,11 @@ pub fn machine_of_menu(menu: &str) -> Option<&'static Machine> {
 /// (`ingredients` у стола) её рецептов в `content/`. Правилам слотов мир не
 /// виден (ни рецептов, ни уровня), поэтому список свой; тест сверяет его с
 /// рецептами, так что новый рецепт без строки здесь не пройдёт.
-pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
+pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 9] = [
     (
         "biolab:still",
         &[
+            "biolab:curare_raw",
             "biolab:mutant_tissue",
             "minecraft:bone",
             "minecraft:bone_meal",
@@ -812,6 +839,8 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
             "minecraft:sand",
             "minecraft:sea_pickle",
             "minecraft:seagrass",
+            // Приходит из ветки растений (агент растений, M5).
+            "biolab:valerian_root",
         ],
     ),
     ("biolab:incubator", &["biolab:culture", "biolab:swab", "minecraft:bread"]),
@@ -819,11 +848,14 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
         "biolab:fermenter",
         &[
             "biolab:culture",
+            "biolab:curare_mash",
+            "biolab:mandrake_mash",
             "biolab:mold",
             "minecraft:birch_leaves",
             "minecraft:cocoa_beans",
             "minecraft:poppy",
             "minecraft:spider_eye",
+            "minecraft:sugar",
             "minecraft:wheat",
         ],
     ),
@@ -837,7 +869,12 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
             "minecraft:spider_eye",
         ],
     ),
-    ("biolab:reactor", &["biolab:culture", "biolab:element_glaurium", "minecraft:calcite"]),
+    (
+        "biolab:reactor",
+        &["biolab:chloroform_mix", "biolab:culture", "biolab:element_glaurium", "biolab:ether_mix", "minecraft:calcite"],
+    ),
+    // Синтезатор по рецепту — только смесь транквилизатора (GDD 4.20).
+    ("biolab:synthesizer", &["biolab:element_gold", "biolab:extract_sedative", "biolab:tincture_mandrake"]),
     (
         "biolab:press",
         &["biolab:extract_caffeine", "biolab:extract_penicillin", "biolab:extract_salicylate", "minecraft:charcoal"],
@@ -848,6 +885,7 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
             "biolab:gm_crop",
             "biolab:mutant_tissue",
             "minecraft:bone",
+            "minecraft:cocoa_beans",
             "minecraft:glow_ink_sac",
             "minecraft:goat_horn",
             "minecraft:ink_sac",
@@ -864,10 +902,16 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
         "biolab:lab_bench",
         &[
             "biolab:agar",
+            "biolab:calming_brew",
+            "biolab:chloroform",
             "biolab:culture_weakened",
+            "biolab:element_chlorine",
             "biolab:element_glaurium",
             "biolab:element_redstonium",
+            "biolab:element_sulfur",
+            "biolab:ether",
             "biolab:extract_caffeine",
+            "biolab:extract_curare",
             "biolab:extract_penicillin",
             "biolab:extract_salicylate",
             "biolab:extract_sedative",
@@ -875,9 +919,16 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
             "biolab:flask",
             "biolab:mutagen",
             "biolab:mutant_tissue",
+            "biolab:pill_antidote",
+            "biolab:spirit",
             "biolab:syringe",
+            "biolab:syringe_curare",
+            "biolab:syringe_mandrake",
             "biolab:syringe_sedative",
+            "biolab:syringe_tranquilizer",
             "biolab:syringe_venom",
+            "biolab:tincture_mandrake",
+            "biolab:tranquilizer",
             "minecraft:compass",
             "minecraft:copper_ingot",
             "minecraft:feather",
@@ -887,10 +938,15 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
             "minecraft:iron_ingot",
             "minecraft:iron_nugget",
             "minecraft:slime_ball",
+            "minecraft:spider_eye",
             "minecraft:stick",
             "minecraft:string",
             "minecraft:sugar",
+            "minecraft:vine",
             "minecraft:white_wool",
+            // Приходят из ветки растений (агент растений, M5).
+            "biolab:belladonna_berries",
+            "biolab:mandrake_root",
         ],
     ),
 ];
@@ -911,7 +967,9 @@ pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
         SlotRole::Fuel => item == BROTH_ID,
         SlotRole::Input => match machine.id {
             CLONING_VAT => item == FRAGMENT_ID,
-            SYNTHESIZER => element(item).is_some() || item == BLUEPRINT_ID,
+            // Синтезатор собирает формулу из элементов, а по рецепту — смесь
+            // (транквилизатор зверолова, GDD 4.20): её входы тоже берёт.
+            SYNTHESIZER => element(item).is_some() || item == BLUEPRINT_ID || machine_ingredients(SYNTHESIZER).contains(&item),
             SPECTROMETER => item == FLASK_ID,
             // Центрифуга разлагает колбы и вдобавок крутит свои рецепты.
             CENTRIFUGE => item == FLASK_ID || machine_ingredients(machine.id).contains(&item),
@@ -1523,10 +1581,14 @@ pub enum Cue {
     Mutagen,
     /// В журнале открылся новый узел.
     Research,
+    /// Газовая граната разбилась (GDD 4.20).
+    GrenadeBreak,
+    /// Облако эфира вспыхнуло от огня рядом.
+    GasFlash,
 }
 
 impl Cue {
-    pub const ALL: [Cue; 18] = [
+    pub const ALL: [Cue; 20] = [
         Cue::Overheat,
         Cue::SyringeSelf,
         Cue::SyringeMob,
@@ -1545,11 +1607,13 @@ impl Cue {
         Cue::GeneTherapy,
         Cue::Mutagen,
         Cue::Research,
+        Cue::GrenadeBreak,
+        Cue::GasFlash,
     ];
 }
 
 /// Событие → звук.
-pub const SOUNDS: [(Cue, Sound); 18] = [
+pub const SOUNDS: [(Cue, Sound); 20] = [
     // Набат: содержимое пропало, это надо услышать и из соседней комнаты.
     (Cue::Overheat, block("minecraft:block.bell.use", 1.0, 0.6)),
     // Укол — свой: щелчок поршня и «пфф» раствора (жало пчелы звучало
@@ -1590,6 +1654,11 @@ pub const SOUNDS: [(Cue, Sound); 18] = [
     (Cue::Mutagen, player("minecraft:entity.zombie_villager.converted", 0.5, 0.8)),
     // Новый узел журнала — короткий звон повышения уровня, высоко и тихо.
     (Cue::Research, player("minecraft:entity.player.levelup", 0.35, 1.6)),
+    // Колба-граната — звон разбитого стекла, как у брошенного зелья; газ
+    // шипит уже облаком частиц.
+    (Cue::GrenadeBreak, player("minecraft:entity.splash_potion.break", 0.8, 1.0)),
+    // Вспышка эфира — хлопок огненного заряда, ниже обычного: облако, а не шар.
+    (Cue::GasFlash, block("minecraft:item.firecharge.use", 1.0, 0.7)),
 ];
 
 /// Свои события, которые объявлены в `sounds.json`, но код их пока не
@@ -1608,6 +1677,7 @@ pub fn dose_cue(form: usize) -> Cue {
         FORM_INJECTION => Cue::SyringeSelf,
         FORM_OINTMENT => Cue::Ointment,
         FORM_SPRAY => Cue::Spray,
+        FORM_DRINK => Cue::Remedy,
         _ => Cue::Pill,
     }
 }
@@ -1905,6 +1975,11 @@ pub struct Patient {
     pub flayed: u8,
     /// Имя, данное моба биркой.
     pub name: Option<String>,
+    /// Чем усыплён (`SLEEPERS`): стол подновляет это вещество (GDD 4.20).
+    /// None — запись старше M5 или вещество забыто: тогда седативное.
+    pub sleeper: Option<&'static str>,
+    /// Парализован кураре, а не спит: на стол такого не кладут.
+    pub paralysed: bool,
 }
 
 /// Пациент строкой для `custom_data`: поля `ключ=значение` через `;`, имя
@@ -1917,6 +1992,13 @@ pub fn patient_to_text(p: &Patient) -> String {
         p.flayed & 0b1111,
         genome_to_text(&p.genes)
     );
+    if let Some(sleeper) = p.sleeper {
+        text.push_str(";sleep=");
+        text.push_str(sleeper);
+    }
+    if p.paralysed {
+        text.push_str(";paralysed=1");
+    }
     if let Some(name) = &p.name {
         text.push_str(";name=");
         text.push_str(name);
@@ -1927,7 +2009,15 @@ pub fn patient_to_text(p: &Patient) -> String {
 /// Пациент из строки носилок. None — носилки пусты или запись битая (без
 /// вида некого возвращать в мир).
 pub fn patient_from_text(text: &str) -> Option<Patient> {
-    let mut p = Patient { kind: String::new(), genes: Vec::new(), health: 0.0, flayed: 0, name: None };
+    let mut p = Patient {
+        kind: String::new(),
+        genes: Vec::new(),
+        health: 0.0,
+        flayed: 0,
+        name: None,
+        sleeper: None,
+        paralysed: false,
+    };
     // Имя — хвост целиком, остальное — поля до него.
     let (fields, name) = match text.split_once(";name=") {
         Some((fields, name)) => (fields, Some(name)),
@@ -1942,6 +2032,8 @@ pub fn patient_from_text(text: &str) -> Option<Patient> {
             "health" => p.health = value.trim().parse().unwrap_or(0.0),
             "flayed" => p.flayed = value.trim().parse::<u8>().unwrap_or(0) & 0b1111,
             "genes" => p.genes = genome_from_text(value.trim()),
+            "sleep" => p.sleeper = sleeper(value.trim()).map(|s| s.id),
+            "paralysed" => p.paralysed = value.trim() == "1",
             _ => {}
         }
     }
@@ -1985,6 +2077,9 @@ pub fn stretcher_tooltip(text: &str) -> Vec<String> {
     } else {
         format!("Геном: {}", genes.join(", "))
     });
+    if p.paralysed {
+        lines.push("Парализован: на стол — только спящего".to_string());
+    }
     let cuts = cuts_of(&p.kind);
     let done = flayed_count(p.flayed).min(u32::from(cuts));
     if done > 0 {
@@ -2337,7 +2432,7 @@ pub const BENCH_UNLISTED: i32 = -3;
 /// только числом слота данных, поэтому номер — место в этой таблице, а имя
 /// отсюда же рисует табло. Тест сверяет таблицу с рецептами стола в
 /// `content/` и с именами в языковом файле.
-pub const BENCH_RESULTS: [(&str, &str); 19] = [
+pub const BENCH_RESULTS: [(&str, &str); 36] = [
     ("biolab:syringe", "Шприц"),
     ("biolab:syringe_penicillin", "Пенициллин, инъекция"),
     ("biolab:syringe_sedative", "Седативное, инъекция"),
@@ -2357,6 +2452,25 @@ pub const BENCH_RESULTS: [(&str, &str); 19] = [
     ("biolab:bandage", "Бинт"),
     ("biolab:mutagen", "Мутаген"),
     ("biolab:nutrient_broth", "Питательный раствор"),
+    // Линейка снотворных (GDD 4.20, M5): дописаны в конец — номер уходит
+    // экрану стола числом, старые номера не сдвигаются.
+    ("biolab:syringe_calming", "Успокоительное, инъекция"),
+    ("biolab:mandrake_mash", "Сусло мандрагоры"),
+    ("biolab:syringe_mandrake", "Мандрагора, инъекция"),
+    ("biolab:dart_mandrake", "Мандрагора, дротик"),
+    ("biolab:ether_mix", "Смесь для эфира"),
+    ("biolab:spray_ether", "Эфир, аэрозоль"),
+    ("biolab:grenade_ether", "Эфир, граната"),
+    ("biolab:chloroform_mix", "Смесь для хлороформа"),
+    ("biolab:spray_chloroform", "Хлороформ, аэрозоль"),
+    ("biolab:rag_chloroform", "Хлороформ, тряпка"),
+    ("biolab:grenade_chloroform", "Хлороформ, граната"),
+    ("biolab:curare_mash", "Сусло кураре"),
+    ("biolab:syringe_curare", "Кураре, инъекция"),
+    ("biolab:dart_curare", "Кураре, дротик"),
+    ("biolab:syringe_tranquilizer", "Транквилизатор, инъекция"),
+    ("biolab:dart_tranquilizer", "Транквилизатор, дротик"),
+    ("biolab:syringe_wake", "Пробуждающее, инъекция"),
 ];
 
 /// Номер результата для слота данных стола.
@@ -2464,7 +2578,8 @@ mod bench_tests {
     #[test]
     fn bench_results_are_numbered_by_the_table() {
         assert_eq!(bench_result_index("biolab:syringe"), 0);
-        assert_eq!(bench_result_index("biolab:nutrient_broth"), BENCH_RESULTS.len() as i32 - 1);
+        assert_eq!(bench_result_index("biolab:nutrient_broth"), 18, "старые номера не сдвинулись");
+        assert_eq!(bench_result_index("biolab:syringe_wake"), BENCH_RESULTS.len() as i32 - 1);
         assert_eq!(bench_result_index("minecraft:stick"), BENCH_UNLISTED);
         assert_eq!(machine_data_slots(LAB_BENCH), DATA_BENCH_RESULT + 1);
         let bench = machine(LAB_BENCH).expect("стол — машина");
@@ -3444,7 +3559,7 @@ pub struct Drug {
 
 /// Сколько веществ знает мод. Порядок важен: по нему идут `PlayerState::drugs`
 /// и байты сетевого пакета.
-pub const DRUG_COUNT: usize = 7;
+pub const DRUG_COUNT: usize = 14;
 
 pub const DRUGS: [Drug; DRUG_COUNT] = [
     Drug {
@@ -3524,6 +3639,91 @@ pub const DRUGS: [Drug; DRUG_COUNT] = [
         clears: false,
         withdrawal: false,
     },
+    // Линейка снотворных (GDD 4.20, M5). На мобе каждое действует по силе
+    // против массы (`SLEEPERS`), здесь — то, что оно делает человеку, если
+    // уколоть себя или вдохнуть газ. Новые вещества — в конец: по номеру
+    // идут байты пакета анализатора (в файле состояния — по имени).
+    Drug {
+        id: "calming",
+        name: "Успокоительное",
+        half_life: 30,
+        window: (10, 80),
+        effects: &[SEDATION_EFFECT],
+        cures: 0,
+        immunity: false,
+        clears: false,
+        withdrawal: false,
+    },
+    // Скополамин мандрагоры и белладонны: побочка — тошнота и «бред».
+    Drug {
+        id: "mandrake",
+        name: "Мандрагора",
+        half_life: 50,
+        window: (10, 45),
+        effects: &[SEDATION_EFFECT, "slowness", "nausea"],
+        cures: 0,
+        immunity: false,
+        clears: false,
+        withdrawal: false,
+    },
+    // Газы выветриваются быстро: облако задело — и через полминуты чисто.
+    Drug {
+        id: "ether",
+        name: "Эфир",
+        half_life: 15,
+        window: (5, 40),
+        effects: &["slowness", "nausea"],
+        cures: 0,
+        immunity: false,
+        clears: false,
+        withdrawal: false,
+    },
+    // Узкое окно — как у настоящего хлороформа: вдохнул лишнего — токсикоз.
+    Drug {
+        id: "chloroform",
+        name: "Хлороформ",
+        half_life: 25,
+        window: (5, 20),
+        effects: &["slowness", "blindness"],
+        cures: 0,
+        immunity: false,
+        clears: false,
+        withdrawal: false,
+    },
+    Drug {
+        id: "curare",
+        name: "Кураре",
+        half_life: 40,
+        window: (5, 40),
+        effects: &[PARALYSIS_EFFECT, "slowness", "mining_fatigue"],
+        cures: 0,
+        immunity: false,
+        clears: false,
+        withdrawal: false,
+    },
+    Drug {
+        id: "tranquilizer",
+        name: "Транквилизатор",
+        half_life: 60,
+        window: (10, 40),
+        effects: &[SEDATION_EFFECT, "slowness", "blindness"],
+        cures: 0,
+        immunity: false,
+        clears: false,
+        withdrawal: false,
+    },
+    // Кофеин + антидот: бодрит и, как антидот, выводит остальное из крови.
+    Drug {
+        id: "wake",
+        name: "Пробуждающее",
+        half_life: 20,
+        window: (10, 100),
+        effects: &["speed"],
+        cures: 0,
+        immunity: false,
+        clears: true,
+        withdrawal: false,
+    },
 ];
 
 /// Номер вещества по имени.
@@ -3541,17 +3741,21 @@ pub struct Form {
     pub direct: bool,
 }
 
-pub const FORMS: [Form; 4] = [
+pub const FORMS: [Form; 5] = [
     Form { id: "pill", name: "таблетка", bioavailability: 60, direct: false },
     Form { id: "injection", name: "инъекция", bioavailability: 100, direct: true },
     Form { id: "ointment", name: "мазь", bioavailability: 40, direct: false },
     Form { id: "spray", name: "аэрозоль", bioavailability: 75, direct: true },
+    // Отвар в бутылке (GDD 4.20): пьётся и всасывается, как таблетка, —
+    // через желудок, но жидкость идёт чуть полнее.
+    Form { id: "drink", name: "отвар", bioavailability: 70, direct: false },
 ];
 
 pub const FORM_PILL: usize = 0;
 pub const FORM_INJECTION: usize = 1;
 pub const FORM_OINTMENT: usize = 2;
 pub const FORM_SPRAY: usize = 3;
+pub const FORM_DRINK: usize = 4;
 
 /// Готовый препарат: предмет, вещество в нём, форма и доза.
 pub struct Medicine {
@@ -3561,7 +3765,7 @@ pub struct Medicine {
     pub dose: u32,
 }
 
-pub const MEDICINES: [Medicine; 12] = [
+pub const MEDICINES: [Medicine; 18] = [
     Medicine { item: "biolab:pill_penicillin", drug: 0, form: FORM_PILL, dose: 100 },
     Medicine { item: "biolab:syringe_penicillin", drug: 0, form: FORM_INJECTION, dose: 80 },
     Medicine { item: "biolab:pill_analgesic", drug: 1, form: FORM_PILL, dose: 90 },
@@ -3575,12 +3779,24 @@ pub const MEDICINES: [Medicine; 12] = [
     // Аэрозоль: действует быстрее таблетки, но дозы в баллончике меньше.
     Medicine { item: "biolab:spray_analgesic", drug: 1, form: FORM_SPRAY, dose: 60 },
     Medicine { item: "biolab:spray_stimulant", drug: 2, form: FORM_SPRAY, dose: 45 },
+    // Снотворные (GDD 4.20). Газы (эфир, хлороформ) себе не принимают: их
+    // аэрозоль и граната дают облако (`gas_use.rs`, `grenade_hit.rs`), а
+    // игрок в облаке без противогаза вдыхает дозу (`take_gas`).
+    Medicine { item: "biolab:calming_brew", drug: 7, form: FORM_DRINK, dose: 60 },
+    Medicine { item: "biolab:syringe_calming", drug: 7, form: FORM_INJECTION, dose: 40 },
+    Medicine { item: "biolab:syringe_mandrake", drug: 8, form: FORM_INJECTION, dose: 35 },
+    Medicine { item: "biolab:syringe_curare", drug: 11, form: FORM_INJECTION, dose: 25 },
+    Medicine { item: "biolab:syringe_tranquilizer", drug: 12, form: FORM_INJECTION, dose: 30 },
+    Medicine { item: "biolab:syringe_wake", drug: 13, form: FORM_INJECTION, dose: 50 },
 ];
 
 /// Дротики: те же вещества, но вводятся издали — дротик бросают в моба.
-pub const DARTS: [(&str, &str); 2] = [
+pub const DARTS: [(&str, &str); 5] = [
     ("biolab:dart_sedative", "biolab:syringe_sedative"),
     ("biolab:dart_venom", "biolab:syringe_venom"),
+    ("biolab:dart_mandrake", "biolab:syringe_mandrake"),
+    ("biolab:dart_curare", "biolab:syringe_curare"),
+    ("biolab:dart_tranquilizer", "biolab:syringe_tranquilizer"),
 ];
 
 /// Чем снаряжён дротик: шприц с тем же веществом.
@@ -3893,12 +4109,11 @@ pub fn after_exposure_with(infection: u32, amount: u32, immune: bool) -> u32 {
     }
 }
 
-/// Что шприц делает мобу: эффекты, длительность и уровень. Седативное вешает
-/// ещё и ванильное замедление — своя седация только отбивает агрессию.
+/// Что шприц делает мобу: эффекты, длительность и уровень. Снотворных здесь
+/// нет: их действие решает сила против массы (`sleeper_of_item`, GDD 4.20).
 pub fn mob_injection(item: &str) -> Option<(&'static [&'static str], i32, i32)> {
     match item {
         "biolab:syringe_venom" => Some((&[TOXICOSIS_EFFECT], 400, 1)),
-        "biolab:syringe_sedative" => Some((&[SEDATION_EFFECT, "slowness"], 600, 0)),
         "biolab:syringe_penicillin" => Some((&["regeneration"], 200, 0)),
         "biolab:syringe_mutagen" => Some((&[MUTAGENESIS_EFFECT], 400, 0)),
         _ => None,
@@ -4046,8 +4261,12 @@ pub fn dose_message(med: &Medicine, state: &PlayerState) -> String {
     )
 }
 
-/// Что остаётся в руке после приёма: от шприца — пустой шприц.
+/// Что остаётся в руке после приёма: от шприца — пустой шприц, от отвара —
+/// пустая бутылка.
 pub fn after_use(item: &str) -> Option<&'static str> {
+    if item == CALMING_BREW {
+        return Some("minecraft:glass_bottle");
+    }
     item.starts_with("biolab:syringe_").then_some(SYRINGE_EMPTY)
 }
 
@@ -4063,13 +4282,8 @@ pub fn injection_message(item: &str, mob: &str) -> String {
             "Препарат"
         });
     // «Препарат» — общее слово, поэтому без рода: «Укол: Яд → Корова».
-    let line = format!("Укол: {what} → {}", mob_title(mob));
-    // Снотворное видно и так (моб ложится), но в чате скажем прямо.
-    if item == "biolab:syringe_sedative" {
-        format!("{line}: засыпает")
-    } else {
-        line
-    }
+    // Снотворные говорят своё (`sleep_message`): засыпает, вял или слабо.
+    format!("Укол: {what} → {}", mob_title(mob))
 }
 
 /// Инъекция мобу и приём внутрь ловят один и тот же клик: хук сущности
@@ -4092,6 +4306,609 @@ pub fn just_injected(ticks: u64) -> bool {
         u64::MAX => false,
         at => ticks.saturating_sub(at) <= 1,
     }
+}
+
+// ---- Снотворные: сила против массы (GDD 4.20, M5) ----
+//
+// Раньше снотворное было одно, и седативное валило любого моба — от курицы
+// до разорителя. Теперь у вещества сила 1–5, у моба масса 1–5, и исход укола
+// решает их разница: спит, только вялый, ничего или передозировка. Крупного
+// мутанта поймать — отдельная задача: вывести вещество сильнее.
+//
+// Здесь только числа и правила без типов игры. Исполняют их модуль игры
+// `biolab_sleep` (`sleep.rs`: доза мобу, газовое облако) и хуки: шприц,
+// отвар и тряпка — `inject.rs`, дротик — `dart_hit.rs`, граната —
+// `grenade_hit.rs`, аэрозоль — `gas_use.rs`, задержка засыпания, облака и
+// вялость — `sleep_tick.rs`, стол — `surgery.rs`.
+
+/// Паралич кураре: моб не двигается и не нападает, но не спит и не лежит.
+/// Поведение — на хуках эффектов API 56 (`effects.rs`), неподвижность —
+/// модификатор скорости в `biolab-deep` (`mob_tick.rs`, как у седации).
+pub const PARALYSIS_EFFECT: &str = "biolab:paralysis";
+
+/// Что вещество делает с мобом, который ему по силам.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SleepKind {
+    /// Сон: эффект `biolab:sedation`, моб ложится. Годится для стола.
+    Sleep,
+    /// Паралич: эффект `biolab:paralysis`. На носилки можно, на стол — нет.
+    Paralysis,
+    /// Пробуждающее: снимает сон, паралич и вялость, силы не нужно.
+    Wake,
+}
+
+/// Снотворное вещество.
+#[derive(Debug)]
+pub struct Sleeper {
+    pub id: &'static str,
+    /// Название — то же, что у вещества в `DRUGS`.
+    pub name: &'static str,
+    /// Сила 1–5; у пробуждающего 0 — масса ему не важна.
+    pub strength: u8,
+    pub kind: SleepKind,
+    /// Газ: действует облаком, у игрока без противогаза — вдох (`take_gas`).
+    pub gas: bool,
+    /// С какого перевеса силы над массой начинается передозировка. У всех 3,
+    /// у хлороформа 2: узкое окно.
+    pub overdose_from: u8,
+    /// Передозировка убивает (сильный газ), а не только травит.
+    pub lethal: bool,
+    /// Задержка засыпания, тики: моб ещё пробегает своё, как зверь в поле.
+    /// У сильных веществ дольше; у транквилизатора растёт с массой.
+    pub delay: u64,
+    pub delay_per_mass: u64,
+    /// Сколько тиков держится сон или паралич.
+    pub ticks: i32,
+}
+
+/// Линейка снотворных (GDD 4.20). Порядок — от слабого к сильному.
+pub const SLEEPERS: [Sleeper; 8] = [
+    // Отвар валерианы: мелочь спит, прочие вялые. Передозировки не бывает:
+    // сила 1 не перевешивает массу 1 на три.
+    Sleeper { id: "calming", name: "Успокоительное", strength: 1, kind: SleepKind::Sleep, gas: false, overdose_from: 3, lethal: false, delay: 20, delay_per_mass: 0, ticks: 400 },
+    // Прежнее седативное из мака — теперь сила 2: зомби, скелет, свинья.
+    Sleeper { id: "sedative", name: "Седативное", strength: 2, kind: SleepKind::Sleep, gas: false, overdose_from: 3, lethal: false, delay: 40, delay_per_mass: 0, ticks: 600 },
+    Sleeper { id: "mandrake", name: "Мандрагора", strength: 3, kind: SleepKind::Sleep, gas: false, overdose_from: 3, lethal: false, delay: 60, delay_per_mass: 0, ticks: 800 },
+    // Эфир валит быстро, но ненадолго.
+    Sleeper { id: "ether", name: "Эфир", strength: 3, kind: SleepKind::Sleep, gas: true, overdose_from: 3, lethal: false, delay: 20, delay_per_mass: 0, ticks: 240 },
+    // Хлороформ: быстро и сильно, но с массы + 2 уже смерть — курицу и
+    // зомби им не усыпляют.
+    Sleeper { id: "chloroform", name: "Хлороформ", strength: 4, kind: SleepKind::Sleep, gas: true, overdose_from: 2, lethal: true, delay: 20, delay_per_mass: 0, ticks: 600 },
+    Sleeper { id: "curare", name: "Кураре", strength: 4, kind: SleepKind::Paralysis, gas: false, overdose_from: 3, lethal: false, delay: 40, delay_per_mass: 0, ticks: 600 },
+    // Полевой дротик зверолова: до 8 секунд задержки у самых тяжёлых.
+    Sleeper { id: "tranquilizer", name: "Транквилизатор", strength: 5, kind: SleepKind::Sleep, gas: false, overdose_from: 3, lethal: false, delay: 60, delay_per_mass: 20, ticks: 1200 },
+    Sleeper { id: "wake", name: "Пробуждающее", strength: 0, kind: SleepKind::Wake, gas: false, overdose_from: 3, lethal: false, delay: 0, delay_per_mass: 0, ticks: 0 },
+];
+
+/// Вещество по id.
+pub fn sleeper(id: &str) -> Option<&'static Sleeper> {
+    SLEEPERS.iter().find(|s| s.id == id)
+}
+
+/// Отвар валерианы в бутылке: пьют сами или поят моба (ПКМ по мобу).
+pub const CALMING_BREW: &str = "biolab:calming_brew";
+/// Тряпка с хлороформом: ПКМ по мобу вплотную.
+pub const CHLOROFORM_RAG: &str = "biolab:rag_chloroform";
+/// «Вплотную» — от глаз игрока до моба, в блоках.
+pub const RAG_REACH: f64 = 2.5;
+
+/// Чем снотворное дают мобу в упор: шприц, бутылка, тряпка. Дротик едет
+/// через свой шприц (`DARTS`), газы — облаком (`GAS_ITEMS`).
+pub const SLEEP_ITEMS: [(&str, &str); 8] = [
+    (CALMING_BREW, "calming"),
+    ("biolab:syringe_calming", "calming"),
+    ("biolab:syringe_sedative", "sedative"),
+    ("biolab:syringe_mandrake", "mandrake"),
+    (CHLOROFORM_RAG, "chloroform"),
+    ("biolab:syringe_curare", "curare"),
+    ("biolab:syringe_tranquilizer", "tranquilizer"),
+    ("biolab:syringe_wake", "wake"),
+];
+
+/// Снотворное в предмете, которым колют, поят или зажимают нос.
+pub fn sleeper_of_item(item: &str) -> Option<&'static Sleeper> {
+    SLEEP_ITEMS.iter().find(|(i, _)| *i == item).and_then(|(_, id)| sleeper(id))
+}
+
+/// Действует ли предмет на моба по ПКМ (`inject.rs`): лекарство, яд,
+/// мутаген или снотворное.
+pub fn acts_on_mobs(item: &str) -> bool {
+    mob_injection(item).is_some() || sleeper_of_item(item).is_some()
+}
+
+/// Как газ выходит наружу.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GasForm {
+    /// Аэрозоль: ПКМ — облачко перед собой.
+    Spray,
+    /// Колба-граната: бросок, как снежок; облако там, где разбилась.
+    Grenade,
+}
+
+/// Газы в предметах. Граната — ещё и тип снаряда с тем же именем
+/// (`entity_type/<граната>.json`, копия снежка).
+pub const GAS_ITEMS: [(&str, &str, GasForm); 4] = [
+    ("biolab:spray_ether", "ether", GasForm::Spray),
+    ("biolab:spray_chloroform", "chloroform", GasForm::Spray),
+    ("biolab:grenade_ether", "ether", GasForm::Grenade),
+    ("biolab:grenade_chloroform", "chloroform", GasForm::Grenade),
+];
+
+/// Газ в предмете и как он выходит.
+pub fn gas_of_item(item: &str) -> Option<(&'static Sleeper, GasForm)> {
+    GAS_ITEMS
+        .iter()
+        .find(|(i, _, _)| *i == item)
+        .and_then(|(_, id, form)| Some((sleeper(id)?, *form)))
+}
+
+/// Граната по типу снаряда (`p.kind.id()` в хуке попадания).
+pub fn grenade_projectile(kind: &str) -> Option<&'static Sleeper> {
+    gas_of_item(kind).filter(|(_, form)| *form == GasForm::Grenade).map(|(s, _)| s)
+}
+
+// Масса моба. Считается по хитбоксу вида тем же путём, что длина
+// операционного стола (`lying_length`, `LONG_BODIES`): хитбокс в плане
+// квадратный и длины тела коровы не знает, поэтому глубина у длинных видов —
+// длина тела. Объём «ширина × рост × глубина» в блоках³ раскладывается по
+// порогам: курица 0,11, зомби 0,70, свинья 1,17, корова 1,89, паук 2,02,
+// железный голем 5,3, разоритель 11,2, гигант 155.
+
+/// Верхние границы объёма для масс 1–4; больше последней — масса 5.
+pub const MASS_BULK: [f64; 4] = [0.45, 1.5, 5.0, 30.0];
+
+/// Боссы тяжелее своего хитбокса: страж с визером в хитбоксе как скелет,
+/// а ловить их — дело последнего вещества.
+pub const MASS_OVERRIDES: [(&str, u8); 4] =
+    [("warden", 5), ("wither", 5), ("ender_dragon", 5), ("elder_guardian", 5)];
+
+/// Ген устойчивости к снотворному (GDD 4.19): масса +1 за силу.
+pub const RESISTANCE_GENE: &str = "sedation_resistance";
+
+/// Объём тела вида в блоках³.
+pub fn body_bulk(kind: &str, width: f64, height: f64) -> f64 {
+    let short = short_kind(kind);
+    let depth = LONG_BODIES
+        .iter()
+        .find(|(k, _)| *k == short)
+        .map_or(width, |(_, length)| length.max(width));
+    width * height * depth
+}
+
+/// Масса вида 1–5 по хитбоксу.
+pub fn species_mass(kind: &str, width: f64, height: f64) -> u8 {
+    let short = short_kind(kind);
+    if let Some((_, mass)) = MASS_OVERRIDES.iter().find(|(k, _)| *k == short) {
+        return *mass;
+    }
+    let bulk = body_bulk(kind, width, height);
+    if !bulk.is_finite() {
+        return 1;
+    }
+    1 + MASS_BULK.iter().filter(|limit| bulk >= **limit).count() as u8
+}
+
+/// Масса моба с генами: гигантизм +1, карликовость −1 (сила гена не
+/// важна — меняется весовая категория), устойчивость +1…3 по силе. Итог —
+/// 1–5: сильнейшее вещество (5) берёт любого, иначе выведенного мутанта
+/// было бы нечем поймать.
+pub fn mob_mass(kind: &str, width: f64, height: f64, genes: &[(&str, i32)]) -> u8 {
+    let has = |name: &str| genes.iter().filter(|(g, _)| *g == name).map(|(_, s)| *s).max().unwrap_or(0);
+    let mut mass = i32::from(species_mass(kind, width, height));
+    if has("gigantism") > 0 {
+        mass += 1;
+    }
+    if has("dwarfism") > 0 {
+        mass -= 1;
+    }
+    mass += has(RESISTANCE_GENE).clamp(0, 3);
+    mass.clamp(1, 5) as u8
+}
+
+/// Чем кончилась доза.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SleepOutcome {
+    /// Сила ≥ массы: моб засыпает (или парализован) после задержки.
+    Takes,
+    /// Сила = масса − 1: только вялый — замедлен, издалека не нападает.
+    Drowsy,
+    /// Сила меньше: эффекта нет.
+    TooWeak,
+    /// Сила ≥ масса + перевес: урон (токсикоз), и всё же засыпает.
+    Overdose,
+    /// Передозировка сильного газа: смерть.
+    Fatal,
+    /// Пробуждающее сняло сон.
+    Woken,
+}
+
+/// Повторная доза того же вещества тому же мобу в этом окне слабее на 1:
+/// привыкание, как у игрока (4.3).
+pub const REPEAT_WINDOW: u64 = 6000;
+
+/// Сила дозы с поправкой на повтор.
+pub fn dose_power(s: &Sleeper, repeated: bool) -> u8 {
+    s.strength.saturating_sub(u8::from(repeated))
+}
+
+/// Исход дозы вещества `s` мобу массы `mass`; `repeated` — то же вещество
+/// уже действовало на него в последние 5 минут.
+pub fn sleep_outcome(s: &Sleeper, mass: u8, repeated: bool) -> SleepOutcome {
+    if s.kind == SleepKind::Wake {
+        return SleepOutcome::Woken;
+    }
+    let power = i32::from(dose_power(s, repeated));
+    let mass = i32::from(mass);
+    if power >= mass + i32::from(s.overdose_from) {
+        return if s.lethal { SleepOutcome::Fatal } else { SleepOutcome::Overdose };
+    }
+    if power >= mass {
+        SleepOutcome::Takes
+    } else if power == mass - 1 {
+        SleepOutcome::Drowsy
+    } else {
+        SleepOutcome::TooWeak
+    }
+}
+
+/// Через сколько тиков моб уснёт.
+pub fn sleep_delay(s: &Sleeper, mass: u8) -> u64 {
+    s.delay + s.delay_per_mass * u64::from(mass)
+}
+
+/// Передозировка без смерти: токсикоз (урон, GDD 4.7) на 10 секунд.
+pub const OVERDOSE_TOXICOSIS: (i32, i32) = (200, 1);
+
+/// Вялость: замедление на половину срока сна и не нападать издалека — цель
+/// дальше этого расстояния моб бросает (`sleep_tick.rs`).
+pub const DROWSY_REACH: f64 = 4.0;
+pub const DROWSY_SLOWNESS: i32 = 1;
+
+/// Что сказать, когда вещество не по зверю: подсказка игроку.
+pub const TOO_WEAK: &str = "Слишком слабое для такого зверя";
+
+/// Как доза дошла до моба: от этого — первое слово сообщения.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Via {
+    Injection,
+    Drink,
+    Rag,
+    Dart,
+    Gas,
+}
+
+fn via_word(via: Via) -> &'static str {
+    match via {
+        Via::Injection => "Укол",
+        Via::Drink => "Отвар",
+        Via::Rag => "Тряпка",
+        Via::Dart => "Дротик",
+        Via::Gas => "Газ",
+    }
+}
+
+/// Как дали вещество в упор этим предметом.
+pub fn via_of_item(item: &str) -> Via {
+    match item {
+        CALMING_BREW => Via::Drink,
+        CHLOROFORM_RAG => Via::Rag,
+        _ => Via::Injection,
+    }
+}
+
+/// Сообщение в чат после дозы: что, кому и чем кончилось. `mob` — вид моба.
+pub fn sleep_message(s: &Sleeper, via: Via, mob: &str, mass: u8, outcome: SleepOutcome, repeated: bool) -> String {
+    let head = format!("{}: {} → {}", via_word(via), s.name, mob_title(mob));
+    let power = dose_power(s, repeated);
+    let mut text = match outcome {
+        SleepOutcome::Takes if s.kind == SleepKind::Paralysis => format!(
+            "{head}: обмякнет через {} с — паралич, но не сон",
+            sleep_delay(s, mass).div_ceil(20)
+        ),
+        SleepOutcome::Takes => format!("{head}: уснёт через {} с", sleep_delay(s, mass).div_ceil(20)),
+        SleepOutcome::Drowsy => format!("{head}: только вялый — нужно сильнее (сила {power}, масса {mass})"),
+        SleepOutcome::TooWeak => format!("{TOO_WEAK}: {} — сила {power}, масса {mass}", s.name),
+        SleepOutcome::Overdose => format!("{head}: передозировка — отравлен"),
+        SleepOutcome::Fatal => format!("{head}: передозировка — не выдержал"),
+        SleepOutcome::Woken => format!("{head}: просыпается"),
+    };
+    if repeated && outcome != SleepOutcome::Woken {
+        text.push_str(" (повтор за 5 минут — слабее на 1)");
+    }
+    text
+}
+
+/// Отложенный сон: моб уснёт в тик `due`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingSleep {
+    pub mob: u32,
+    pub dimension: String,
+    pub sleeper: &'static str,
+    pub due: u64,
+}
+
+/// Газовое облако: где, какого радиуса, до какого тика, кого уже задело.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cloud {
+    pub dimension: String,
+    pub at: [f64; 3],
+    pub radius: f64,
+    pub until: u64,
+    pub sleeper: &'static str,
+    /// Мобы, которым облако уже дало дозу: одно облако — одна доза.
+    pub dosed: Vec<u32>,
+    /// Игроки, которые уже вдохнули.
+    pub players: Vec<u128>,
+}
+
+/// Граната: облако радиусом 3 на 5 секунд (GDD 4.20).
+pub const GRENADE_RADIUS: f64 = 3.0;
+pub const GRENADE_TICKS: u64 = 100;
+/// Аэрозоль: облачко поменьше в паре блоков перед лицом.
+pub const SPRAY_RADIUS: f64 = 2.0;
+pub const SPRAY_TICKS: u64 = 60;
+pub const SPRAY_REACH: f64 = 2.5;
+/// Рост глаз игрока над ногами.
+pub const EYE_HEIGHT: f64 = 1.62;
+/// Как часто облако дышит частицами и проверяет, кто в нём, тики.
+pub const CLOUD_EVERY: u64 = 5;
+
+/// Сколько вещества вдыхает игрок без противогаза за одно облако. У гена
+/// устойчивости к снотворному доза меньше на четверть за силу.
+pub fn gas_dose(s: &Sleeper, resistance: i32) -> u32 {
+    let base: u32 = match s.id {
+        "ether" => 30,
+        "chloroform" => 18,
+        _ => 0,
+    };
+    base * (4 - resistance.clamp(0, 3) as u32) / 4
+}
+
+/// Что на голове спасает от газа. Своего противогаза пока нет — его место
+/// занимает черепаший панцирь: ванильный «дыхательный» шлем.
+pub const GAS_MASKS: [&str; 1] = ["minecraft:turtle_helmet"];
+
+/// Защищён ли игрок с этим предметом на голове.
+pub fn gas_protected(head: Option<&str>) -> bool {
+    head.is_some_and(|item| GAS_MASKS.contains(&item))
+}
+
+/// Внутри ли облака точка (середина тела).
+pub fn in_cloud(cloud: &Cloud, at: [f64; 3]) -> bool {
+    let d2: f64 = (0..3).map(|i| (at[i] - cloud.at[i]).powi(2)).sum();
+    d2 <= cloud.radius * cloud.radius
+}
+
+/// Куда ложится облачко аэрозоля: `SPRAY_REACH` блоков от глаз по взгляду.
+/// Поворот — как в Minecraft: `yaw` 0 — на юг (+Z), 90 — на запад (−X),
+/// `pitch` больше нуля — вниз.
+pub fn spray_point(feet: [f64; 3], yaw: f32, pitch: f32) -> [f64; 3] {
+    let (yaw, pitch) = (f64::from(yaw).to_radians(), f64::from(pitch).to_radians());
+    let look = [-yaw.sin() * pitch.cos(), -pitch.sin(), yaw.cos() * pitch.cos()];
+    [
+        feet[0] + look[0] * SPRAY_REACH,
+        feet[1] + EYE_HEIGHT + look[1] * SPRAY_REACH,
+        feet[2] + look[2] * SPRAY_REACH,
+    ]
+}
+
+/// Огонь рядом с облаком эфира даёт вспышку (GDD 4.20): какие блоки — огонь.
+pub const FIRE_BLOCKS: [&str; 10] = [
+    "minecraft:fire",
+    "minecraft:soul_fire",
+    "minecraft:lava",
+    "minecraft:campfire",
+    "minecraft:soul_campfire",
+    "minecraft:torch",
+    "minecraft:wall_torch",
+    "minecraft:soul_torch",
+    "minecraft:soul_wall_torch",
+    "minecraft:magma_block",
+];
+
+/// Горит ли газ этого вещества.
+pub fn flammable(s: &Sleeper) -> bool {
+    s.id == "ether"
+}
+
+/// Даёт ли блок вспышку. Костёр — только зажжённый (`lit`).
+pub fn ignites(block: &str, lit: Option<&str>) -> bool {
+    if block.ends_with("campfire") {
+        return lit != Some("false");
+    }
+    FIRE_BLOCKS.contains(&block)
+}
+
+/// Вспышка эфира: урон огнём всем в облаке и поджог.
+pub const FLASH_DAMAGE: f32 = 5.0;
+pub const FLASH_FIRE_TICKS: i32 = 100;
+
+/// Сколько тиков помним отложенный сон, если моб пропал (выгружен чанк).
+pub const PENDING_STALE: u64 = 600;
+
+/// Память снотворных между хуками: кто когда уснёт, кому что давали, кто
+/// вял, чем усыплён и какие облака висят. Только память процесса: после
+/// перезахода в мир сон держит сам эффект (он сохраняется с мобом), а
+/// забытое «чем усыплён» стол заменяет седативным.
+#[derive(Debug, Default)]
+pub struct SleepBook {
+    pending: Vec<PendingSleep>,
+    /// Моб, вещество, тик дозы — для привыкания.
+    recent: Vec<(u32, &'static str, u64)>,
+    /// Вялые: моб и до какого тика.
+    drowsy: Vec<(u32, u64)>,
+    /// Чем усыплён моб: это вещество подновляет операционный стол.
+    slept: Vec<(u32, &'static str)>,
+    clouds: Vec<Cloud>,
+}
+
+impl SleepBook {
+    /// Давали ли мобу это вещество в последние 5 минут. Часы после
+    /// перезахода идут заново — разница по модулю, как у бросков дротиков.
+    pub fn repeated(&self, mob: u32, sleeper: &str, now: u64) -> bool {
+        self.recent
+            .iter()
+            .any(|(m, s, at)| *m == mob && *s == sleeper && at.abs_diff(now) < REPEAT_WINDOW)
+    }
+
+    /// Запомнить дозу (для привыкания).
+    pub fn note_dose(&mut self, mob: u32, sleeper: &'static str, now: u64) {
+        self.recent.retain(|(m, s, at)| !(*m == mob && *s == sleeper) && at.abs_diff(now) < REPEAT_WINDOW);
+        self.recent.push((mob, sleeper, now));
+    }
+
+    /// Моб уснёт в тик `due`. Новая доза заменяет прежнюю отложенную.
+    pub fn schedule(&mut self, mob: u32, dimension: &str, sleeper: &'static str, due: u64) {
+        self.pending.retain(|p| p.mob != mob || p.dimension != dimension);
+        self.pending.push(PendingSleep { mob, dimension: dimension.to_string(), sleeper, due });
+    }
+
+    /// Забрать сон, чей тик настал, для уровня `dimension`. Давние — тех, о
+    /// ком не слышно (`PENDING_STALE`), — выбрасываем.
+    pub fn take_due(&mut self, now: u64, dimension: &str) -> Vec<PendingSleep> {
+        self.pending.retain(|p| p.due.abs_diff(now) <= PENDING_STALE + 400);
+        let mut due = Vec::new();
+        self.pending.retain(|p| {
+            if p.dimension == dimension && p.due <= now {
+                due.push(p.clone());
+                false
+            } else {
+                true
+            }
+        });
+        due
+    }
+
+    /// Ждёт ли моб сна.
+    pub fn is_pending(&self, mob: u32) -> bool {
+        self.pending.iter().any(|p| p.mob == mob)
+    }
+
+    pub fn make_drowsy(&mut self, mob: u32, until: u64) {
+        self.drowsy.retain(|(m, _)| *m != mob);
+        self.drowsy.push((mob, until));
+    }
+
+    /// Вялые сейчас; заодно забываем тех, у кого вялость прошла.
+    pub fn drowsy_now(&mut self, now: u64) -> Vec<u32> {
+        self.drowsy.retain(|(_, until)| *until > now && until.abs_diff(now) <= REPEAT_WINDOW);
+        self.drowsy.iter().map(|(m, _)| *m).collect()
+    }
+
+    /// Моб уснул этим веществом.
+    pub fn fell_asleep(&mut self, mob: u32, sleeper: &'static str) {
+        self.slept.retain(|(m, _)| *m != mob);
+        self.slept.push((mob, sleeper));
+    }
+
+    /// Чем усыплён моб; None — не знаем (уснул до перезахода или командой).
+    pub fn slept_with(&self, mob: u32) -> Option<&'static str> {
+        self.slept.iter().find(|(m, _)| *m == mob).map(|(_, s)| *s)
+    }
+
+    /// Пробуждающее: ни сна в очереди, ни вялости, ни памяти о сне.
+    pub fn wake(&mut self, mob: u32) {
+        self.pending.retain(|p| p.mob != mob);
+        self.drowsy.retain(|(m, _)| *m != mob);
+        self.slept.retain(|(m, _)| *m != mob);
+    }
+
+    /// Новое облако.
+    pub fn add_cloud(&mut self, cloud: Cloud) {
+        // Без предела облака от сотни гранат копились бы, пока не кончатся.
+        if self.clouds.len() >= 64 {
+            self.clouds.remove(0);
+        }
+        self.clouds.push(cloud);
+    }
+
+    /// Облака сейчас: истёкшие (и «из будущего» — остаток прошлого мира)
+    /// уходят.
+    pub fn clouds_now(&mut self, now: u64) -> &mut Vec<Cloud> {
+        self.clouds.retain(|c| c.until > now && c.until - now <= GRENADE_TICKS.max(SPRAY_TICKS));
+        &mut self.clouds
+    }
+}
+
+/// Общая память снотворных: хуки зовутся из разных мест тика.
+pub fn sleep_book() -> &'static std::sync::Mutex<SleepBook> {
+    static BOOK: std::sync::OnceLock<std::sync::Mutex<SleepBook>> = std::sync::OnceLock::new();
+    BOOK.get_or_init(Default::default)
+}
+
+/// Тик снотворных — раз за тик мира, сколько бы игроков ни было (их тики
+/// зовут хук по очереди), как у операционной.
+pub fn sleep_pass_due(ticks: u64) -> bool {
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+    LAST.swap(ticks, std::sync::atomic::Ordering::Relaxed) != ticks
+}
+
+/// Удержание на столе (GDD 4.20): стол подновляет то вещество, которым моба
+/// усыпили, а не любое. Подновление — не новая доза, привыкания не даёт.
+/// Ответ — каким веществом подновить; None — не подновлять: вещество
+/// слабее массы (на столе вживили устойчивость), пациент проснётся.
+/// Неизвестное вещество (уснул до перезахода, лёг на стол до M5) — стол
+/// держит, как раньше, седативным: будить старых пациентов незачем.
+pub fn table_sleeper(slept_with: Option<&str>, mass: u8) -> Option<&'static Sleeper> {
+    let Some(s) = slept_with.and_then(sleeper) else {
+        return sleeper("sedative");
+    };
+    // Кураре и пробуждающее столу не годятся: держим сном, если хватает силы.
+    if s.kind != SleepKind::Sleep {
+        return sleeper("sedative").filter(|sed| sed.strength >= mass);
+    }
+    (s.strength >= mass).then_some(s)
+}
+
+/// Что сказать, когда стол перестал держать пациента.
+pub fn table_wakes_message(s: &Sleeper, mob: &str, mass: u8) -> String {
+    format!(
+        "{} просыпается на столе: {} слабее (сила {}, масса {mass}) — нужно сильнее",
+        mob_title(mob),
+        s.name,
+        s.strength
+    )
+}
+
+/// Почему пациента нельзя уложить на стол; None — можно.
+pub fn table_refuses(p: &Patient) -> Option<String> {
+    p.paralysed.then(|| {
+        format!("{} парализован, но не спит: на стол — только спящего. Усыпите снотворным", mob_title(&p.kind))
+    })
+}
+
+/// Вдох газа игроком: доза вещества `drug` сразу в кровь (через лёгкие —
+/// как аэрозоль), привыкание растёт. Состояние сразу пишется на диск.
+pub fn take_gas(world: &std::path::Path, uuid: u128, drug: &str, dose: u32) -> Option<PlayerState> {
+    let index = drug_index(drug)?;
+    let mut table = states().lock().ok()?;
+    let state = table
+        .entry((world.to_path_buf(), uuid))
+        .or_insert_with(|| {
+            std::fs::read_to_string(state_path(world, uuid))
+                .map(|t| state_from_text(&t))
+                .unwrap_or_default()
+        });
+    let s = &mut state.drugs[index];
+    s.blood += dose * FORMS[FORM_SPRAY].bioavailability / 100;
+    s.tolerance = (s.tolerance + TOLERANCE_PER_DOSE).min(TOLERANCE_MAX);
+    let saved = *state;
+    let path = state_path(world, uuid);
+    drop(table);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, state_to_text(&saved));
+    Some(saved)
+}
+
+/// Сообщение игроку, вдохнувшему газ.
+pub fn gas_message(s: &Sleeper, state: &PlayerState) -> String {
+    let Some(index) = drug_index(s.id) else {
+        return format!("Вы вдохнули: {}", s.name);
+    };
+    let level = level_of(&DRUGS[index], &state.drugs[index]);
+    format!("Вы вдохнули: {} — {}, без противогаза", s.name, level_text(level))
 }
 
 // ---- Генетика ----
@@ -4120,7 +4937,7 @@ pub struct GeneKind {
     pub side: Option<&'static str>,
 }
 
-pub const GENES: [GeneKind; 40] = [
+pub const GENES: [GeneKind; 41] = [
     GeneKind { name: "gigantism", title: "Гигантизм", cost: 2, about: "крупнее, живучее и сильнее", player: Some("health_boost"), side: Some("slowness") },
     GeneKind { name: "dwarfism", title: "Карликовость", cost: 1, about: "мельче и шустрее, но слабее", player: Some("speed"), side: Some("weakness") },
     GeneKind { name: "hypermetabolism", title: "Гиперметаболизм", cost: 2, about: "быстрее и злее, но хрупче", player: Some("speed"), side: Some("hunger") },
@@ -4161,6 +4978,8 @@ pub const GENES: [GeneKind; 40] = [
     GeneKind { name: "polyopia", title: "Многоглазие", cost: 2, about: "видит невидимых, замечает издалека", player: Some("night_vision"), side: None },
     GeneKind { name: "tumor", title: "Опухоль", cost: 1, about: "здоровее, но медленнее", player: Some("health_boost"), side: Some("slowness") },
     GeneKind { name: "membranes", title: "Перепонки", cost: 2, about: "медленно падает и планирует", player: Some("slow_falling"), side: None },
+    // M5 (GDD 4.20): снотворное берёт такого хуже — масса +1 за силу.
+    GeneKind { name: "sedation_resistance", title: "Устойчивость к снотворному", cost: 2, about: "снотворное берёт хуже: масса +1 за силу", player: None, side: None },
 ];
 
 /// Природный предел: сколько генов бывает у мутанта, родившегося в мире, и
@@ -4174,11 +4993,13 @@ pub const STABILITY: i32 = 6;
 /// Гены, которые приживаются в человеке без ванильного эффекта: их действие —
 /// механика хуков (`thorns.rs`, `infection.rs`), а не статус. Для подсказок
 /// и журнала: что ген даёт человеку.
-pub const PLAYER_MECHANICS: [(&str, &str); 4] = [
+pub const PLAYER_MECHANICS: [(&str, &str); 5] = [
     ("dicephaly", "подсвечивает мобов вокруг"),
     ("horns", "удар отбрасывает сильнее"),
     ("tail", "хвост бьёт тех, кто ударил сзади"),
     ("tentacles", "подтягивают предметы с земли"),
+    // Вдох газа меньше на четверть за силу (`gas_dose`, `sleep_tick.rs`).
+    ("sedation_resistance", "газ снотворного действует слабее"),
 ];
 
 /// Что ген-механика даёт человеку; None — у гена ванильный эффект или он
@@ -4196,7 +5017,7 @@ pub fn takes_in_humans(kind: &GeneKind) -> bool {
 /// с нулевой прибавкой, чьё имя и есть ген. Мод их больше не ставит и не
 /// читает — старые миры переносит в данные `biolab-deep` (`data.rs`,
 /// `migrate`). Список остаётся для подсказок и сверки двух бандлов.
-pub const GENE_MARKERS: [&str; 120] = [
+pub const GENE_MARKERS: [&str; 123] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -4317,6 +5138,9 @@ pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/membranes/1",
     "biolab:gene/membranes/2",
     "biolab:gene/membranes/3",
+    "biolab:gene/sedation_resistance/1",
+    "biolab:gene/sedation_resistance/2",
+    "biolab:gene/sedation_resistance/3",
 ];
 
 /// Ген по имени.
@@ -5307,7 +6131,7 @@ pub fn daylight(day_time: i64) -> bool {
 /// Что ген делает, кроме чисел. Та же таблица, что в `biolab-deep`: обе
 /// собираются из одного описания, а тест ниже следит, чтобы в core не
 /// осталось гена без строки поведения.
-pub const GENE_BEHAVIOUR: [&[&str]; 40] = [
+pub const GENE_BEHAVIOUR: [&[&str]; 41] = [
     &[],
     &[],
     &[],
@@ -5348,6 +6172,8 @@ pub const GENE_BEHAVIOUR: [&[&str]; 40] = [
     &["far_sight"],
     &[],
     &["glide"],
+    // Устойчивость к снотворному — только масса (`mob_mass`), поведения нет.
+    &[],
 ];
 
 /// Сила поведения в наборе генов; 0 — такого гена нет.
@@ -5700,7 +6526,7 @@ mod tests {
             if !item.starts_with("biolab:syringe_") {
                 continue;
             }
-            let on_mob = mob_injection(&item).is_some();
+            let on_mob = acts_on_mobs(&item);
             assert_eq!(hint(&item).contains("по мобу"), on_mob, "{item}: {}", hint(&item));
         }
         // Дротик бросают, и подсказка называет дальность броска рукой.
@@ -6122,8 +6948,10 @@ mod tests {
     #[test]
     fn every_drug_can_be_taken_somehow() {
         for (i, drug) in DRUGS.iter().enumerate() {
+            // Газ (эфир, хлороформ) себе не принимают — его вдыхают в облаке.
+            let inhaled = SLEEPERS.iter().any(|s| s.gas && s.id == drug.id);
             assert!(
-                MEDICINES.iter().any(|m| m.drug == i),
+                MEDICINES.iter().any(|m| m.drug == i) || inhaled,
                 "{} не выпускается ни в одной форме",
                 drug.id
             );
@@ -6297,8 +7125,10 @@ mod tests {
         let (effects, ticks, _) = mob_injection("biolab:syringe_venom").unwrap();
         assert_eq!(effects, &[TOXICOSIS_EFFECT]);
         assert!(ticks > 0);
-        let (effects, _, _) = mob_injection("biolab:syringe_sedative").unwrap();
-        assert!(effects.contains(&SEDATION_EFFECT) && effects.contains(&"slowness"));
+        // Снотворное мобу — по силе против массы, не таблицей эффектов.
+        assert!(mob_injection("biolab:syringe_sedative").is_none());
+        assert_eq!(sleeper_of_item("biolab:syringe_sedative").map(|s| s.strength), Some(2));
+        assert!(acts_on_mobs("biolab:syringe_sedative") && acts_on_mobs("biolab:syringe_venom"));
         assert!(mob_injection("biolab:pill_stimulant").is_none());
         assert!(mob_injection("minecraft:stick").is_none());
     }
@@ -6417,10 +7247,7 @@ mod tests {
     fn an_injection_names_the_drug_and_the_target() {
         let text = injection_message("biolab:syringe_venom", "minecraft:cow");
         assert_eq!(text, "Укол: Яд → Корова");
-        assert_eq!(
-            injection_message("biolab:syringe_sedative", "minecraft:zombie"),
-            "Укол: Седативное → Зомби: засыпает"
-        );
+        assert_eq!(injection_message("biolab:syringe_sedative", "minecraft:zombie"), "Укол: Седативное → Зомби");
         assert!(injection_message("biolab:syringe", "pig").starts_with("Укол: Препарат"));
     }
 
@@ -6993,7 +7820,7 @@ mod tests {
         // Дротик — это тот же шприц, только издали.
         for (dart, syringe) in DARTS {
             assert_eq!(dart_syringe(dart), Some(syringe));
-            assert!(mob_injection(syringe).is_some(), "{syringe} ничего не делает мобу");
+            assert!(acts_on_mobs(syringe), "{syringe} ничего не делает мобу");
         }
         assert_eq!(dart_syringe("biolab:syringe_venom"), None);
     }
@@ -7011,6 +7838,11 @@ mod tests {
             // Движок пина копирует только снежок (`ENTITY_TEMPLATES`).
             assert_eq!(json.get("template").and_then(Json::str), Some("minecraft:snowball"), "{id}");
             assert_eq!(json.get("item").and_then(Json::str), Some(id.as_str()), "{id}: бросает не свой предмет");
+            // Газовая граната — тоже снаряд-снежок (GDD 4.20), но не дротик.
+            if grenade_projectile(&id).is_some() {
+                assert_eq!(json.get("damage").and_then(Json::num), Some(0.0), "{id}: граната не бьёт");
+                continue;
+            }
             assert_eq!(dart_projectile(&id), Some(DARTS.iter().find(|(d, _)| *d == id).expect("тип не дротик").0));
             types.push(id);
         }
@@ -7053,6 +7885,283 @@ mod tests {
         assert_eq!(dart_impact("minecraft:snowball", true, Some(from), near), DartImpact::Nothing);
         assert_eq!(dart_impact("minecraft:arrow", true, None, near), DartImpact::Nothing);
         assert!(dart_spent_message().contains(&format!("до {} блоков", DART_THROW_RANGE as i32)));
+    }
+
+    // ---- Снотворные: сила против массы (GDD 4.20) ----
+
+    /// Масса — по хитбоксу вида, как длина стола: ориентиры GDD 4.20.
+    #[test]
+    fn mass_follows_the_hitbox_like_the_table() {
+        let cases = [
+            ("minecraft:chicken", 0.4, 0.7, 1),
+            ("minecraft:rabbit", 0.4, 0.5, 1),
+            ("minecraft:zombie", 0.6, 1.95, 2),
+            ("minecraft:skeleton", 0.6, 1.99, 2),
+            ("minecraft:pig", 0.9, 0.9, 2),
+            ("minecraft:cow", 0.9, 1.4, 3),
+            ("minecraft:spider", 1.4, 0.9, 3),
+            ("minecraft:ravager", 1.95, 2.2, 4),
+            ("minecraft:iron_golem", 1.4, 2.7, 4),
+            ("minecraft:giant", 3.6, 12.0, 5),
+            ("minecraft:warden", 0.9, 2.9, 5),
+        ];
+        for (kind, w, h, mass) in cases {
+            assert_eq!(species_mass(kind, w, h), mass, "{kind}");
+        }
+        // Длина тела из таблицы стола: без неё корова весила бы как свинья.
+        assert!(body_bulk("minecraft:cow", 0.9, 1.4) > 0.9 * 1.4 * 0.9);
+        assert_eq!(species_mass("cow", 0.9, 1.4), 3, "вид без пространства имён");
+        assert_eq!(species_mass("minecraft:zombie", f64::NAN, 1.0), 1);
+    }
+
+    #[test]
+    fn genes_shift_the_mass() {
+        let zombie = |genes: &[(&str, i32)]| mob_mass("minecraft:zombie", 0.6, 1.95, genes);
+        assert_eq!(zombie(&[]), 2);
+        assert_eq!(zombie(&[("gigantism", 1)]), 3);
+        assert_eq!(zombie(&[("gigantism", 3)]), 3, "весовая категория, а не сила гена");
+        assert_eq!(zombie(&[("dwarfism", 2)]), 1);
+        assert_eq!(zombie(&[(RESISTANCE_GENE, 1)]), 3);
+        assert_eq!(zombie(&[(RESISTANCE_GENE, 3)]), 5);
+        assert_eq!(zombie(&[("gigantism", 1), (RESISTANCE_GENE, 3)]), 5, "не выше 5");
+        assert_eq!(mob_mass("minecraft:chicken", 0.4, 0.7, &[("dwarfism", 1)]), 1, "не ниже 1");
+        assert!(gene(RESISTANCE_GENE).is_some(), "ген в таблице генов");
+    }
+
+    /// Таблица GDD 4.20: что кого берёт.
+    #[test]
+    fn strength_against_mass() {
+        use SleepOutcome::*;
+        let s = |id: &str| sleeper(id).unwrap();
+        let out = |id: &str, mass: u8| sleep_outcome(s(id), mass, false);
+        // Отвар: мелочь спит, остальные вялые, крупным — ничего.
+        assert_eq!(out("calming", 1), Takes);
+        assert_eq!(out("calming", 2), Drowsy);
+        assert_eq!(out("calming", 3), TooWeak);
+        // Седативное: зомби спит, корова только вялая.
+        assert_eq!(out("sedative", 2), Takes);
+        assert_eq!(out("sedative", 3), Drowsy);
+        assert_eq!(out("sedative", 5), TooWeak);
+        assert_eq!(out("mandrake", 3), Takes);
+        assert_eq!(out("mandrake", 4), Drowsy);
+        // Хлороформ: окно узкое — курица и зомби не выживают.
+        assert_eq!(out("chloroform", 1), Fatal);
+        assert_eq!(out("chloroform", 2), Fatal);
+        assert_eq!(out("chloroform", 3), Takes);
+        assert_eq!(out("chloroform", 4), Takes);
+        // Транквилизатор: гигант спит, зомби — передозировка без смерти.
+        assert_eq!(out("tranquilizer", 5), Takes);
+        assert_eq!(out("tranquilizer", 2), Overdose);
+        assert_eq!(out("curare", 1), Overdose);
+        assert_eq!(out("curare", 4), Takes);
+        assert_eq!(out("wake", 5), Woken);
+        // Слабые почти не передозируются: отвар, седативное, эфир — никогда.
+        for mass in 1..=5 {
+            for id in ["calming", "sedative", "ether", "mandrake"] {
+                assert!(!matches!(out(id, mass), Overdose | Fatal), "{id} {mass}");
+            }
+        }
+        // Повтор за 5 минут слабее на 1.
+        assert_eq!(sleep_outcome(s("sedative"), 2, true), Drowsy);
+        assert_eq!(sleep_outcome(s("chloroform"), 2, true), Takes, "повтор уводит из передозировки");
+    }
+
+    #[test]
+    fn stronger_sleepers_take_longer_to_bite() {
+        let s = |id: &str| sleeper(id).unwrap();
+        assert!(sleep_delay(s("calming"), 1) < sleep_delay(s("sedative"), 2));
+        assert!(sleep_delay(s("sedative"), 2) < sleep_delay(s("mandrake"), 3));
+        assert!(sleep_delay(s("mandrake"), 3) <= sleep_delay(s("tranquilizer"), 1));
+        assert_eq!(sleep_delay(s("tranquilizer"), 5), 160, "до 8 секунд");
+        // Газы валят быстро.
+        assert!(sleep_delay(s("ether"), 3) < sleep_delay(s("mandrake"), 3));
+        for sl in &SLEEPERS {
+            assert!(sl.strength <= 5);
+            if sl.kind != SleepKind::Wake {
+                assert!(sl.strength >= 1 && sl.ticks > 0, "{}", sl.id);
+                assert!(sleep_delay(sl, 5) <= 160, "{}: задержка больше 8 с", sl.id);
+            }
+        }
+    }
+
+    /// Снотворные и их предметы сходятся с веществами и формами.
+    #[test]
+    fn sleepers_are_drugs_and_items() {
+        for sl in &SLEEPERS {
+            let drug = DRUGS.iter().find(|d| d.id == sl.id).unwrap_or_else(|| panic!("{}: нет в DRUGS", sl.id));
+            assert_eq!(drug.name, sl.name, "{}", sl.id);
+            // Каждое снотворное чем-то дают: в упор или газом.
+            let contact = SLEEP_ITEMS.iter().any(|(_, id)| *id == sl.id);
+            let gas = GAS_ITEMS.iter().any(|(_, id, _)| *id == sl.id);
+            assert!(contact || gas, "{}: нечем дать", sl.id);
+            assert_eq!(sl.gas, gas, "{}", sl.id);
+        }
+        for (item, id, _) in GAS_ITEMS {
+            assert!(sleeper(id).is_some_and(|s| s.gas), "{item}");
+            assert!(medicine(item).is_none(), "{item}: газ не принимают себе — remedy.rs проглотил бы клик");
+        }
+        assert_eq!(grenade_projectile("biolab:grenade_ether").map(|s| s.id), Some("ether"));
+        assert!(grenade_projectile("biolab:spray_ether").is_none(), "аэрозоль не летит");
+        // Дротик со снотворным — тот же шприц издали.
+        for id in ["sedative", "mandrake", "curare", "tranquilizer"] {
+            assert!(DARTS.iter().any(|(_, syringe)| sleeper_of_item(syringe).is_some_and(|s| s.id == id)), "{id}");
+        }
+        assert_eq!(via_of_item(CHLOROFORM_RAG), Via::Rag);
+        assert_eq!(via_of_item(CALMING_BREW), Via::Drink);
+        assert_eq!(after_use(CALMING_BREW), Some("minecraft:glass_bottle"));
+    }
+
+    #[test]
+    fn sleep_messages_say_what_happened() {
+        let s = |id: &str| sleeper(id).unwrap();
+        let weak = sleep_message(s("calming"), Via::Dart, "minecraft:cow", 3, SleepOutcome::TooWeak, false);
+        assert!(weak.starts_with(TOO_WEAK), "{weak}");
+        let takes = sleep_message(s("tranquilizer"), Via::Dart, "minecraft:ravager", 4, SleepOutcome::Takes, false);
+        assert_eq!(takes, "Дротик: Транквилизатор → Разоритель: уснёт через 7 с");
+        let curare = sleep_message(s("curare"), Via::Dart, "minecraft:cow", 3, SleepOutcome::Takes, false);
+        assert!(curare.contains("паралич, но не сон"), "{curare}");
+        let again = sleep_message(s("sedative"), Via::Injection, "minecraft:zombie", 2, SleepOutcome::Drowsy, true);
+        assert!(again.starts_with("Укол: Седативное → Зомби: только вялый"), "{again}");
+        assert!(again.ends_with("слабее на 1)"), "{again}");
+        let dead = sleep_message(s("chloroform"), Via::Rag, "minecraft:chicken", 1, SleepOutcome::Fatal, false);
+        assert!(dead.starts_with("Тряпка: Хлороформ → Курица") && dead.contains("не выдержал"), "{dead}");
+    }
+
+    #[test]
+    fn the_table_renews_what_put_the_patient_to_sleep() {
+        let id = |s: Option<&Sleeper>| s.map(|s| s.id);
+        assert_eq!(id(table_sleeper(Some("mandrake"), 3)), Some("mandrake"));
+        assert_eq!(id(table_sleeper(Some("ether"), 2)), Some("ether"));
+        // Вживили устойчивость — мандрагора больше не держит.
+        assert_eq!(id(table_sleeper(Some("mandrake"), 4)), None);
+        // Не знаем, чем усыплён, — держим седативным, как до M5.
+        assert_eq!(id(table_sleeper(None, 5)), Some("sedative"));
+        assert_eq!(id(table_sleeper(Some("moonshine"), 2)), Some("sedative"));
+        // Паралич стол сном не держит, если седативного не хватает.
+        assert_eq!(id(table_sleeper(Some("curare"), 2)), Some("sedative"));
+        assert_eq!(id(table_sleeper(Some("curare"), 4)), None);
+        let msg = table_wakes_message(sleeper("mandrake").unwrap(), "minecraft:cow", 4);
+        assert!(msg.starts_with("Корова просыпается") && msg.contains("нужно сильнее"), "{msg}");
+        let p = patient_from_text("kind=minecraft:cow;paralysed=1;sleep=curare").unwrap();
+        assert!(table_refuses(&p).is_some_and(|m| m.contains("только спящего")));
+        assert_eq!(table_refuses(&Patient { paralysed: false, ..p }), None);
+    }
+
+    /// Подсказка снотворного называет его силу — ту, что в `SLEEPERS`.
+    #[test]
+    fn sleep_hints_name_the_strength() {
+        let hint = |id: &str| item_hint(id).join(" / ");
+        let mut items: Vec<(&str, &Sleeper)> = SLEEP_ITEMS
+            .iter()
+            .filter_map(|(item, _)| Some((*item, sleeper_of_item(item)?)))
+            .collect();
+        items.extend(GAS_ITEMS.iter().filter_map(|(item, _, _)| Some((*item, gas_of_item(item)?.0))));
+        items.extend(DARTS.iter().filter_map(|(dart, syringe)| Some((*dart, sleeper_of_item(syringe)?))));
+        for (item, s) in items {
+            if s.kind == SleepKind::Wake {
+                assert!(hint(item).contains("сон"), "{item}: {}", hint(item));
+                continue;
+            }
+            assert!(hint(item).contains(&format!("Сила {}", s.strength)), "{item}: {}", hint(item));
+        }
+        // Тряпка — вплотную, граната — бросок.
+        assert!(hint(CHLOROFORM_RAG).contains("вплотную"));
+        assert!(hint("biolab:grenade_ether").contains("бросить"));
+    }
+
+    /// Одним тестом: книга общая на процесс, но здесь — своя.
+    #[test]
+    fn the_sleep_book_remembers_doses_and_clouds() {
+        let mut book = SleepBook::default();
+        // Привыкание: то же вещество в окне — повтор, другое — нет.
+        book.note_dose(7, "sedative", 100);
+        assert!(book.repeated(7, "sedative", 100 + REPEAT_WINDOW - 1));
+        assert!(!book.repeated(7, "sedative", 100 + REPEAT_WINDOW));
+        assert!(!book.repeated(7, "mandrake", 200));
+        assert!(!book.repeated(8, "sedative", 200));
+        // Отложенный сон: новый заменяет прежний, отдаётся в свой тик и уровень.
+        book.schedule(7, "minecraft:overworld", "sedative", 140);
+        book.schedule(7, "minecraft:overworld", "mandrake", 160);
+        book.schedule(9, "minecraft:the_nether", "ether", 120);
+        assert!(book.is_pending(7));
+        assert!(book.take_due(150, "minecraft:overworld").is_empty());
+        let due = book.take_due(160, "minecraft:overworld");
+        assert_eq!(due.len(), 1);
+        assert_eq!((due[0].mob, due[0].sleeper), (7, "mandrake"));
+        assert!(!book.is_pending(7) && book.is_pending(9));
+        // Давнее (чанк выгружен) — выбрасывается.
+        assert!(book.take_due(120 + PENDING_STALE + 401, "minecraft:overworld").is_empty());
+        assert!(!book.is_pending(9));
+        // Вялость проходит сама.
+        book.make_drowsy(3, 500);
+        assert_eq!(book.drowsy_now(499), vec![3]);
+        assert!(book.drowsy_now(500).is_empty());
+        // Чем усыплён — до пробуждения.
+        book.fell_asleep(4, "chloroform");
+        assert_eq!(book.slept_with(4), Some("chloroform"));
+        book.schedule(4, "minecraft:overworld", "ether", 900);
+        book.make_drowsy(4, 900);
+        book.wake(4);
+        assert_eq!(book.slept_with(4), None);
+        assert!(!book.is_pending(4) && book.drowsy_now(800).is_empty());
+        // Облака истекают; «из будущего» — остаток прошлого мира.
+        let cloud = |until| Cloud {
+            dimension: "minecraft:overworld".into(),
+            at: [0.0, 64.0, 0.0],
+            radius: GRENADE_RADIUS,
+            until,
+            sleeper: "ether",
+            dosed: Vec::new(),
+            players: Vec::new(),
+        };
+        book.add_cloud(cloud(200));
+        book.add_cloud(cloud(100_000));
+        assert_eq!(book.clouds_now(150).len(), 1);
+        assert!(book.clouds_now(200).is_empty());
+        for i in 0..100 {
+            book.add_cloud(cloud(300 + i));
+        }
+        assert_eq!(book.clouds_now(299).len(), 64, "облаков не больше 64");
+    }
+
+    #[test]
+    fn gas_reaches_whoever_breathes_without_a_mask() {
+        let cloud = Cloud {
+            dimension: "minecraft:overworld".into(),
+            at: [0.0, 64.0, 0.0],
+            radius: GRENADE_RADIUS,
+            until: 100,
+            sleeper: "ether",
+            dosed: Vec::new(),
+            players: Vec::new(),
+        };
+        assert!(in_cloud(&cloud, [2.0, 65.0, 2.0]));
+        assert!(!in_cloud(&cloud, [3.0, 64.0, 1.0]));
+        // Аэрозоль — перед лицом: взгляд на юг — к +Z, вниз — ниже глаз.
+        let ahead = spray_point([0.0, 64.0, 0.0], 0.0, 0.0);
+        assert!((ahead[2] - SPRAY_REACH).abs() < 1e-9 && ahead[0].abs() < 1e-9);
+        assert!((ahead[1] - (64.0 + EYE_HEIGHT)).abs() < 1e-9);
+        let west = spray_point([0.0, 64.0, 0.0], 90.0, 0.0);
+        assert!((west[0] + SPRAY_REACH).abs() < 1e-9);
+        assert!(spray_point([0.0, 64.0, 0.0], 0.0, 90.0)[1] < 64.0 + EYE_HEIGHT - 2.0);
+        // Противогаз (пока — черепаший панцирь) спасает, остальное — нет.
+        assert!(gas_protected(Some("minecraft:turtle_helmet")));
+        assert!(!gas_protected(Some("minecraft:iron_helmet")) && !gas_protected(None));
+        // Устойчивость к снотворному режет вдох на четверть за силу.
+        let ether = sleeper("ether").unwrap();
+        assert_eq!(gas_dose(ether, 0), 30);
+        assert_eq!(gas_dose(ether, 2), 15);
+        assert_eq!(gas_dose(ether, 9), 7, "сила не выше 3");
+        assert_eq!(gas_dose(sleeper("sedative").unwrap(), 0), 0, "не газ — не вдыхается");
+        // Хлороформ: одного облака хватает до побочек, двух — до передозировки.
+        let chloroform = DRUGS.iter().find(|d| d.id == "chloroform").unwrap();
+        let one = gas_dose(sleeper("chloroform").unwrap(), 0) * FORMS[FORM_SPRAY].bioavailability / 100;
+        assert!(one >= chloroform.window.0 && one <= chloroform.window.1);
+        assert!(one * 2 > chloroform.window.1);
+        // Огонь: эфир вспыхивает, хлороформ — нет; потухший костёр не горит.
+        assert!(flammable(ether) && !flammable(sleeper("chloroform").unwrap()));
+        assert!(ignites("minecraft:fire", None) && ignites("minecraft:campfire", Some("true")));
+        assert!(!ignites("minecraft:campfire", Some("false")) && !ignites("minecraft:stone", None));
     }
 
     /// Одним тестом: таблица бросков общая на процесс, а тесты идут потоками.
@@ -7466,7 +8575,7 @@ mod tests {
                 animals += 1;
             }
         }
-        assert_eq!(animals, 11, "шесть животных из GDD 4.15 и пять уродств из 4.19");
+        assert_eq!(animals, 12, "шесть животных из GDD 4.15, пять уродств из 4.19 и устойчивость из 4.20");
     }
 
     #[test]
@@ -7792,9 +8901,16 @@ mod tests {
             health: 13.5,
             flayed: 0b0010,
             name: Some("Боб; доктор=нет".to_string()),
+            sleeper: Some("mandrake"),
+            paralysed: false,
         };
         let text = patient_to_text(&p);
         assert_eq!(patient_from_text(&text), Some(p.clone()));
+        // Парализованный кураре — тоже (GDD 4.20); незнакомое вещество забыто.
+        let stiff = Patient { sleeper: Some("curare"), paralysed: true, ..p.clone() };
+        assert_eq!(patient_from_text(&patient_to_text(&stiff)), Some(stiff));
+        assert_eq!(patient_from_text("kind=cow;sleep=moonshine").and_then(|p| p.sleeper), None);
+        assert_eq!(patient_from_text("kind=cow").map(|p| (p.sleeper, p.paralysed)), Some((None, false)));
         // Без имени и без генов — тоже.
         let plain = Patient { name: None, genes: Vec::new(), ..p };
         assert_eq!(patient_from_text(&patient_to_text(&plain)), Some(plain));
@@ -7815,9 +8931,13 @@ mod tests {
             health: 12.0,
             flayed: 0b0011,
             name: None,
+            sleeper: None,
+            paralysed: false,
         };
         let text = patient_to_text(&p);
         assert_eq!(stretcher_label(&text).as_deref(), Some("Носилки: Зомби"));
+        let stiff = patient_to_text(&Patient { paralysed: true, ..p.clone() });
+        assert!(stretcher_tooltip(&stiff).iter().any(|l| l.starts_with("Парализован")));
         assert_eq!(item_label(STRETCHER_ID, |key| (key == PATIENT_KEY).then(|| text.clone())), stretcher_label(&text));
         assert_eq!(item_label(STRETCHER_ID, |_| None), None, "пустые носилки — просто «Носилки»");
         let lines = stretcher_tooltip(&text);
@@ -8142,7 +9262,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 50] = [
+pub const RESEARCH: [Research; 55] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -8202,6 +9322,13 @@ pub const RESEARCH: [Research; 50] = [
     // Уродства (GDD 4.19): восемь генов, которые видно на теле. Узел — под
     // генами животных: четыре из них тоже достаются из частей животных.
     node("deformities", 4, (3, 3), "minecraft:goat_horn", "Уродства", &["animal_genes"], Unlock::Item(&["minecraft:goat_horn", "minecraft:ink_sac", "minecraft:phantom_membrane", "minecraft:poisonous_potato"]), "Добудьте козий рог или мембрану фантома."),
+    // Линейка снотворных (GDD 4.20, M5) — в фармакологии. В конце таблицы:
+    // изученное хранится по имени, а предшественники стоят выше.
+    node("herbs", 3, (4, 2), "biolab:calming_brew", "Травы: отвар и мандрагора", &["injections"], Unlock::Item(&["biolab:calming_brew", "biolab:syringe_calming", "biolab:mandrake_mash", "biolab:tincture_mandrake", "biolab:syringe_mandrake", "biolab:dart_mandrake"]), "Сварите корень валерианы в перегонном кубе."),
+    node("sleep_scale", 3, (5, 1), "biolab:dart_tranquilizer", "Сила против массы", &["darts"], Unlock::Item(&["biolab:calming_brew", "biolab:syringe_calming", "biolab:syringe_mandrake", "biolab:dart_mandrake", "biolab:spray_ether", "biolab:grenade_ether", "biolab:rag_chloroform", "biolab:syringe_curare", "biolab:dart_curare", "biolab:syringe_tranquilizer", "biolab:dart_tranquilizer"]), "Сделайте снотворное, кроме седативного."),
+    node("gases", 3, (4, 3), "biolab:grenade_ether", "Эфир и хлороформ", &["topical"], Unlock::Item(&["biolab:ether", "biolab:chloroform", "biolab:spray_ether", "biolab:spray_chloroform", "biolab:grenade_ether", "biolab:grenade_chloroform", "biolab:rag_chloroform"]), "Спирт с серой — на стол, смесь — в реактор."),
+    node("tranquilizer", 3, (5, 2), "biolab:syringe_tranquilizer", "Транквилизатор зверолова", &["sleep_scale"], Unlock::Item(&["biolab:tranquilizer", "biolab:syringe_tranquilizer", "biolab:dart_tranquilizer", "biolab:syringe_wake"]), "Седативное, настойку и золото — в синтезатор."),
+    node("curare", 3, (3, 3), "biolab:dart_curare", "Кураре", &["antidote"], Unlock::Item(&["biolab:curare_mash", "biolab:curare_raw", "biolab:extract_curare", "biolab:syringe_curare", "biolab:dart_curare"]), "Лианы, паучий глаз и колбу — на стол."),
 ];
 
 /// Номер узла по id.
@@ -9096,11 +10223,15 @@ pub enum RecipeView {
     },
     /// Лабораторный стол: ингредиенты сеткой, как без формы на верстаке,
     /// результат и время. Страница подписывает, что это стол, а не верстак.
+    /// Так же рисуется смесь синтезатора (`machine` — синтезатор): у неё
+    /// тоже список входов, а катализатор (`catalyst`) не тратится.
     Bench {
         cells: [Option<String>; 9],
         result: String,
         count: u32,
         seconds: u32,
+        machine: String,
+        catalyst: Option<String>,
     },
     /// Машина мода: вход, машина, время, результат и побочный выход
     /// центрифуги, если он есть.
@@ -9168,7 +10299,7 @@ pub fn recipe_view(text: &str) -> Option<RecipeView> {
         }
         // Стол — тоже `biolab:`, но рецепт у него списком, как у верстака,
         // а не одним входом машины. Входов восемь: девятая клетка пустует.
-        LAB_BENCH => {
+        LAB_BENCH | SYNTHESIZER => {
             let ingredients = j.get("ingredients")?.arr()?;
             if ingredients.is_empty() || ingredients.len() > 8 {
                 return None;
@@ -9178,7 +10309,15 @@ pub fn recipe_view(text: &str) -> Option<RecipeView> {
                 *cell = Some(ingredient_id(ingredient)?);
             }
             let ticks = j.get("time").and_then(Json::num).unwrap_or(DEFAULT_TIME as f64).max(1.0) as u32;
-            Some(RecipeView::Bench { cells, result, count, seconds: ticks.div_ceil(20) })
+            let catalyst = j.get("catalyst").and_then(Json::str).map(str::to_string);
+            Some(RecipeView::Bench {
+                cells,
+                result,
+                count,
+                seconds: ticks.div_ceil(20),
+                machine: kind.to_string(),
+                catalyst,
+            })
         }
         machine if machine.starts_with("biolab:") => {
             let ticks = j.get("time").and_then(Json::num).unwrap_or(200.0).max(1.0) as u32;
@@ -9678,7 +10817,7 @@ mod research_tests {
         };
         assert_eq!(byproduct, Some(("minecraft:sand".to_string(), 2)));
         let bench = r#"{"type":"biolab:lab_bench","ingredients":["minecraft:iron_nugget","minecraft:glass_pane","minecraft:iron_nugget"],"result":{"id":"biolab:syringe","count":2},"time":40}"#;
-        let Some(RecipeView::Bench { cells, result, count, seconds }) = recipe_view(bench) else {
+        let Some(RecipeView::Bench { cells, result, count, seconds, .. }) = recipe_view(bench) else {
             panic!("не стол");
         };
         assert_eq!(cells[1].as_deref(), Some("minecraft:glass_pane"));

@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:ether",
+  "minecraft:copper_ingot"
+ ],
+ "result": {
+  "id": "biolab:spray_ether",
+  "count": 1
+ },
+ "time": 40
+}

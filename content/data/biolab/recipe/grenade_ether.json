@@ -1,0 +1,12 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:ether",
+  "biolab:flask"
+ ],
+ "result": {
+  "id": "biolab:grenade_ether",
+  "count": 1
+ },
+ "time": 40
+}

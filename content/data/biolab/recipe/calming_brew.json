@@ -1,0 +1,9 @@
+{
+ "type": "biolab:still",
+ "ingredient": "biolab:valerian_root",
+ "result": {
+  "id": "biolab:calming_brew",
+  "count": 1
+ },
+ "time": 100
+}

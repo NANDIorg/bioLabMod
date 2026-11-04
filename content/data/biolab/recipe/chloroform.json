@@ -1,0 +1,13 @@
+{
+ "type": "biolab:reactor",
+ "ingredient": "biolab:chloroform_mix",
+ "result": {
+  "id": "biolab:chloroform",
+  "count": 1
+ },
+ "time": 160,
+ "temperature": [
+  330,
+  520
+ ]
+}

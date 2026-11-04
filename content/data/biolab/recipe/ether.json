@@ -1,0 +1,13 @@
+{
+ "type": "biolab:reactor",
+ "ingredient": "biolab:ether_mix",
+ "result": {
+  "id": "biolab:ether",
+  "count": 1
+ },
+ "time": 120,
+ "temperature": [
+  250,
+  320
+ ]
+}

@@ -1,0 +1,5 @@
+{
+ "template": "minecraft:snowball",
+ "item": "biolab:grenade_chloroform",
+ "damage": 0.0
+}

@@ -130,6 +130,7 @@ fn effect_names_match_the_core() {
     assert_eq!(effects::BLEEDING, biolab_core::BLEEDING_EFFECT);
     assert_eq!(effects::BLEEDING, biolab_core::BLEEDING);
     assert_eq!(effects::MUTAGENESIS, biolab_core::MUTAGENESIS_EFFECT);
+    assert_eq!(effects::PARALYSIS, biolab_core::PARALYSIS_EFFECT);
     // Кислота: эффект лужи кислоты.
     assert!(biolab_core::FLUIDS.iter().any(|f| f.effect == effects::ACID_BURN));
 }
