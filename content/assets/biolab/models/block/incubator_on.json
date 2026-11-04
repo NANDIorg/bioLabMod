@@ -1,6 +1,6 @@
 {
   "parent": "biolab:block/incubator",
-  "textures": {"particle": "biolab:block/incubator_side", "lamp": "biolab:block/incubator_lamp_on"},
+  "textures": {"particle": "biolab:block/incubator_side", "lamp": "biolab:block/incubator_lamp_on", "front": "biolab:block/incubator_front_on"},
   "elements": [
     {"from": [14, 0, 0], "to": [16, 16, 16], "faces": {"down": {"uv": [14, 0, 16, 16], "texture": "#side", "cullface": "down"}, "up": {"uv": [14, 0, 16, 16], "texture": "#top"}, "north": {"uv": [0, 0, 2, 16], "texture": "#front"}, "south": {"uv": [14, 0, 16, 16], "texture": "#side"}, "west": {"uv": [0, 0, 16, 16], "texture": "#frame"}, "east": {"uv": [0, 0, 16, 16], "texture": "#side", "cullface": "east"}}},
     {"from": [0, 0, 0], "to": [2, 16, 16], "faces": {"down": {"uv": [0, 0, 2, 16], "texture": "#side", "cullface": "down"}, "up": {"uv": [0, 0, 2, 16], "texture": "#top"}, "north": {"uv": [14, 0, 16, 16], "texture": "#front"}, "south": {"uv": [0, 0, 2, 16], "texture": "#side"}, "west": {"uv": [0, 0, 16, 16], "texture": "#side", "cullface": "west"}, "east": {"uv": [0, 0, 16, 16], "texture": "#frame"}}},

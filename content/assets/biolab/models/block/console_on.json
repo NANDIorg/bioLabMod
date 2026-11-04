@@ -1,6 +1,6 @@
 {
   "parent": "biolab:block/console",
-  "textures": {"particle": "biolab:block/console_side", "lamp": "biolab:block/console_lamp_on", "screen": "biolab:block/machine_screen_on"},
+  "textures": {"particle": "biolab:block/console_side", "lamp": "biolab:block/console_lamp_on", "screen": "biolab:block/machine_screen_on", "top": "biolab:block/console_top_on"},
   "elements": [
     {"from": [0, 0, 0], "to": [16, 9, 16], "faces": {"down": {"uv": [0, 0, 16, 16], "texture": "#side", "cullface": "down"}, "up": {"uv": [0, 0, 16, 16], "texture": "#steel"}, "north": {"uv": [0, 7, 16, 16], "texture": "#front"}, "south": {"uv": [0, 7, 16, 16], "texture": "#side"}, "west": {"uv": [0, 7, 16, 16], "texture": "#side"}, "east": {"uv": [0, 7, 16, 16], "texture": "#side"}}},
     {"from": [1, 8, 1.5], "to": [15, 12, 10.5], "rotation": {"origin": [8, 12, 10.5], "axis": "x", "angle": -22.5}, "faces": {"up": {"uv": [1, 1.5, 15, 10.5], "texture": "#top"}, "west": {"uv": [1.5, 4, 10.5, 8], "texture": "#frame"}, "east": {"uv": [5.5, 4, 14.5, 8], "texture": "#frame"}}},

@@ -7,8 +7,6 @@
 mod effects;
 #[path = "../mixins/biolab_deep/mutants.rs"]
 mod mutants;
-#[path = "../mixins/biolab_deep/tab.rs"]
-mod tab;
 #[path = "../mixins/biolab_deep/surgery.rs"]
 mod surgery;
 #[path = "../mixins/biolab_deep/growths.rs"]

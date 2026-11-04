@@ -1,5 +1,6 @@
 {
  "block.biolab.lab_bench": "Lab Bench",
+ "itemGroup.biolab.lab": "BioLab",
  "effect.biolab.acid_burn": "Acid Burn",
  "item.biolab.flask": "Flask",
  "block.biolab.still": "Still",

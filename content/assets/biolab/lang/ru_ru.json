@@ -1,5 +1,6 @@
 {
  "block.biolab.lab_bench": "Лабораторный стол",
+ "itemGroup.biolab.lab": "BioLab",
  "effect.biolab.acid_burn": "Кислотный ожог",
  "item.biolab.flask": "Колба",
  "block.biolab.still": "Перегонный куб",

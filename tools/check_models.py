@@ -20,7 +20,15 @@
   поворота; не выше 20 по Y; низ закрыт целиком (грани `down` на y = 0 покрывают
   16×16); есть `display` для gui/ground/fixed/рук; 6–20 элементов (предупреждение);
 - предметы: ссылки на модели в items/*.json существуют, у каждого блока с
-  `"item": true` есть items/<id>.json.
+  `"item": true` есть items/<id>.json;
+- свечение (OptiFine `<текстура>_e.png`, Horizon рисует его полной яркостью):
+  рядом есть сама текстура того же размера, она в textures/block/ (свечение
+  предметов движок не рисует), не совпадает пиксель в пиксель с другой текстурой
+  блока (такие делят слой атласа, и свечения нет ни у одной), светящиеся пиксели
+  попадают в uv хоть одной грани; всего оверлеев не больше 96 — общий бюджет с
+  ресурспаками;
+- сшивка (optifine/ctm/**/*.properties): известный метод, нужное число плиток,
+  плитки и `matchTiles` существуют, плитки — PNG размера своей текстуры.
 
 Ссылки на `minecraft:` сверяются с ванильными ресурсами, если они найдены
 (`--vanilla`, переменная BIOLAB_VANILLA или ресурсы лаунчера Horizon); иначе
@@ -34,6 +42,7 @@ import math
 import os
 import struct
 import sys
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTENT = os.path.join(ROOT, "content")
@@ -53,6 +62,12 @@ KNOWN_STATES = {
 
 errors = []
 warnings = []
+# Текстура -> uv граней моделей блоков и предметов, которые её рисуют
+# (для проверки, что светящиеся пиксели вообще видны).
+FACE_UVS = {}
+# Столько блочных оверлеев свечения грузит Horizon (`native_emissive`: 128 минус
+# 32 для нативных модов); лишние молча пропускаются.
+MAX_EMISSIVE = 96
 
 
 def err(where, msg):
@@ -280,6 +295,15 @@ def check_element(e, where, machine):
     return f, t, faces, rot
 
 
+def auto_uv(face, f, t):
+    """uv грани без явного `uv` — как считает ваниль."""
+    x1, y1, z1 = f
+    x2, y2, z2 = t
+    return {"down": [x1, 16 - z2, x2, 16 - z1], "up": [x1, z1, x2, z2],
+            "north": [16 - x2, 16 - y2, 16 - x1, 16 - y1], "south": [x1, 16 - y2, x2, 16 - y1],
+            "west": [z1, 16 - y2, z2, 16 - y1], "east": [16 - z2, 16 - y2, 16 - z1, 16 - y1]}[face]
+
+
 def check_model(assets, ref, where, machine, checked_tex, checked_models):
     # Модель машины уже проверена строго — предмет с ней же не проверяем повторно.
     if (ref, machine) in checked_models or (ref, True) in checked_models:
@@ -316,6 +340,8 @@ def check_model(assets, ref, where, machine, checked_tex, checked_models):
                 tex = resolve_texture(chain, face["texture"], f"{w} элемент {i}")
                 if tex:
                     check_texture(assets, tex, w, checked_tex)
+                    uv = face.get("uv") if vec(face.get("uv"), 4) else auto_uv(name, f, t)
+                    FACE_UVS.setdefault(":".join(split(tex)), []).append(uv)
         if machine and rot is None and f[1] == 0 and "down" in faces:
             for x in range(max(0, int(f[0] * 2)), min(32, int(math.ceil(t[0] * 2)))):
                 for z in range(max(0, int(f[2] * 2)), min(32, int(math.ceil(t[2] * 2)))):
@@ -491,6 +517,184 @@ def model_refs(node):
             yield from model_refs(v)
 
 
+def png_pixels(path):
+    """Пиксели PNG (8 бит на канал, без чересстрочки) без PIL: (ширина, высота,
+    строки RGBA-кортежей). None, если формат другой."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    pos, idat, w, h, ct = 8, b"", 0, 0, None
+    while pos < len(data):
+        n = struct.unpack(">I", data[pos:pos + 4])[0]
+        tag, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + n]
+        pos += 12 + n
+        if tag == b"IHDR":
+            w, h, depth, ct, _, _, lace = struct.unpack(">IIBBBBB", body)
+            if depth != 8 or lace:
+                return None
+        elif tag == b"IDAT":
+            idat += body
+    bpp = {6: 4, 2: 3, 4: 2, 0: 1}.get(ct)
+    if bpp is None:
+        return None
+    raw = zlib.decompress(idat)
+    stride, rows, prev, i = w * bpp, [], bytearray(w * bpp), 0
+    for _ in range(h):
+        kind, line = raw[i], bytearray(raw[i + 1:i + 1 + stride])
+        i += 1 + stride
+        for x in range(stride):
+            a = line[x - bpp] if x >= bpp else 0
+            b = prev[x]
+            c = prev[x - bpp] if x >= bpp else 0
+            if kind == 1:
+                line[x] = (line[x] + a) & 255
+            elif kind == 2:
+                line[x] = (line[x] + b) & 255
+            elif kind == 3:
+                line[x] = (line[x] + (a + b) // 2) & 255
+            elif kind == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        prev = line
+        px = [tuple(line[x * bpp:(x + 1) * bpp]) for x in range(w)]
+        if bpp == 3:
+            px = [q + (255,) for q in px]
+        elif bpp == 2:
+            px = [(q[0], q[0], q[0], q[1]) for q in px]
+        elif bpp == 1:
+            px = [(q[0], q[0], q[0], 255) for q in px]
+        rows.append(px)
+    return w, h, rows
+
+
+def texture_ref(path):
+    """`ns:block/x` по пути .../assets/<ns>/textures/block/x.png."""
+    parts = os.path.relpath(path, os.path.join(CONTENT, "assets")).split(os.sep)
+    return f"{parts[0]}:" + "/".join(parts[2:])[:-4]
+
+
+def check_emissive():
+    """Оверлеи свечения `_e.png`. Возвращает их число."""
+    overlays = sorted(glob.glob(os.path.join(CONTENT, "assets", "*", "textures", "**", "*_e.png"),
+                                recursive=True))
+    # Пиксели всех текстур блоков: одинаковые делят слой атласа.
+    by_pixels = {}
+    for p in sorted(glob.glob(os.path.join(CONTENT, "assets", "*", "textures", "block", "**", "*.png"),
+                              recursive=True)):
+        if p.endswith("_e.png"):
+            continue
+        img = png_pixels(p)
+        if img:
+            by_pixels.setdefault(repr(img), []).append(texture_ref(p))
+    for p in overlays:
+        w = rel(p)
+        base_path = p[:-len("_e.png")] + ".png"
+        base = texture_ref(base_path)
+        if not os.path.isfile(base_path):
+            err(w, f"нет самой текстуры {base}: свечению не к чему крепиться")
+            continue
+        if base.split(":", 1)[1].split("/")[0] != "block":
+            err(w, "свечение не в textures/block/: Horizon рисует его у блоков и мобов, не у предметов")
+        img, under = png_pixels(p), png_pixels(base_path)
+        if img is None or under is None:
+            err(w, "PNG не 8 бит на канал — проверить нельзя")
+            continue
+        if img[:2] != under[:2]:
+            err(w, f"размер {img[0]}×{img[1]}, у текстуры {under[0]}×{under[1]}")
+            continue
+        size = img[0]
+        # Cutout: светится то, где альфа не меньше 0,1.
+        lit = [(x, y) for y, row in enumerate(img[2]) for x, px in enumerate(row) if px[3] >= 26]
+        if not lit:
+            warn(w, "ни одного непрозрачного пикселя — свечения нет")
+        if any(0 < px[3] < 255 for row in img[2] for px in row):
+            warn(w, "полупрозрачные пиксели: движок рисует свечение cutout, они станут сплошными")
+        if any(0 < px[3] < 255 for row in under[2] for px in row):
+            warn(w, f"{base} полупрозрачная: на полупрозрачных гранях свечения нет")
+        twins = by_pixels.get(repr(under), [])
+        if len(twins) > 1:
+            err(w, f"{base} пиксель в пиксель как {', '.join(t for t in twins if t != base)}: "
+                   "у них общий слой атласа, и свечения нет ни у одной")
+        uvs = FACE_UVS.get(base)
+        if not uvs:
+            warn(w, f"{base} не рисует ни одна грань моделей — свечение не видно")
+            continue
+        k = size / 16
+
+        def seen(x, y):
+            return any(min(u[0], u[2]) * k <= x + 0.5 <= max(u[0], u[2]) * k
+                       and min(u[1], u[3]) * k <= y + 0.5 <= max(u[1], u[3]) * k for u in uvs)
+        if lit and not any(seen(x, y) for x, y in lit):
+            warn(w, "светящиеся пиксели не попадают в uv ни одной грани — свечение не видно")
+    if len(overlays) > MAX_EMISSIVE:
+        err("свечение", f"{len(overlays)} оверлеев, Horizon грузит не больше {MAX_EMISSIVE}")
+    return len(overlays)
+
+
+# Методы OptiFine CTM: сколько плиток нужно — (наименьшее, точное или None).
+CTM_TILES = {"ctm": (47, 47), "ctm_compact": (5, None), "horizontal": (4, 4), "vertical": (4, 4),
+             "horizontal+vertical": (7, 7), "vertical+horizontal": (7, 7), "top": (1, 1),
+             "random": (1, None), "repeat": (1, None), "fixed": (1, 1), "overlay": (17, 17)}
+
+
+def read_properties(path):
+    out = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line[0] in "#!" or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            out[k.strip()] = v.strip()
+    return out
+
+
+def check_ctm():
+    """Файлы сшивки. Возвращает их число."""
+    files = sorted(glob.glob(os.path.join(CONTENT, "assets", "*", "optifine", "ctm", "**", "*.properties"),
+                             recursive=True))
+    for p in files:
+        w = rel(p)
+        props = read_properties(p)
+        method = props.get("method")
+        if method not in CTM_TILES:
+            err(w, f"метод {method!r}: нужен один из {', '.join(CTM_TILES)}")
+            continue
+        matched = []
+        for t in props.get("matchTiles", "").split():
+            ns, path = split(t)
+            path = path if "/" in path else "block/" + path
+            tp = os.path.join(CONTENT, "assets", ns, "textures", path + ".png")
+            if not os.path.isfile(tp):
+                err(w, f"matchTiles {t}: нет {rel(tp)}")
+            else:
+                matched.append(tp)
+        if not matched and "matchBlocks" not in props:
+            err(w, "нет ни matchTiles, ни matchBlocks — правило ни к чему не применится")
+        tiles = []
+        for tok in props.get("tiles", "").split():
+            a, dash, b = tok.partition("-")
+            if dash and a.isdigit() and b.isdigit():
+                step = 1 if int(b) >= int(a) else -1
+                tiles += [str(i) for i in range(int(a), int(b) + step, step)]
+            elif tok not in ("<skip>", "<default>"):
+                tiles.append(tok[:-4] if tok.endswith(".png") else tok)
+        lo, exact = CTM_TILES[method]
+        if len(tiles) < lo or (exact and len(tiles) != exact):
+            err(w, f"{method}: плиток {len(tiles)}, нужно {exact or f'не меньше {lo}'}")
+        sizes = {png_size(m) for m in matched}
+        for t in tiles:
+            if "/" in t or ":" in t:
+                continue  # плитка по пути, не рядом с файлом — не проверяем
+            tp = os.path.join(os.path.dirname(p), t + ".png")
+            if not os.path.isfile(tp):
+                err(w, f"нет плитки {rel(tp)}")
+            elif sizes and png_size(tp) not in sizes:
+                err(w, f"плитка {t}.png размером {png_size(tp)}, у текстуры {sorted(sizes)}")
+    return len(files)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--vanilla", help="папка assets ванили 26.x (с подпапкой minecraft)")
@@ -544,9 +748,11 @@ def main():
         for ref in refs:
             check_model(assets, ref, rel(p), False, checked_tex, checked_models)
 
+    n_glow = check_emissive()
+    n_ctm = check_ctm()
     print(f"JSON: {n_json}, blockstates: {n_states} (машин на шаблонах-кубах: {n_machines}), "
           f"предметов: {n_items}, моделей: {len({r for r, _ in checked_models})}, "
-          f"текстур: {len(checked_tex)}")
+          f"текстур: {len(checked_tex)}, свечения: {n_glow} из {MAX_EMISSIVE}, сшивок: {n_ctm}")
     for w in dict.fromkeys(warnings):
         print("предупреждение:", w)
     for e in dict.fromkeys(errors):

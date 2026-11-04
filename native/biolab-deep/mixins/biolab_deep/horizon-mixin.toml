@@ -196,24 +196,6 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
 
-# Модуль своей вкладки: в lib-крейте, где живёт `creative`.
-[[module]]
-id = "tab"
-file = "crates/horizon-client/src/client_lib.rs"
-name = "biolab_tab"
-source = "tab.rs"
-
-# Вкладка творческого инвентаря: дописываем её после перестройки списка.
-[[injection]]
-id = "creative-tab"
-kind = "RETURN"
-target = "horizon_client_lib::creative::Creative::rebuild"
-helper = "creative.rs"
-bindings = [
-  { name = "creative", ty = "&mut crate::creative::Creative", value = "&mut *self" },
-  { name = "value", ty = "()", value = "$value" },
-]
-
 # Карта исследований вместо ванильной книги. Журнал лаборанта открывает
 # пустой экран книги: он даёт свободный курсор, мышь и клавиши, а рисуем и
 # отвечаем мы. Узлы и записи — в `biolab_core` (карта исследований).
