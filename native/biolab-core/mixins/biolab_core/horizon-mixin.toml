@@ -430,4 +430,65 @@ bindings = [
   { name = "entity", ty = "Option<u32>", value = "entity" },
   { name = "at", ty = "[f64; 3]", value = "at" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+
+# Поведение своих эффектов (GDD 4.7) по контракту платформы, API 56: урон
+# кислоты, токсикоза и кровотечения, седация и мутаген — одна таблица и один
+# ритм для игрока и для моба. Раньше это считали миксины `biolab-deep` на
+# тиках эффектов (`tick.rs`, `mob_tick.rs`). Таблица — модуль без типов игры
+# (`tests/effects.rs`), в игре `crate::game::biolab_effects`.
+[[module]]
+id = "effects"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_effects"
+source = "effects.rs"
+
+# Срабатывает ли наш эффект в этот тик. `&self`: игра только для чтения.
+[[injection]]
+id = "effect-should-apply"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_should_apply_effect_tick_this_tick"
+helper = "effect_should_apply.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "effect", ty = "&str", value = "effect" },
+  { name = "amplifier", ty = "i32", value = "amplifier" },
+  { name = "apply", ty = "&mut bool", value = "&mut *apply" },
+]
+
+# Эффект подействовал: действие встаёт в очередь (моб в этот момент вынут из
+# мира), снять эффект можно сразу через `keep`.
+[[injection]]
+id = "effect-apply"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_apply_effect_tick"
+helper = "effect_apply.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "effect", ty = "&str", value = "effect" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "entity", ty = "Option<i32>", value = "entity" },
+  { name = "amplifier", ty = "i32", value = "amplifier" },
+  { name = "keep", ty = "&mut bool", value = "&mut *keep" },
+]
+
+# Мобу дали седативное зельем или командой — цель снимается сразу.
+[[injection]]
+id = "effect-added"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mob_effect_added"
+helper = "effect_added.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "effect", ty = "&str", value = "effect" },
+  { name = "entity", ty = "Option<i32>", value = "entity" },
+]
+
+# Очередь эффектов выполняет тик игрока: здесь игра изменяема и моб на месте.
+[[injection]]
+id = "effect-actions"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "effect_actions.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]

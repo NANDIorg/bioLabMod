@@ -15,16 +15,9 @@ file = "crates/horizon-client/src/game.rs"
 name = "biolab_deep"
 source = "runtime.rs"
 
-# Серверный тик эффектов игрока (LivingEntity.tickEffects). Ванильные эффекты
-# разбираются хардкодом по строкам, наши — здесь.
-[[injection]]
-id = "effect-tick"
-kind = "HEAD"
-target = "horizon_client::game::potions::Game<'_>::tick_mob_effects"
-helper = "tick.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-]
+# Урон и поведение своих эффектов (у игрока и у моба) живут в `biolab-core`
+# на стабильных хуках API 56 (`effect_*.rs`). Здесь остались только прибавки
+# к атрибутам и поведение мутанта по генам — см. `mob_tick.rs`.
 
 # Модуль в крейте отрисовки: там живёт атлас HUD.
 [[module]]
@@ -155,14 +148,10 @@ bindings = [
   { name = "out", ty = "&mut Vec<horizon_client::mesher::Vertex>", value = "&mut *out" },
 ]
 
-# Модуль эффектов мобов: в lib-крейте, где живёт `mobs`.
-[[module]]
-id = "mob-effects"
-file = "crates/horizon-client/src/client_lib.rs"
-name = "biolab_effects"
-source = "effects.rs"
-
-# Эффекты мобов тикают отдельно от игрока (`m.extra.effects`).
+# Тик эффектов моба (`m.extra.effects`): то, на что стабильного API нет, —
+# модификатор скорости усыплённого и поведение мутанта по генам (огонь, яды,
+# планирование, регенерация). Урон и поведение самих эффектов — в
+# `biolab-core` (API 56).
 [[injection]]
 id = "mob-effect-tick"
 kind = "HEAD"
