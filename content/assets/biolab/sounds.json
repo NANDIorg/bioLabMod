@@ -1,0 +1,80 @@
+{
+  "block.centrifuge.start": {
+    "subtitle": "subtitles.biolab.block.centrifuge.start",
+    "sounds": [
+      "biolab:centrifuge_start"
+    ]
+  },
+  "block.centrifuge.work": {
+    "subtitle": "subtitles.biolab.block.centrifuge.work",
+    "sounds": [
+      "biolab:centrifuge_work"
+    ]
+  },
+  "block.centrifuge.done": {
+    "subtitle": "subtitles.biolab.block.centrifuge.done",
+    "sounds": [
+      "biolab:centrifuge_done"
+    ]
+  },
+  "block.fermenter.bubble": {
+    "subtitle": "subtitles.biolab.block.fermenter.bubble",
+    "sounds": [
+      "biolab:fermenter_bubble"
+    ]
+  },
+  "block.incubator.hum": {
+    "subtitle": "subtitles.biolab.block.incubator.hum",
+    "sounds": [
+      "biolab:incubator_hum"
+    ]
+  },
+  "block.machine.ready": {
+    "subtitle": "subtitles.biolab.block.machine.ready",
+    "sounds": [
+      "biolab:machine_ready"
+    ]
+  },
+  "item.syringe.inject": {
+    "subtitle": "subtitles.biolab.item.syringe.inject",
+    "sounds": [
+      "biolab:syringe_inject"
+    ]
+  },
+  "item.scalpel.cut": {
+    "subtitle": "subtitles.biolab.item.scalpel.cut",
+    "sounds": [
+      "biolab:scalpel_cut"
+    ]
+  },
+  "item.spray.use": {
+    "subtitle": "subtitles.biolab.item.spray.use",
+    "sounds": [
+      "biolab:spray_use"
+    ]
+  },
+  "item.dart_gun.shoot": {
+    "subtitle": "subtitles.biolab.item.dart_gun.shoot",
+    "sounds": [
+      "biolab:dart_shoot"
+    ]
+  },
+  "item.bandage.apply": {
+    "subtitle": "subtitles.biolab.item.bandage.apply",
+    "sounds": [
+      "biolab:bandage_apply"
+    ]
+  },
+  "item.gene_therapy.use": {
+    "subtitle": "subtitles.biolab.item.gene_therapy.use",
+    "sounds": [
+      "biolab:gene_therapy_use"
+    ]
+  },
+  "item.dosimeter.click": {
+    "subtitle": "subtitles.biolab.item.dosimeter.click",
+    "sounds": [
+      "biolab:dosimeter_click"
+    ]
+  }
+}

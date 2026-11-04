@@ -90,5 +90,18 @@
  "block.biolab.spectrometer": "Spectrometer",
  "item.biolab.lab_manual": "Lab Manual",
  "item.biolab.stretcher": "Stretcher",
- "block.biolab.operating_table": "Operating Table"
+ "block.biolab.operating_table": "Operating Table",
+ "subtitles.biolab.block.centrifuge.start": "Centrifuge spins up",
+ "subtitles.biolab.block.centrifuge.work": "Centrifuge whirs",
+ "subtitles.biolab.block.centrifuge.done": "Centrifuge spins down",
+ "subtitles.biolab.block.fermenter.bubble": "Fermenter bubbles",
+ "subtitles.biolab.block.incubator.hum": "Incubator hums",
+ "subtitles.biolab.block.machine.ready": "Machine beeps",
+ "subtitles.biolab.item.syringe.inject": "Syringe injects",
+ "subtitles.biolab.item.scalpel.cut": "Scalpel cuts",
+ "subtitles.biolab.item.spray.use": "Spray hisses",
+ "subtitles.biolab.item.dart_gun.shoot": "Dart fired",
+ "subtitles.biolab.item.bandage.apply": "Bandage applied",
+ "subtitles.biolab.item.gene_therapy.use": "Gene rewritten",
+ "subtitles.biolab.item.dosimeter.click": "Dosimeter clicks"
 }

@@ -725,12 +725,20 @@ pub fn synth_spent_slots(items: &[Option<&str>]) -> Vec<usize> {
 
 // ---- Звуки ----
 //
-// Свои `.ogg` мод проиграть не может, поэтому каждое его событие озвучено
-// подходящим ванильным звуком. Выбор — здесь, одной таблицей: сменить звук
-// значит поправить строку, хуки берут отсюда. Имя события должно быть в
-// реестре `minecraft:sound_event` версии 26.3: незнакомое сервер молча
-// выбрасывает при рассылке (`flush_native_sounds`), так что опечатка
-// здесь — это тишина в игре; тест сверяет таблицу с ванильным списком.
+// Выбор звука — здесь, одной таблицей: сменить звук значит поправить строку,
+// хуки берут отсюда. Звуки двух видов:
+//
+// - Ванильные (`minecraft:…`) — там, где ванильный уместен (еда, бинт по
+//   коже, набат перегрева). Имя должно быть в реестре `minecraft:sound_event`
+//   версии 26.3: незнакомое сервер молча выбрасывает при рассылке
+//   (`flush_native_sounds`), так что опечатка — это тишина в игре; тест
+//   сверяет таблицу с ванильным списком.
+// - Свои (`biolab:…`, API 61): событие чужого пространства имён сервер шлёт
+//   по имени, а клиент ищет его в `assets/biolab/sounds.json` мода. Файлы
+//   синтезирует `tools/mksounds.py` (он же пишет `sounds.json`); событие,
+//   которого там нет, на клиенте просто не играет — тест сверяет таблицу с
+//   `sounds.json` и наличие файлов. Свой звук — там, где ванильный звучал
+//   чужим (центрифуга маяком, укол пчелой, скальпель ножницами по овце).
 //
 // Громкость держим низкой (до 0,8, фон машин — 0,2–0,4): лаборатория — это
 // ряды машин, которые работают часами, и шум не должен утомлять. Высоту
@@ -738,7 +746,7 @@ pub fn synth_spent_slots(items: &[Option<&str>]) -> Vec<usize> {
 // где нужна тяжесть (пресс, перегрев). Ванилла сама зажимает высоту в
 // 0,5–2,0, поэтому за эти пределы не выходим.
 
-/// Ванильный звук события мода. `source` — категория громкости, номер в
+/// Звук события мода (ванильный или свой). `source` — категория громкости, номер в
 /// `SOUND_SOURCES` игры: её приглушает свой ползунок в настройках.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sound {
@@ -791,26 +799,29 @@ pub const MACHINE_SOUNDS: [MachineSounds; 11] = [
         work: block("minecraft:block.bubble_column.bubble_pop", 0.3, 0.8),
         done: block("minecraft:item.bottle.fill", 0.6, 1.0),
     },
-    // Инкубатор: включилась лампа, капает, культура «шлёпнулась» в чашку.
+    // Инкубатор: включилась лампа, тёплый ровный гул (свой: капель улья
+    // звучала протечкой), сигнал прибора — культура выросла.
     MachineSounds {
         machine: INCUBATOR,
         start: block("minecraft:block.copper_bulb.turn_on", 0.4, 1.0),
-        work: block("minecraft:block.beehive.drip", 0.4, 1.0),
-        done: block("minecraft:entity.slime.squish_small", 0.6, 1.2),
+        work: block("biolab:block.incubator.hum", 0.25, 1.0),
+        done: block("biolab:block.machine.ready", 0.45, 1.0),
     },
-    // Ферментер: бульканье брожения, всплывают пузыри, слив в бутыль.
+    // Ферментер: пузырь пошёл, бульканье брожения (своё: ванильная колонна
+    // пузырей — это шум воды, а не густой бражки), слив в бутыль.
     MachineSounds {
         machine: "biolab:fermenter",
         start: block("minecraft:block.bubble_column.bubble_pop", 0.6, 1.0),
-        work: block("minecraft:block.bubble_column.upwards_ambient", 0.3, 1.0),
+        work: block("biolab:block.fermenter.bubble", 0.35, 1.0),
         done: block("minecraft:item.bottle.fill", 0.6, 0.8),
     },
-    // Центрифуга: раскрутка, высокое жужжание ротора, остановка.
+    // Центрифуга: раскрутка, ровный гул ротора, выбег с щелчком крышки —
+    // все три свои: раньше это были точило и маяк.
     MachineSounds {
         machine: CENTRIFUGE,
-        start: block("minecraft:block.grindstone.use", 0.4, 1.4),
-        work: block("minecraft:block.beacon.ambient", 0.35, 1.6),
-        done: block("minecraft:block.beacon.deactivate", 0.4, 1.6),
+        start: block("biolab:block.centrifuge.start", 0.45, 1.0),
+        work: block("biolab:block.centrifuge.work", 0.3, 1.0),
+        done: block("biolab:block.centrifuge.done", 0.45, 1.0),
     },
     // Синтезатор: энергия на сборку, кристальный звон атомов, готово.
     MachineSounds {
@@ -847,12 +858,14 @@ pub const MACHINE_SOUNDS: [MachineSounds; 11] = [
         work: block("minecraft:block.conduit.ambient", 0.4, 0.8),
         done: block("minecraft:block.sniffer_egg.hatch", 0.8, 1.0),
     },
-    // Спектрометр: щелчок прибора, тиканье развёртки, звон — вещество опознано.
+    // Спектрометр: щелчок прибора, тиканье развёртки, сигнал — вещество
+    // опознано. Сигнал тот же, что у инкубатора, но выше: прибор, а не нотный
+    // блок, и по высоте ясно, который из двух закончил.
     MachineSounds {
         machine: SPECTROMETER,
         start: block("minecraft:block.comparator.click", 0.5, 1.0),
         work: block("minecraft:block.comparator.click", 0.3, 0.7),
-        done: block("minecraft:block.note_block.chime", 0.6, 1.4),
+        done: block("biolab:block.machine.ready", 0.5, 1.25),
     },
     // Лабораторный стол: щелчок, скрип инструмента, механизм собрал вещь.
     MachineSounds {
@@ -965,37 +978,48 @@ impl Cue {
 pub const SOUNDS: [(Cue, Sound); 18] = [
     // Набат: содержимое пропало, это надо услышать и из соседней комнаты.
     (Cue::Overheat, block("minecraft:block.bell.use", 1.0, 0.6)),
-    // Укол — короткое жало пчелы; себе чуть выше и тише, мобу ниже.
-    (Cue::SyringeSelf, player("minecraft:entity.bee.sting", 0.5, 1.5)),
-    (Cue::SyringeMob, player("minecraft:entity.bee.sting", 0.6, 1.2)),
-    // Дротик — лёгкий выстрел и попадание; высота выше стрелы: он меньше.
-    (Cue::DartShot, player("minecraft:entity.arrow.shoot", 0.5, 1.6)),
+    // Укол — свой: щелчок поршня и «пфф» раствора (жало пчелы звучало
+    // нападением, а не процедурой); себе чуть выше и тише, мобу ниже.
+    (Cue::SyringeSelf, player("biolab:item.syringe.inject", 0.5, 1.1)),
+    (Cue::SyringeMob, player("biolab:item.syringe.inject", 0.6, 0.9)),
+    // Дротик — свой пневматический хлопок со свистом пролёта (у лука — тетива).
+    // Попадание — ванильная стрела, выше обычного: дротик меньше, а «тук»
+    // в цель у них одинаковый.
+    (Cue::DartShot, player("biolab:item.dart_gun.shoot", 0.5, 1.0)),
     (Cue::DartHit, player("minecraft:entity.arrow.hit", 0.6, 1.4)),
-    // Бинт — шорох ткани.
-    (Cue::Bandage, player("minecraft:item.armor.equip_leather", 0.8, 1.2)),
-    // Аэрозоль — короткий пшик.
-    (Cue::Spray, player("minecraft:entity.generic.extinguish_fire", 0.4, 2.0)),
+    // Бинт — свой: два-три оборота ткани, а не надетая кожаная броня.
+    (Cue::Bandage, player("biolab:item.bandage.apply", 0.6, 1.0)),
+    // Аэрозоль — свой короткий «пшш» (тушение огня шипело углями).
+    (Cue::Spray, player("biolab:item.spray.use", 0.4, 1.0)),
     // Мазь — втирание, как воск по меди.
     (Cue::Ointment, player("minecraft:item.honeycomb.wax_on", 0.6, 1.3)),
     // Таблетка — быстрый «хрум».
     (Cue::Pill, player("minecraft:entity.generic.eat", 0.5, 1.5)),
     (Cue::Remedy, player("minecraft:entity.generic.drink", 0.5, 1.2)),
     (Cue::Eat, player("minecraft:entity.generic.eat", 0.6, 1.0)),
-    // Скальпель срезал ткань — как ножницы по шерсти.
-    (Cue::Tissue, player("minecraft:entity.sheep.shear", 0.7, 1.3)),
+    // Скальпель срезал ткань — свой «вжик» с влажным откликом (ножницы по
+    // шерсти звучали стрижкой овцы).
+    (Cue::Tissue, player("biolab:item.scalpel.cut", 0.6, 1.0)),
     // Носилки — тело мягко легло на полотно, ниже обычного: оно тяжёлое.
     (Cue::Stretcher, player("minecraft:block.wool.place", 0.8, 0.8)),
     // Стол — затянуты ремни, как привязанный поводок.
     (Cue::Strap, player("minecraft:item.lead.tied", 0.7, 0.9)),
     // Ген вживлён — заряд якоря возрождения, высоко.
     (Cue::GeneSplice, player("minecraft:block.respawn_anchor.charge", 0.5, 1.5)),
-    // Генотерапия — низкий «энергетический» отклик маяка.
-    (Cue::GeneTherapy, player("minecraft:block.beacon.power_select", 0.5, 0.9)),
+    // Генотерапия — своё восходящее мерцающее арпеджио: «внутри что-то
+    // переписалось». Вживление мобу оставлено ванильным выше — по звуку
+    // ясно, кому вписан ген.
+    (Cue::GeneTherapy, player("biolab:item.gene_therapy.use", 0.5, 1.0)),
     // Мутаген — превращение жителя-зомби, ниже обычного: неприятно и чуждо.
     (Cue::Mutagen, player("minecraft:entity.zombie_villager.converted", 0.5, 0.8)),
     // Новый узел журнала — короткий звон повышения уровня, высоко и тихо.
     (Cue::Research, player("minecraft:entity.player.levelup", 0.35, 1.6)),
 ];
+
+/// Свои события, которые объявлены в `sounds.json`, но код их пока не
+/// играет: щелчок дозиметра ждёт заражённости чанков (M9, GDD 4.23 п. 12).
+/// Без этого списка тест принял бы заготовку за забытый звук.
+pub const RESERVED_SOUNDS: [&str; 1] = ["biolab:item.dosimeter.click"];
 
 /// Звук события.
 pub fn sound(cue: Cue) -> Option<Sound> {
@@ -6789,10 +6813,18 @@ mod tests {
     }
 
     #[test]
-    fn sounds_are_vanilla_and_gentle() {
+    fn sounds_are_ours_or_vanilla_and_gentle() {
         for s in all_sounds() {
-            assert!(s.event.starts_with("minecraft:"), "{} — не ванильный", s.event);
-            assert!(!s.event.contains(' ') && s.event == s.event.to_lowercase(), "{}", s.event);
+            let ns = s.event.split_once(':').map(|(ns, _)| ns);
+            assert!(matches!(ns, Some("minecraft" | "biolab")), "{} — чужое пространство имён", s.event);
+            // `native_play_sound` отказывает имени не по правилам `Identifier`.
+            let path = &s.event[s.event.find(':').unwrap() + 1..];
+            assert!(
+                !path.is_empty()
+                    && path.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_.-/".contains(c)),
+                "{}",
+                s.event
+            );
             // Ванилла зажимает высоту в 0,5–2,0; громче 1 — только дальность.
             assert!((0.5..=2.0).contains(&s.pitch), "{}: высота {}", s.event, s.pitch);
             assert!(s.volume > 0.0 && s.volume <= 1.0, "{}: громкость {}", s.event, s.volume);
@@ -6837,7 +6869,8 @@ mod tests {
             return;
         };
         let registry = path.ends_with("registries.json");
-        for s in all_sounds() {
+        // Свои звуки сверяет `own_sounds_are_declared_and_present`.
+        for s in all_sounds().into_iter().filter(|s| s.event.starts_with("minecraft:")) {
             // В реестре имя полное, в `sounds.json` — без `minecraft:`. Кавычки
             // с обеих сторон: имя события, а не кусок другого.
             let name = if registry { s.event } else { s.event.trim_start_matches("minecraft:") };
@@ -6847,6 +6880,58 @@ mod tests {
                 s.event,
                 path.display()
             );
+        }
+    }
+
+    /// Свой звук, которого нет в `sounds.json` мода, клиент молча не играет,
+    /// а файл, которого нет на диске, движок выбрасывает из события
+    /// (`sound_events.rs`, как ванильный `SoundManager`). Поэтому сверяем:
+    /// всё сыгранное объявлено, всё объявленное сыграно или отложено
+    /// (`RESERVED_SOUNDS`), у каждого события есть файл и субтитр на обоих
+    /// языках. Пересобрать звуки — `python3 tools/mksounds.py`.
+    #[test]
+    fn own_sounds_are_declared_and_present() {
+        let assets = content_dir().join("assets/biolab");
+        let text = std::fs::read_to_string(assets.join("sounds.json")).expect("нет sounds.json");
+        let Some(Json::Obj(events)) = Json::parse(&text) else { panic!("sounds.json — не объект") };
+        let declared: Vec<String> = events.iter().map(|(name, _)| format!("biolab:{name}")).collect();
+
+        let mut played: Vec<&str> =
+            all_sounds().iter().map(|s| s.event).filter(|e| e.starts_with("biolab:")).collect();
+        played.sort();
+        played.dedup();
+        assert!(!played.is_empty(), "свои звуки пропали из таблиц");
+        for event in &played {
+            assert!(declared.iter().any(|d| d == event), "{event} играется, но не объявлен в sounds.json");
+        }
+        for event in RESERVED_SOUNDS {
+            assert!(!played.contains(&event), "{event} уже играется — убрать из RESERVED_SOUNDS");
+            assert!(declared.iter().any(|d| d == event), "{event} отложен, но не объявлен");
+        }
+        for event in &declared {
+            let used = played.contains(&event.as_str()) || RESERVED_SOUNDS.contains(&event.as_str());
+            assert!(used, "{event} объявлен в sounds.json, но код его не играет");
+        }
+
+        let (ru, en) = (lang("ru_ru"), lang("en_us"));
+        for (name, entry) in &events {
+            let subtitle = entry.get("subtitle").and_then(Json::str).unwrap_or_else(|| panic!("{name}: нет субтитра"));
+            for (lang_name, lang) in [("ru_ru", &ru), ("en_us", &en)] {
+                let text = lang.get(subtitle).and_then(Json::str).unwrap_or("");
+                assert!(!text.trim().is_empty(), "{subtitle}: нет текста в {lang_name}");
+            }
+            let sounds = entry.get("sounds").and_then(Json::arr).unwrap_or_else(|| panic!("{name}: нет sounds"));
+            assert!(!sounds.is_empty(), "{name}: пустой список файлов");
+            for sound in sounds {
+                // Запись — строка `biolab:<путь>` или объект с полем `name`.
+                let file = sound.str().or_else(|| sound.get("name").and_then(Json::str)).unwrap();
+                let path = file.strip_prefix("biolab:").unwrap_or_else(|| panic!("{name}: {file} — не наш файл"));
+                let ogg = assets.join("sounds").join(format!("{path}.ogg"));
+                let bytes = std::fs::read(&ogg).unwrap_or_else(|_| panic!("{name}: нет {}", ogg.display()));
+                assert!(bytes.starts_with(b"OggS"), "{}: не Ogg", ogg.display());
+                // Звуки короткие: крупный файл — знак, что синтез пошёл не так.
+                assert!(bytes.len() < 64 * 1024, "{}: {} байт", ogg.display(), bytes.len());
+            }
         }
     }
 

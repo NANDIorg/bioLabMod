@@ -90,5 +90,18 @@
  "block.biolab.spectrometer": "Спектрометр",
  "item.biolab.lab_manual": "Журнал лаборанта",
  "item.biolab.stretcher": "Носилки",
- "block.biolab.operating_table": "Операционный стол"
+ "block.biolab.operating_table": "Операционный стол",
+ "subtitles.biolab.block.centrifuge.start": "Центрифуга раскручивается",
+ "subtitles.biolab.block.centrifuge.work": "Центрифуга гудит",
+ "subtitles.biolab.block.centrifuge.done": "Центрифуга останавливается",
+ "subtitles.biolab.block.fermenter.bubble": "Ферментер булькает",
+ "subtitles.biolab.block.incubator.hum": "Инкубатор гудит",
+ "subtitles.biolab.block.machine.ready": "Прибор подаёт сигнал",
+ "subtitles.biolab.item.syringe.inject": "Укол шприцем",
+ "subtitles.biolab.item.scalpel.cut": "Скальпель режет",
+ "subtitles.biolab.item.spray.use": "Пшик аэрозоля",
+ "subtitles.biolab.item.dart_gun.shoot": "Выстрел дротиком",
+ "subtitles.biolab.item.bandage.apply": "Наложена повязка",
+ "subtitles.biolab.item.gene_therapy.use": "Ген вписан",
+ "subtitles.biolab.item.dosimeter.click": "Дозиметр щёлкает"
 }
