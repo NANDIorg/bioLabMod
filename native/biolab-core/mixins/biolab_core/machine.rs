@@ -369,6 +369,102 @@ fn biolab_core_machine_tick(
     };
     let output_slot = machine.slots - 1;
     if entity.id == m::SYNTHESIZER {
+        // Смесь по рецепту (транквилизатор зверолова, GDD 4.20, M5): входы
+        // списком, как у стола (`bench_match`), а катализатор (`catalyst`)
+        // нужен в сетке, но не тратится — как чертёж. Совпала смесь — она и
+        // собирается; иначе синтезатор собирает формулу из элементов.
+        let slots = m::machine_data_slots(&entity.id);
+        entity.data.resize(slots, 0);
+        let recipes: Vec<std::sync::Arc<serde_json::Value>> = game
+            .recipes()
+            .custom
+            .get(&*entity.id)
+            .map(|list| list.iter().map(|r| r.json.clone()).collect())
+            .unwrap_or_default();
+        let filled: Vec<bool> = (0..output_slot)
+            .map(|slot| entity.items.get(slot).is_some_and(|s| s.is_some()))
+            .collect();
+        let mut mix: Option<(i32, horizon_client::items::ItemStack, Vec<usize>, Option<String>)> = None;
+        for json in recipes {
+            let Some(list) = json["ingredients"].as_array() else {
+                continue;
+            };
+            let ingredients: Option<Vec<horizon_client::crafting::Ingredient>> = list
+                .iter()
+                .map(|v| horizon_client::crafting::Ingredient::parse(v, game.items()))
+                .collect();
+            let Some(ingredients) = ingredients else {
+                continue;
+            };
+            let items = &entity.items;
+            let Some(plan) = m::bench_match(&filled, ingredients.len(), |entry, slot| {
+                items
+                    .get(slot)
+                    .and_then(|s| s.as_ref())
+                    .is_some_and(|stack| ingredients[entry].test(stack))
+            }) else {
+                continue;
+            };
+            let Some(result) = horizon_client::crafting::recipe_result(&json["result"]) else {
+                continue;
+            };
+            let time = json["time"].as_i64().unwrap_or(m::DEFAULT_TIME as i64) as i32;
+            let catalyst = json["catalyst"].as_str().map(str::to_string);
+            mix = Some((time, result, plan, catalyst));
+            break;
+        }
+        if let Some((time, result, plan, catalyst)) = mix {
+            let output = entity.items.get(output_slot).and_then(|s| s.clone());
+            let max_stack = game.items().get(&result.item).map_or(64, |i| i.max_stack);
+            let fits = output.as_ref().is_none_or(|held| held.extra.is_none() && result.extra.is_none())
+                && m::output_fits(
+                    output.as_ref().map(|s| (&*s.item, s.count)),
+                    (&result.item, result.count),
+                    max_stack,
+                );
+            entity.data[m::DATA_SYNTH_STATUS] = m::SYNTH_STABLE;
+            let step = if fits { m::step(Some(time), entity.data[m::DATA_PROGRESS]) } else { m::Step::Idle };
+            match step {
+                m::Step::Idle => {
+                    entity.data[m::DATA_PROGRESS] = 0;
+                    entity.data[m::DATA_TOTAL] = 0;
+                    entity.data[m::DATA_LIT] = 0;
+                }
+                m::Step::Working(next) => {
+                    entity.data[m::DATA_PROGRESS] = next;
+                    entity.data[m::DATA_TOTAL] = time;
+                    entity.data[m::DATA_LIT] = 1;
+                    entity.data[m::DATA_LIT_TOTAL] = 1;
+                }
+                m::Step::Finish => {
+                    for slot in plan {
+                        if let Some(place) = entity.items.get_mut(slot)
+                            && let Some(stack) = place.as_mut()
+                        {
+                            // Катализатор остаётся в сетке целым.
+                            if catalyst.as_deref() == Some(&*stack.item) {
+                                continue;
+                            }
+                            stack.count = stack.count.saturating_sub(1);
+                            if stack.count == 0 {
+                                *place = None;
+                            }
+                        }
+                    }
+                    if let Some(place) = entity.items.get_mut(output_slot) {
+                        match place.as_mut() {
+                            Some(held) => held.count += result.count,
+                            None => *place = Some(result),
+                        }
+                    }
+                    entity.data[m::DATA_PROGRESS] = 0;
+                    entity.data[m::DATA_TOTAL] = 0;
+                    entity.data[m::DATA_LIT] = 0;
+                }
+            }
+            machine_sound(game, pos, entity, step);
+            return;
+        }
         let mut journal = Vec::new();
         synthesize(entity, output_slot, &mut journal);
         // Колба собрана — готово; горит пламя — работа; иначе простой.

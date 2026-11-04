@@ -154,11 +154,11 @@ fn biolab_core_interact_entity(
             return;
         };
         let kind = m::full_kind(&mob.kind.id);
-        let asleep = mob
-            .extra
-            .effects
-            .iter()
-            .any(|(id, ticks, _)| *id == m::SEDATION_EFFECT && *ticks != 0);
+        let has = |effect: &str| mob.extra.effects.iter().any(|(id, ticks, _)| *id == effect && *ticks != 0);
+        let sleeping = has(m::SEDATION_EFFECT);
+        // Парализованного кураре грузить можно — на стол нельзя (GDD 4.20).
+        let paralysed = !sleeping && has(m::PARALYSIS_EFFECT);
+        let asleep = sleeping || paralysed;
         let (id, health, name) = (mob.id, mob.health, mob.custom_name.clone());
         let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
         if !m::can_carry(&kind) {
@@ -172,7 +172,9 @@ fn biolab_core_interact_entity(
         // Геном и срезы — из данных моба (M11): с ними пациент и ляжет на стол.
         let genes = crate::game::biolab_core_data::genes(game, id);
         let flayed = crate::game::biolab_core_data::surgery(game, id) & m::FLAYED_BITS;
-        let patient = m::Patient { kind, genes, health, flayed, name };
+        // Чем усыплён — едет с пациентом: стол подновит это вещество.
+        let sleeper = m::sleep_book().lock().ok().and_then(|book| book.slept_with(id));
+        let patient = m::Patient { kind, genes, health, flayed, name, sleeper, paralysed };
         // Моб уходит из мира без смерти и добычи: теперь он в носилках.
         // Вольер, державший его, сам освободит место, не найдя моба.
         let dimension = game.dim.id().to_string();
@@ -327,6 +329,62 @@ fn biolab_core_interact_entity(
         return;
     }
 
+    /// Препарат в руке потрачен: от шприца остаётся пустой, от отвара —
+    /// бутылка. Если это был последний в стаке, кладём остаток прямо в слот:
+    /// выдача в инвентарь из этого хука не доходит (проверено в игре —
+    /// шприц пропадал совсем).
+    fn use_up(game: &mut crate::game::Game<'_>, item: &str) {
+        use crate::game::biolab_core as m;
+        let slot = game.selected as i32;
+        let leftover = m::after_use(item);
+        let mut give_back = false;
+        if let Some(carried) = game.native_carried_stack(slot)
+            && &*carried.item == item
+        {
+            carried.count = carried.count.saturating_sub(1);
+            match (carried.count, leftover) {
+                (0, Some(left)) => {
+                    carried.item = left.into();
+                    carried.count = 1;
+                    carried.damage = 0;
+                    carried.extra = None;
+                }
+                (_, Some(_)) => give_back = true,
+                _ => {}
+            }
+        }
+        if give_back && let Some(left) = leftover {
+            let _ = game.native_give(left, 1);
+        }
+    }
+
+    // Снотворное (GDD 4.20, M5): шприц, отвар и тряпка с хлороформом —
+    // исход по силе вещества против массы моба (`biolab_sleep::dose`).
+    if let Some(sleeper) = m::sleeper_of_item(&stack.item) {
+        let Some((id, kind, at)) = game
+            .mobs
+            .iter()
+            .find(|mob| mob.id as i32 == entity && mob.alive())
+            .map(|mob| (mob.id, mob.kind.id.to_string(), [mob.position.x, mob.position.y + 0.9, mob.position.z]))
+        else {
+            return;
+        };
+        *claimed = true;
+        // Клик по мобу ловят оба хука: без отметки отвар достался бы ещё и
+        // самому игроку (`remedy.rs`).
+        m::remember_injection(game.ticks);
+        if &*stack.item == m::CHLOROFORM_RAG && !crate::game::biolab_sleep::within_reach(game, id, m::RAG_REACH) {
+            game.native_chat("Тряпку прижимают вплотную: подойдите ближе");
+            return;
+        }
+        crate::game::biolab_sleep::dose(game, id, sleeper, m::via_of_item(&stack.item), true);
+        play_at(game, m::Cue::SyringeMob, at);
+        let world = game.world_root.clone();
+        m::record_trial(&world, &m::trial_record(&stack.item, &kind));
+        use_up(game, &stack.item);
+        return;
+    }
+
     let Some((effects, ticks, amplifier)) = m::mob_injection(&stack.item) else {
         return;
     };
@@ -350,29 +408,7 @@ fn biolab_core_interact_entity(
     let world = game.world_root.clone();
     m::record_trial(&world, &m::trial_record(&stack.item, &name));
 
-    // Шприц тратится, пустой остаётся в руке. Если это был последний в
-    // стаке, кладём пустой прямо в слот: выдача в инвентарь из этого хука
-    // не доходит (проверено в игре — шприц пропадал совсем).
-    let slot = game.selected as i32;
-    let leftover = m::after_use(&stack.item);
-    let mut give_back = false;
-    if let Some(carried) = game.native_carried_stack(slot)
-        && &*carried.item == &*stack.item
-    {
-        carried.count = carried.count.saturating_sub(1);
-        match (carried.count, leftover) {
-            (0, Some(item)) => {
-                carried.item = item.into();
-                carried.count = 1;
-                carried.damage = 0;
-                carried.extra = None;
-            }
-            (_, Some(_)) => give_back = true,
-            _ => {}
-        }
-    }
-    if give_back && let Some(item) = leftover {
-        let _ = game.native_give(item, 1);
-    }
+    // Шприц тратится, пустой остаётся в руке (`use_up`).
+    use_up(game, &stack.item);
     *claimed = true;
 }

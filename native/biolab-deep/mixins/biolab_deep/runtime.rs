@@ -23,7 +23,7 @@ pub const ID: &str = "biolab_deep";
 // `tests/modules.rs` следит, чтобы копии не разошлись.
 
 /// Гены по номерам: тот же порядок, что `mutants::GENE_NAMES`.
-pub const GENE_NAMES: [&str; 40] = [
+pub const GENE_NAMES: [&str; 41] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -64,10 +64,12 @@ pub const GENE_NAMES: [&str; 40] = [
     "polyopia",
     "tumor",
     "membranes",
+    // M5 (GDD 4.20): масса для снотворного +1 за силу; считает `biolab-core`.
+    "sedation_resistance",
 ];
 
 /// Цена гена за единицу силы (та же, что в lib).
-pub const GENE_COSTS: [i32; 40] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2];
+pub const GENE_COSTS: [i32; 41] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2];
 
 /// Сколько генов влезает в природный геном и какую сумму цен он выдерживает.
 /// Это правило только природного броска (`roll`): лаборатория — укол
@@ -90,7 +92,7 @@ pub const STAT_MODIFIERS: [&str; 5] = [
 /// Метки генома старого формата (до M11): модификатор дальности
 /// преследования с нулевой прибавкой, чьё имя и есть ген. Новых таких меток
 /// мод не ставит; список нужен только миграции старых миров.
-pub const GENE_MARKERS: [&str; 120] = [
+pub const GENE_MARKERS: [&str; 123] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -211,6 +213,9 @@ pub const GENE_MARKERS: [&str; 120] = [
     "biolab:gene/membranes/1",
     "biolab:gene/membranes/2",
     "biolab:gene/membranes/3",
+    "biolab:gene/sedation_resistance/1",
+    "biolab:gene/sedation_resistance/2",
+    "biolab:gene/sedation_resistance/3",
 ];
 
 // ---- Кто бывает мутантом ----

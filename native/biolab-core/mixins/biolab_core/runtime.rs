@@ -4813,6 +4813,20 @@ impl SleepBook {
         self.slept.retain(|(m, _)| *m != mob);
     }
 
+    /// Облаку `at`/`until` (облако узнаём по месту и сроку: других полей
+    /// хук не меняет) — моб или игрок получил свою дозу.
+    pub fn mark_cloud(&mut self, at: [f64; 3], until: u64, mob: Option<u32>, player: Option<u128>) {
+        if let Some(cloud) = self.clouds.iter_mut().find(|c| c.at == at && c.until == until) {
+            cloud.dosed.extend(mob);
+            cloud.players.extend(player);
+        }
+    }
+
+    /// Облако вспыхнуло и выгорело.
+    pub fn remove_cloud(&mut self, at: [f64; 3], until: u64) {
+        self.clouds.retain(|c| !(c.at == at && c.until == until));
+    }
+
     /// Новое облако.
     pub fn add_cloud(&mut self, cloud: Cloud) {
         // Без предела облака от сотни гранат копились бы, пока не кончатся.
@@ -4836,11 +4850,25 @@ pub fn sleep_book() -> &'static std::sync::Mutex<SleepBook> {
     BOOK.get_or_init(Default::default)
 }
 
-/// Тик снотворных — раз за тик мира, сколько бы игроков ни было (их тики
-/// зовут хук по очереди), как у операционной.
-pub fn sleep_pass_due(ticks: u64) -> bool {
-    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
-    LAST.swap(ticks, std::sync::atomic::Ordering::Relaxed) != ticks
+/// Тик снотворных — раз за тик на уровень, сколько бы игроков там ни было
+/// (их тики зовут хук по очереди). Уровень свой у каждого прохода: игрок в
+/// Незере ведёт сон и облака Незера, игрок в обычном мире — свои.
+pub fn sleep_pass_due(ticks: u64, dimension: &str) -> bool {
+    static LAST: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+    let Ok(mut last) = LAST.lock() else {
+        return false;
+    };
+    match last.iter_mut().find(|(d, _)| d == dimension) {
+        Some((_, at)) if *at == ticks => false,
+        Some((_, at)) => {
+            *at = ticks;
+            true
+        }
+        None => {
+            last.push((dimension.to_string(), ticks));
+            true
+        }
+    }
 }
 
 /// Удержание на столе (GDD 4.20): стол подновляет то вещество, которым моба
@@ -4869,6 +4897,10 @@ pub fn table_wakes_message(s: &Sleeper, mob: &str, mass: u8) -> String {
         s.strength
     )
 }
+
+/// Сколько тиков пациент, выгруженный с носилок на землю, ещё спит или
+/// парализован: успеть отойти или снова уколоть.
+pub const UNLOAD_TICKS: i32 = 200;
 
 /// Почему пациента нельзя уложить на стол; None — можно.
 pub fn table_refuses(p: &Patient) -> Option<String> {
@@ -8122,6 +8154,19 @@ mod tests {
             book.add_cloud(cloud(300 + i));
         }
         assert_eq!(book.clouds_now(299).len(), 64, "облаков не больше 64");
+        // Отметки дозы и выгорание — по месту и сроку облака.
+        let first = book.clouds_now(299)[0].clone();
+        book.mark_cloud(first.at, first.until, Some(5), Some(77));
+        book.mark_cloud(first.at, first.until, None, None);
+        let marked = book.clouds_now(299)[0].clone();
+        assert_eq!((marked.dosed, marked.players), (vec![5], vec![77]));
+        book.remove_cloud(first.at, first.until);
+        assert_eq!(book.clouds_now(299).len(), 63);
+        // Проход — раз за тик на уровень.
+        assert!(sleep_pass_due(10, "test:a"));
+        assert!(!sleep_pass_due(10, "test:a"));
+        assert!(sleep_pass_due(10, "test:b"), "другой уровень — свой проход");
+        assert!(sleep_pass_due(11, "test:a"));
     }
 
     #[test]

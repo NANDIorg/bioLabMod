@@ -38,6 +38,15 @@ pub fn sedated(m: &crate::mobs::Mob) -> bool {
         .any(|(id, ticks, _)| &**id == crate::biolab_mutants::SEDATION && *ticks != 0)
 }
 
+/// Парализован ли моб кураре (GDD 4.20, M5): стоит, как усыплённый, но не
+/// лежит — бит «спит» по параличу не ставится.
+pub fn paralysed(m: &crate::mobs::Mob) -> bool {
+    m.extra
+        .effects
+        .iter()
+        .any(|(id, ticks, _)| &**id == crate::biolab_mutants::PARALYSIS && *ticks != 0)
+}
+
 /// Сервер: прибавки к атрибутам по геному `genes` (номер гена, сила).
 /// Модификатор с тем же именем заменяется, так что повтор ничего не
 /// складывает; прибавка, которой у генома больше нет, снимается. Здоровье
