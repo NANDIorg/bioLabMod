@@ -70,7 +70,9 @@ pub struct Puff {
 }
 
 /// Цикл фона: как часто `ambient.rs` смотрит вокруг игрока, в тиках. Частица
-/// живёт 20–40 тиков, так что над источником их всегда две-четыре.
+/// живёт 20–40 тиков и быстро уходит вверх; первая версия (раз в секунду по
+/// одной) в игре почти не читалась, поэтому почти всё пыхает каждый цикл,
+/// машины — по две.
 pub const EVERY: u64 = 10;
 /// Насколько далеко вокруг игрока ищем лужи и машины: по горизонтали и по
 /// вертикали, в блоках. Это 21×21×7 ≈ 3 тыс. блоков раз в полсекунды.
@@ -85,38 +87,38 @@ pub const PLAYER_HEIGHT: f64 = 1.8;
 /// Лужи: что поднимается над ними. Отстойник (`sludge`) не дымит — это
 /// просто грязь.
 pub const PUDDLES: [(&str, Puff); 3] = [
-    ("biolab:acid_puddle", Puff { name: ACID_FUME, drift: Drift::Float, y: 0.1, spread: [0.3, 0.02, 0.3], count: 1, one_in: 2 }),
-    ("biolab:slime", Puff { name: SPORE, drift: Drift::Float, y: 0.1, spread: [0.3, 0.02, 0.3], count: 1, one_in: 2 }),
-    ("biolab:mutagen_puddle", Puff { name: MUTAGEN_SPORE, drift: Drift::Float, y: 0.1, spread: [0.3, 0.02, 0.3], count: 1, one_in: 2 }),
+    ("biolab:acid_puddle", Puff { name: ACID_FUME, drift: Drift::Float, y: 0.1, spread: [0.3, 0.02, 0.3], count: 1, one_in: 1 }),
+    ("biolab:slime", Puff { name: SPORE, drift: Drift::Float, y: 0.1, spread: [0.3, 0.02, 0.3], count: 1, one_in: 1 }),
+    ("biolab:mutagen_puddle", Puff { name: MUTAGEN_SPORE, drift: Drift::Float, y: 0.1, spread: [0.3, 0.02, 0.3], count: 1, one_in: 1 }),
 ];
 
 /// Машины: что над ними, пока они заняты (отметка `BUSY_KEY` в сейве блока,
 /// её ставит тик машины). По одному виду на машину: брожение пенится,
 /// клонирующий раствор пузырится, инкубатор парит.
 pub const MACHINES: [(&str, Puff); 3] = [
-    ("biolab:fermenter", Puff { name: FOAM, drift: Drift::Float, y: 0.05, spread: [0.2, 0.02, 0.2], count: 1, one_in: 1 }),
-    ("biolab:cloning_vat", Puff { name: BUBBLE, drift: Drift::Float, y: 0.05, spread: [0.2, 0.02, 0.2], count: 1, one_in: 1 }),
-    ("biolab:incubator", Puff { name: STEAM, drift: Drift::Float, y: 0.05, spread: [0.25, 0.02, 0.25], count: 1, one_in: 2 }),
+    ("biolab:fermenter", Puff { name: FOAM, drift: Drift::Float, y: 0.05, spread: [0.2, 0.02, 0.2], count: 2, one_in: 1 }),
+    ("biolab:cloning_vat", Puff { name: BUBBLE, drift: Drift::Float, y: 0.05, spread: [0.2, 0.02, 0.2], count: 2, one_in: 1 }),
+    ("biolab:incubator", Puff { name: STEAM, drift: Drift::Float, y: 0.05, spread: [0.25, 0.02, 0.25], count: 2, one_in: 1 }),
 ];
 
 /// Эффекты на существе (мобе или игроке): что над ним, пока эффект идёт.
 /// Ванильные завитки этих эффектов у мобов прячем (`hides_swirls`): иначе
 /// поверх наших частиц крутились бы цветные спирали того же смысла.
 pub const EFFECTS: [(&str, Puff); 3] = [
-    ("biolab:sedation", Puff { name: SLEEP, drift: Drift::Float, y: 1.05, spread: [0.15, 0.05, 0.15], count: 1, one_in: 2 }),
-    ("biolab:acid_burn", Puff { name: ACID_FUME, drift: Drift::Float, y: 0.5, spread: [0.25, 0.3, 0.25], count: 1, one_in: 1 }),
-    ("biolab:bleeding", Puff { name: BLOOD, drift: Drift::Sink, y: 0.6, spread: [0.25, 0.2, 0.25], count: 1, one_in: 1 }),
+    ("biolab:sedation", Puff { name: SLEEP, drift: Drift::Float, y: 1.05, spread: [0.15, 0.05, 0.15], count: 1, one_in: 1 }),
+    ("biolab:acid_burn", Puff { name: ACID_FUME, drift: Drift::Float, y: 0.5, spread: [0.25, 0.3, 0.25], count: 2, one_in: 1 }),
+    ("biolab:bleeding", Puff { name: BLOOD, drift: Drift::Sink, y: 0.6, spread: [0.25, 0.2, 0.25], count: 2, one_in: 1 }),
 ];
 
 /// Поведение генов мутанта (флаги `GENE_BEHAVIOUR` в `biolab_core`): некроз
 /// заразен — от него споры, кислотные железы окутывают дымом.
 pub const BEHAVIOURS: [(&str, Puff); 2] = [
-    ("necrosis", Puff { name: SPORE, drift: Drift::Float, y: 0.6, spread: [0.35, 0.4, 0.35], count: 1, one_in: 2 }),
-    ("acid_aura", Puff { name: ACID_FUME, drift: Drift::Float, y: 0.3, spread: [0.6, 0.3, 0.6], count: 1, one_in: 1 }),
+    ("necrosis", Puff { name: SPORE, drift: Drift::Float, y: 0.6, spread: [0.35, 0.4, 0.35], count: 1, one_in: 1 }),
+    ("acid_aura", Puff { name: ACID_FUME, drift: Drift::Float, y: 0.3, spread: [0.6, 0.3, 0.6], count: 2, one_in: 1 }),
 ];
 
 /// Всплеск крови в момент среза скальпелем — разово, сверх кровотечения.
-pub const CUT: Puff = Puff { name: BLOOD, drift: Drift::Sink, y: 0.6, spread: [0.3, 0.25, 0.3], count: 6, one_in: 1 };
+pub const CUT: Puff = Puff { name: BLOOD, drift: Drift::Sink, y: 0.6, spread: [0.3, 0.25, 0.3], count: 8, one_in: 1 };
 
 pub fn of_puddle(block: &str) -> Option<Puff> {
     PUDDLES.iter().find(|(b, _)| *b == block).map(|(_, p)| *p)
