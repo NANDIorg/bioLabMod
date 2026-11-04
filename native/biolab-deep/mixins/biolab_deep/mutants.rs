@@ -390,62 +390,16 @@ pub fn glide_fall(vertical: f64, strength: i32) -> f64 {
     vertical.max(limit)
 }
 
-// ---- Мутаген ----
+// ---- Седация ----
 //
-// Мутаген не мутирует моба мгновенно: эффект `biolab:mutagenesis` копит
-// «мутационную нагрузку», и на пороге организм срывается — добавляется ген.
-// Так укол дротиком с мутагеном виден не как вспышка, а как процесс.
+// Сам эффект (потеря цели) — в `biolab-core` на стабильных хуках API 56.
+// Здесь он нужен только тику моба (`mob_tick.rs`): усыплённому гасится
+// скорость модификатором, а у прибавок к атрибутам стабильного API нет.
+// Мутаген тоже переехал в `biolab-core` (нагрузка, выбор гена, метка).
 
-/// Эффект мутагена.
-pub const MUTAGENESIS: &str = "biolab:mutagenesis";
-/// Сколько тиков под мутагеном нужно, чтобы случилась мутация.
-pub const MUTAGEN_LOAD: i32 = 160;
-
-/// Накопленная нагрузка по мобам.
-fn loads() -> &'static Mutex<HashMap<u32, i32>> {
-    static LOADS: OnceLock<Mutex<HashMap<u32, i32>>> = OnceLock::new();
-    LOADS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Добавить мобу нагрузку; true — порог взят, пора мутировать (счётчик при
-/// этом обнуляется).
-pub fn add_load(id: u32, amount: i32) -> bool {
-    let Ok(mut table) = loads().lock() else {
-        return false;
-    };
-    let load = table.entry(id).or_insert(0);
-    *load += amount;
-    if *load < MUTAGEN_LOAD {
-        return false;
-    }
-    *load = 0;
-    true
-}
-
-/// Сколько нагрузки у моба сейчас.
-pub fn load_of(id: u32) -> i32 {
-    loads().lock().map(|t| t.get(&id).copied().unwrap_or(0)).unwrap_or(0)
-}
-
-/// Какой ген добавит мутация: первый по кругу от зерна, который что-то
-/// меняет — новый ген или усиление имеющегося. Мутаген — лаборатория, а не
-/// природа: предела стабильности у него нет (GDD 4.19). None — все гены уже
-/// на пределе силы, мутировать нечему.
-pub fn mutation(genome: &Genome, seed: u64) -> Option<Gene> {
-    let count = GENE_NAMES.len() as u64;
-    for step in 0..count {
-        let index = ((seed + step) % count) as usize;
-        // Сила тоже от зерна, но слабый ген приживается чаще сильного.
-        for strength in [1 + ((seed / 7) % 3) as i32, 2, 1] {
-            let gene = Gene { index, strength };
-            let mut next = *genome;
-            if next.add(gene) && next != *genome {
-                return Some(gene);
-            }
-        }
-    }
-    None
-}
+/// Седативное: тот же id, что `SEDATION_EFFECT` в `biolab-core`
+/// (сверяет `tests/modules.rs`).
+pub const SEDATION: &str = "biolab:sedation";
 
 /// Геномы живых мобов по их id. Клиент и сервер одиночной игры — один
 /// процесс, поэтому отрисовке виден геном, записанный при спавне.
@@ -657,38 +611,6 @@ mod tests {
 
     fn gene(name: &str, strength: i32) -> Gene {
         Gene { index: gene_index(name).unwrap(), strength }
-    }
-
-    #[test]
-    fn mutagen_builds_up_before_it_bites() {
-        let id = 77_001;
-        assert!(!add_load(id, MUTAGEN_LOAD - 1), "порог ещё не взят");
-        assert_eq!(load_of(id), MUTAGEN_LOAD - 1);
-        assert!(add_load(id, 1), "порог взят");
-        assert_eq!(load_of(id), 0, "счётчик обнулился");
-    }
-
-    #[test]
-    fn mutation_always_changes_something() {
-        // Пустой геном принимает что угодно.
-        let empty = Genome::default();
-        assert!(mutation(&empty, 0).is_some());
-        // Предела стабильности у мутагена нет: дорогой геном мутирует дальше.
-        let mut heavy = Genome::default();
-        heavy.add(gene("regeneration", 2));
-        heavy.add(gene("acid_glands", 3));
-        for seed in 0..50 {
-            let g = mutation(&heavy, seed).expect("мутировать есть чему");
-            let mut next = heavy;
-            assert!(next.add(g));
-            assert_ne!(next, heavy, "мутация ничего не изменила: {g:?}");
-        }
-        // Все гены на тройке — мутировать нечему.
-        let mut full = Genome::default();
-        for index in 0..GENE_COUNT {
-            full.add(Gene { index, strength: 3 });
-        }
-        assert_eq!(mutation(&full, 3), None);
     }
 
     #[test]

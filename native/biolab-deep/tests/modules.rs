@@ -1,10 +1,13 @@
-// Тесты модулей, которые в игре живут в других крейтах (иконки — в
-// horizon-client-render, мутанты и эффекты мобов — в lib horizon-client).
+// Тесты модулей, которые в игре живут в других крейтах (мутанты, наросты,
+// вкладка — в lib horizon-client).
 // Здесь они подключаются как обычные модули; функции, которым нужна сама игра,
 // отгорожены `#[cfg(not(test))]`, а их внутренние тесты прогоняются тут.
 
-#[path = "../mixins/biolab_deep/effects.rs"]
-mod effects;
+// Таблица своих эффектов живёт в `biolab-core` (модуль игры
+// `biolab_effects`): сверяем с ней то, что осталось в этом бандле.
+#[allow(dead_code)]
+#[path = "../../biolab-core/mixins/biolab_core/effects.rs"]
+mod core_effects;
 #[path = "../mixins/biolab_deep/mutants.rs"]
 mod mutants;
 #[path = "../mixins/biolab_deep/tab.rs"]
@@ -93,28 +96,46 @@ fn growth_traits_name_real_genes() {
     assert_eq!(genome.strength_of("horns"), 0);
 }
 
-/// Урон своих эффектов у игрока (`runtime.rs`, бинарник) и у мобов
-/// (`effects.rs`, библиотека) считается двумя копиями одной логики: они не
-/// должны разойтись ни по одному эффекту.
+/// Поведение своих эффектов переехало в `biolab-core` (хуки API 56). Здесь
+/// остались модификатор скорости усыплённого (`mob_tick.rs`) и чтение генов
+/// по меткам (`spawn.rs`) — они должны понимать то, что пишет core:
+/// * id седации — тот же, что выдают шприц, дротик и стол;
+/// * ген, который мутаген core вписал по номеру в своей таблице и метке из
+///   `GENE_MARKERS`, lib читает как тот же ген той же силы и тем самым
+///   меняет геном.
 #[test]
-fn player_and_mob_damage_agree() {
-    assert_eq!(biolab_deep::HURTING.len(), effects::HURTING.len());
-    for effect in &biolab_deep::HURTING {
-        assert!(effects::hurting(effect.id).is_some(), "{} только у игрока", effect.id);
-        for amp in -1..12 {
-            for ticks in -1..200 {
-                assert_eq!(
-                    biolab_deep::effect_damage(effect.id, ticks, amp),
-                    effects::effect_damage(effect.id, ticks, amp),
-                    "{}: уровень {amp}, тиков {ticks}",
-                    effect.id
-                );
+fn core_effects_speak_the_deep_genome() {
+    assert_eq!(mutants::SEDATION, biolab_core::SEDATION_EFFECT);
+    assert_eq!(mutants::SEDATION, core_effects::SEDATION);
+    assert_eq!(biolab_core::GENES.len(), mutants::GENE_NAMES.len());
+    for (i, gene) in biolab_core::GENES.iter().enumerate() {
+        assert_eq!(gene.name, mutants::GENE_NAMES[i], "ген {i}");
+    }
+    assert_eq!(biolab_core::GENE_MARKERS, mutants::GENE_MARKERS);
+
+    // Мутаген: геном lib → силы по меткам, как их собирает `effect_actions.rs`
+    // в core → выбор гена → метка → геном lib снова. Он обязан измениться.
+    let mut genome = mutants::Genome::default();
+    genome.add(mutants::Gene { index: mutants::gene_index("regeneration").unwrap(), strength: 2 });
+    genome.add(mutants::Gene { index: mutants::gene_index("acid_glands").unwrap(), strength: 3 });
+    for seed in 0..2000u64 {
+        let mut strengths = vec![0u8; biolab_core::GENES.len()];
+        for (i, marker) in biolab_core::GENE_MARKERS.iter().enumerate() {
+            let has = mutants::decode_marker(marker)
+                .is_some_and(|g| i32::from(genome.strength(g.index)) >= g.strength);
+            if has {
+                strengths[i / 3] = strengths[i / 3].max((i % 3 + 1) as u8);
             }
         }
+        let (index, strength) = core_effects::mutation(&strengths, seed).expect("мутировать есть чему");
+        let marker = biolab_core::GENE_MARKERS[index * 3 + (strength - 1) as usize];
+        let gene = mutants::decode_marker(marker).expect(marker);
+        assert_eq!((gene.index, gene.strength), (index, strength));
+        let mut next = genome;
+        assert!(next.add(gene));
+        assert_ne!(next, genome, "мутация ничего не изменила: {gene:?}");
     }
-    assert_eq!(biolab_deep::SEDATION, effects::SEDATION);
 }
-
 
 /// Геном выдаёт бинарник (`runtime.rs`), а читает по меткам lib
 /// (`mutants.rs`): имена генов, их цена и метки в обеих копиях должны
