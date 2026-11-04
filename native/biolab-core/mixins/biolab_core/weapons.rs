@@ -152,7 +152,7 @@ fn play(game: &mut crate::game::Game<'_>, cue: m::Cue) {
 fn say(game: &mut crate::game::Game<'_>, text: &str) {
     let uuid = game.native_acting_id();
     if !game.native_action_bar(uuid, horizon_client::text::Text::literal(text)) {
-        game.native_chat(text);
+        crate::game::biolab_say::say(game, text);
     }
 }
 

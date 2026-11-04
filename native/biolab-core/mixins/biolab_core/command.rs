@@ -14,7 +14,7 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
         let world = game.world_root.clone();
         let uuid = game.native_acting_id();
         m::set_infection(&world, uuid, level);
-        game.native_chat(&format!("Заражение: {}%", level.min(100)));
+        crate::game::biolab_say::say(game, &format!("Заражение: {}%", level.min(100)));
         return;
     }
     let mut words = command.split(' ').skip(1);
@@ -33,7 +33,7 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
                 &m::strain_or_wild(&state),
             );
             for line in lines {
-                game.native_chat(&line);
+                crate::game::biolab_say::say(game, &line);
             }
             return;
         }
@@ -51,7 +51,7 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
                     break;
                 }
             }
-            game.native_chat(&if placed {
+            crate::game::biolab_say::say(game, &if placed {
                 "Выдан журнал лаборанта".to_string()
             } else {
                 "Некуда положить книгу: освободите слот".to_string()
@@ -62,7 +62,7 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
             // Весь журнал открытий: что собрано, как названо, что не опознано.
             let world = game.world_root.clone();
             for line in m::journal_lines(&world) {
-                game.native_chat(&line);
+                crate::game::biolab_say::say(game, &line);
             }
             return;
         }
@@ -88,14 +88,14 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
                     }
                 });
             let Some(contents) = contents else {
-                game.native_chat("Возьмите в руку колбу с веществом");
+                crate::game::biolab_say::say(game, "Возьмите в руку колбу с веществом");
                 return;
             };
             let world = game.world_root.clone();
             if m::rename_compound(&world, &contents, &name) {
-                game.native_chat(&format!("{contents} теперь «{name}»"));
+                crate::game::biolab_say::say(game, &format!("{contents} теперь «{name}»"));
             } else {
-                game.native_chat("Сначала опознайте вещество в спектрометре");
+                crate::game::biolab_say::say(game, "Сначала опознайте вещество в спектрометре");
             }
             return;
         }
@@ -104,13 +104,13 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
             let world = game.world_root.clone();
             let uuid = game.native_acting_id();
             m::cure_world_player(&world, uuid);
-            game.native_chat("Вылечено: кровь чистая, болезни нет");
+            crate::game::biolab_say::say(game, "Вылечено: кровь чистая, болезни нет");
             return;
         }
         _ => {}
     }
 
     for line in m::status_lines() {
-        game.native_chat(&line);
+        crate::game::biolab_say::say(game, &line);
     }
 }

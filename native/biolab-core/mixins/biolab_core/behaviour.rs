@@ -144,7 +144,7 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
             && m::subject_of(pen).is_none()
         {
             m::hold_subject(pen, *id);
-            game.native_chat("Вольер принял подопытного");
+            crate::game::biolab_say::say(game, "Вольер принял подопытного");
         }
     }
 

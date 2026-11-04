@@ -41,7 +41,7 @@ fn biolab_core_projectile_impact(
     let target = entity.filter(|id| game.mobs.iter().any(|mob| mob.id == *id && mob.alive()));
     match m::dart_impact(kind, target.is_some(), from, at) {
         m::DartImpact::Nothing => {}
-        m::DartImpact::Spent(range) => game.native_chat(&m::dart_spent_message(range)),
+        m::DartImpact::Spent(range) => crate::game::biolab_say::say(game, &m::dart_spent_message(range)),
         m::DartImpact::Inject(syringe) => {
             // Снотворное — по силе против массы (GDD 4.20, `biolab_sleep`).
             if let Some(target) = target
@@ -60,7 +60,7 @@ fn biolab_core_projectile_impact(
                 name = mob.kind.id.to_string();
             }
             play_at(game, m::Cue::DartHit, at);
-            game.native_chat(&m::injection_message(syringe, &name));
+            crate::game::biolab_say::say(game, &m::injection_message(syringe, &name));
             let world = game.world_root.clone();
             m::record_trial(&world, &m::trial_record(syringe, &name));
         }

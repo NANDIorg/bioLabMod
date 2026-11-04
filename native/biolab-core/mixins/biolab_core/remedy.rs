@@ -59,7 +59,7 @@ fn biolab_core_use_item(
         {
             carried.count = carried.count.saturating_sub(1);
         }
-        game.native_chat("Повязка наложена: кровотечение остановлено");
+        crate::game::biolab_say::say(game, "Повязка наложена: кровотечение остановлено");
         play(game, m::Cue::Bandage);
         *claimed = true;
         return;
@@ -116,7 +116,7 @@ fn biolab_core_use_item(
         {
             carried.count = carried.count.saturating_sub(1);
         }
-        game.native_chat(&m::crop_label(&genes));
+        crate::game::biolab_say::say(game, &m::crop_label(&genes));
         play(game, m::Cue::Eat);
         *claimed = true;
         return;
@@ -143,14 +143,14 @@ fn biolab_core_use_item(
             })
             .unwrap_or_default();
         let Some((name, strength)) = m::gene_from_text(&text) else {
-            game.native_chat("Фрагмент пустой: ген не прочитан");
+            crate::game::biolab_say::say(game, "Фрагмент пустой: ген не прочитан");
             *claimed = true;
             return;
         };
         let Some(result) = m::splice_world_player(&world, uuid, name, strength) else {
             return;
         };
-        game.native_chat(&m::splice_message(result, name, strength));
+        crate::game::biolab_say::say(game, &m::splice_message(result, name, strength));
         if result == m::Splice::Done {
             play(game, m::Cue::GeneTherapy);
             let slot = game.selected as i32;
@@ -174,7 +174,7 @@ fn biolab_core_use_item(
         let Some(state) = m::take_medicine(&world, uuid, med) else {
             return;
         };
-        game.native_chat(&m::dose_message(med, &state));
+        crate::game::biolab_say::say(game, &m::dose_message(med, &state));
         // Укол, таблетка, мазь или аэрозоль — по форме препарата.
         play(game, m::dose_cue(med.form));
         // Съеденную таблетку и вколотую ампулу убираем сами: клик мы забрали,
@@ -225,12 +225,12 @@ fn biolab_core_use_item(
             })
             .unwrap_or_default();
         let Some(strain) = m::strain_from_text(&text) else {
-            game.native_chat(&format!("Штамм не прочитан: «{text}»"));
+            crate::game::biolab_say::say(game, &format!("Штамм не прочитан: «{text}»"));
             *claimed = true;
             return;
         };
         if let Some(level) = m::infect_world_player(&world, uuid, &strain, m::CULTURE_DOSE) {
-            game.native_chat(&format!("Заражение штаммом: {level}%"));
+            crate::game::biolab_say::say(game, &format!("Заражение штаммом: {level}%"));
         }
         let slot = game.selected as i32;
         if let Some(carried) = game.native_carried_stack(slot)
@@ -249,7 +249,7 @@ fn biolab_core_use_item(
         let relief = m::strain_relief(&m::strain_or_wild(&state));
         let next = state.infection.saturating_sub(relief);
         m::set_infection(&world, uuid, next);
-        game.native_chat(&m::remedy_message(state.infection, next));
+        crate::game::biolab_say::say(game, &m::remedy_message(state.infection, next));
         play(game, m::Cue::Remedy);
         // Сыворотка одноразовая: без этого её можно было пить бесконечно.
         let slot = game.selected as i32;

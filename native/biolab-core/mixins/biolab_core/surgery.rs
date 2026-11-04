@@ -69,7 +69,7 @@ fn biolab_core_surgery_tick(game: &mut crate::game::Game<'_>) {
             {
                 on_table = false;
                 data::set_surgery(game, id, on_table, mask);
-                game.native_chat(&m::table_wakes_message(s, &kind, mass));
+                crate::game::biolab_say::say(game, &m::table_wakes_message(s, &kind, mass));
             }
         }
         if on_table {

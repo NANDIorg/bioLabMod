@@ -143,7 +143,7 @@ fn biolab_core_interact_entity(
         // Клик забираем всегда: носилки в лицо жителю не открывают торговлю.
         *claimed = true;
         if patient_in(stack).is_some() {
-            game.native_chat("Носилки заняты: ПКМ по операционному столу — уложить");
+            crate::game::biolab_say::say(game, "Носилки заняты: ПКМ по операционному столу — уложить");
             return;
         }
         let Some(mob) = game
@@ -162,11 +162,11 @@ fn biolab_core_interact_entity(
         let (id, health, name) = (mob.id, mob.health, mob.custom_name.clone());
         let at = [mob.position.x, mob.position.y + 0.5, mob.position.z];
         if !m::can_carry(&kind) {
-            game.native_chat("Такого на носилках не унести");
+            crate::game::biolab_say::say(game, "Такого на носилках не унести");
             return;
         }
         if !asleep {
-            game.native_chat("Сначала усыпите: шприц или дротик со снотворным");
+            crate::game::biolab_say::say(game, "Сначала усыпите: шприц или дротик со снотворным");
             return;
         }
         // Геном и срезы — из данных моба (M11): с ними пациент и ляжет на стол.
@@ -198,7 +198,7 @@ fn biolab_core_interact_entity(
             data.custom_name = m::stretcher_label(&text).map(|label| Tag::String(label.as_str().into()));
         }
         play_at(game, m::Cue::Stretcher, at);
-        game.native_chat(&format!("На носилках: {}", m::patient_title(&patient)));
+        crate::game::biolab_say::say(game, &format!("На носилках: {}", m::patient_title(&patient)));
         return;
     }
 
@@ -227,19 +227,19 @@ fn biolab_core_interact_entity(
             // скальпелем в руке. Мутанту подсказываем, как быть.
             if !genes.is_empty() {
                 *claimed = true;
-                game.native_chat("Срезать можно только на операционном столе: усыпите и погрузите на носилки");
+                crate::game::biolab_say::say(game, "Срезать можно только на операционном столе: усыпите и погрузите на носилки");
             }
             return;
         }
         *claimed = true;
         // Ткань — мутантная: из обычной плоти экстрактору нечего достать.
         if genes.is_empty() {
-            game.native_chat("Мутаций нет: из обычной плоти ген не достать");
+            crate::game::biolab_say::say(game, "Мутаций нет: из обычной плоти ген не достать");
             return;
         }
         let mask = bits & m::FLAYED_BITS;
         let Some(cut) = m::next_cut(mask, m::cuts_of(&kind)) else {
-            game.native_chat("Плоти не осталось");
+            crate::game::biolab_say::say(game, "Плоти не осталось");
             return;
         };
         // Срез — бит в данных операционной; окно получит его само и
@@ -255,7 +255,7 @@ fn biolab_core_interact_entity(
         let dimension = game.dim.id().to_string();
         game.native_set_mob_health(&dimension, id, m::after_cut(health));
         drop_tissue(game, at);
-        game.native_chat(&m::cut_message(&kind, cut, 1, &genes));
+        crate::game::biolab_say::say(game, &m::cut_message(&kind, cut, 1, &genes));
         play_at(game, m::Cue::Tissue, at);
         return;
     }
@@ -264,7 +264,7 @@ fn biolab_core_interact_entity(
     if &*stack.item == m::MICROSCOPE_ID {
         let genes = read_genome(game, entity);
         for line in m::genome_lines(&genes) {
-            game.native_chat(&line);
+            crate::game::biolab_say::say(game, &line);
         }
         m::remember_injection(game.ticks);
         *claimed = true;
@@ -275,7 +275,7 @@ fn biolab_core_interact_entity(
     // `biolab-deep` выдаёт прибавки, а окно рисует внешность.
     if &*stack.item == m::FRAGMENT_ID {
         let Some(text) = gene_in(stack) else {
-            game.native_chat("Фрагмент пустой: ген не прочитан");
+            crate::game::biolab_say::say(game, "Фрагмент пустой: ген не прочитан");
             return;
         };
         let Some((name, strength)) = m::gene_from_text(&text) else {
@@ -306,7 +306,7 @@ fn biolab_core_interact_entity(
                 carried.count = carried.count.saturating_sub(1);
             }
         }
-        game.native_chat(&m::splice_message(result, name, strength));
+        crate::game::biolab_say::say(game, &m::splice_message(result, name, strength));
         if result == m::Splice::Done {
             let target = game
                 .mobs
@@ -374,7 +374,7 @@ fn biolab_core_interact_entity(
         // самому игроку (`remedy.rs`).
         m::remember_injection(game.ticks);
         if &*stack.item == m::CHLOROFORM_RAG && !crate::game::biolab_sleep::within_reach(game, id, m::RAG_REACH) {
-            game.native_chat("Тряпку прижимают вплотную: подойдите ближе");
+            crate::game::biolab_say::say(game, "Тряпку прижимают вплотную: подойдите ближе");
             return;
         }
         crate::game::biolab_sleep::dose(game, id, sleeper, m::via_of_item(&stack.item), true);
@@ -401,7 +401,7 @@ fn biolab_core_interact_entity(
     for effect in effects {
         mob.add_effect(effect, ticks, amplifier);
     }
-    game.native_chat(&m::injection_message(&stack.item, &name));
+    crate::game::biolab_say::say(game, &m::injection_message(&stack.item, &name));
     play_at(game, m::mob_injection_cue(&stack.item), at);
     m::remember_injection(game.ticks);
     // Опыт уходит в журнал: пульт потом покажет, кому что вводили.

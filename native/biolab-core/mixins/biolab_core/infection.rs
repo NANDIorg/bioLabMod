@@ -53,7 +53,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             }
         }
         if placed {
-            game.native_chat("Выдан журнал лаборанта: откройте его, там карта исследований");
+            crate::game::biolab_say::say(game, "Выдан журнал лаборанта: откройте его, там карта исследований");
         }
     }
 
@@ -74,7 +74,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
                 && let Some(name) =
                     m::mutagen_world_tick(&world, uuid, m::FLUID_EVERY as u32, state.ticks)
             {
-                game.native_chat(&m::mutagen_message(name));
+                crate::game::biolab_say::say(game, &m::mutagen_message(name));
                 play(game, m::Cue::Mutagen);
             }
             if fluid.infects > 0 {
@@ -248,7 +248,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             ));
         }
         if pharma.hardened {
-            game.native_chat("Курс прерван: штамм стал устойчивее");
+            crate::game::biolab_say::say(game, "Курс прерван: штамм стал устойчивее");
         }
         if after.infection != state.infection {
             // Лечение пенициллином: записываем новый уровень на диск.
@@ -291,7 +291,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         let mut fresh = false;
         for index in opened {
             if index != 0 {
-                game.native_chat(&m::research_message(index));
+                crate::game::biolab_say::say(game, &m::research_message(index));
                 fresh = true;
             }
         }

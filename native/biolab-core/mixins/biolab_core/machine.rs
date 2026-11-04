@@ -683,7 +683,7 @@ fn biolab_core_machine_tick(
         // Звон: анализ закончен, чертёж напечатан.
         machine_sound(game, pos, entity, m::Step::Finish);
         if let Some(name) = name {
-            game.native_chat(&format!("Спектрометр: {contents} — {name}"));
+            crate::game::biolab_say::say(game, &format!("Спектрометр: {contents} — {name}"));
         }
         return;
     }

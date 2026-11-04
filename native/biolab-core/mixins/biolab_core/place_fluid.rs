@@ -50,13 +50,13 @@ fn biolab_core_use_item_on(
                 })
         });
         let Some(patient) = text.as_deref().and_then(m::patient_from_text) else {
-            game.native_chat("Носилки пусты: ПКМ по усыплённому мобу — погрузить");
+            crate::game::biolab_say::say(game, "Носилки пусты: ПКМ по усыплённому мобу — погрузить");
             return;
         };
         // Паралич кураре — не сон: на стол кладут только спящего (GDD 4.20).
         // Носилки остаются занятыми: пациента можно положить на землю.
         if let Some(why) = m::table_refuses(&patient) {
-            game.native_chat(&why);
+            crate::game::biolab_say::say(game, &why);
             return;
         }
         // Стол — весь ряд секций, в который входит та, по которой кликнули.
@@ -81,7 +81,7 @@ fn biolab_core_use_item_on(
             .map_or(1, |t| m::table_sections(&patient.kind, t.width, t.height, &patient.genes));
         if row.len < need {
             // Носилки остаются занятыми: можно доставить секции и повторить.
-            game.native_chat(&m::table_too_short(need, row.len));
+            crate::game::biolab_say::say(game, &m::table_too_short(need, row.len));
             return;
         }
         if row
@@ -89,7 +89,7 @@ fn biolab_core_use_item_on(
             .into_iter()
             .any(|s| !m::is_air(&game.native_block([s[0], s[1] + 1, s[2]])))
         {
-            game.native_chat("Над столом нет места");
+            crate::game::biolab_say::say(game, "Над столом нет места");
             return;
         }
         // Пациент ложится по центру ряда, вдоль него, головой к изголовью.
@@ -107,7 +107,7 @@ fn biolab_core_use_item_on(
             .into_iter()
             .any(|id| crate::game::biolab_core_data::surgery(game, id) & m::TABLE_BIT != 0);
         if busy {
-            game.native_chat("Стол занят: сначала снимите пациента");
+            crate::game::biolab_say::say(game, "Стол занят: сначала снимите пациента");
             return;
         }
         let dimension = game.dim.id().to_string();
@@ -119,7 +119,7 @@ fn biolab_core_use_item_on(
         // Не вышло — пациент остаётся на носилках. Чаще всего это мирная
         // сложность: враждебный моб на ней сразу исчез бы.
         let Some(id) = game.native_spawn_mob(&dimension, &patient.kind, spot, &options) else {
-            game.native_chat("Не удалось уложить: на мирной сложности враждебные не появляются");
+            crate::game::biolab_say::say(game, "Не удалось уложить: на мирной сложности враждебные не появляются");
             return;
         };
         // Свежему мобу игра успевает бросить случайный геном (`joined.rs` в
@@ -168,7 +168,7 @@ fn biolab_core_use_item_on(
             held.extra = None;
         }
         play_at(game, m::Cue::Strap, spot);
-        game.native_chat(&format!(
+        crate::game::biolab_say::say(game, &format!(
             "На столе: {}. Скальпель — ПКМ по пациенту",
             m::patient_title(&patient)
         ));
@@ -196,7 +196,7 @@ fn biolab_core_use_item_on(
         *claimed = true;
         let at = [pos[0] + face[0], pos[1] + face[1], pos[2] + face[2]];
         if !m::is_air(&game.native_block(at)) || !m::is_air(&game.native_block([at[0], at[1] + 1, at[2]])) {
-            game.native_chat("Здесь не положить: нужно два блока пустоты");
+            crate::game::biolab_say::say(game, "Здесь не положить: нужно два блока пустоты");
             return;
         }
         let spot = [f64::from(at[0]) + 0.5, f64::from(at[1]), f64::from(at[2]) + 0.5];
@@ -207,7 +207,7 @@ fn biolab_core_use_item_on(
             ..Default::default()
         };
         let Some(id) = game.native_spawn_mob(&dimension, &patient.kind, spot, &options) else {
-            game.native_chat("Не удалось положить: на мирной сложности враждебные не появляются");
+            crate::game::biolab_say::say(game, "Не удалось положить: на мирной сложности враждебные не появляются");
             return;
         };
         crate::game::biolab_core_data::set_genes(game, id, &patient.genes);
@@ -238,7 +238,7 @@ fn biolab_core_use_item_on(
             held.extra = None;
         }
         play_at(game, m::Cue::Stretcher, spot);
-        game.native_chat(&format!("На земле: {}", m::patient_title(&patient)));
+        crate::game::biolab_say::say(game, &format!("На земле: {}", m::patient_title(&patient)));
         return;
     }
     // Грядка: фрагментом ДНК или урожаем сажают, пустой рукой собирают.
@@ -287,7 +287,7 @@ fn biolab_core_use_item_on(
             {
                 held.count = held.count.saturating_sub(1);
             }
-            game.native_chat(&format!("Посажено: {}", m::crop_label(&m::genome_from_text(&text))));
+            crate::game::biolab_say::say(game, &format!("Посажено: {}", m::crop_label(&m::genome_from_text(&text))));
             *claimed = true;
         }
         return;

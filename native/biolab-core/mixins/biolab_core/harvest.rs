@@ -46,7 +46,7 @@ fn biolab_core_right_click_block(
         let world = game.world_root.clone();
         let trials = m::trial_lines(&world, m::TRIAL_LINES);
         for line in m::console_lines(&subjects, &trials) {
-            game.native_chat(&line);
+            crate::game::biolab_say::say(game, &line);
         }
         *canceled = true;
         return;
@@ -102,7 +102,7 @@ fn biolab_core_right_click_block(
         })
         .count();
     if free < m::PLOT_YIELD as usize {
-        game.native_chat(&format!(
+        crate::game::biolab_say::say(game, &format!(
             "Урожай некуда положить: нужно свободных мест — {}",
             m::PLOT_YIELD
         ));
@@ -127,6 +127,6 @@ fn biolab_core_right_click_block(
         entity.data.clear();
     });
     game.native_set_block_property(pos, "layers", "1");
-    game.native_chat(&format!("Собрано: {}", m::crop_label(&genes)));
+    crate::game::biolab_say::say(game, &format!("Собрано: {}", m::crop_label(&genes)));
     *canceled = true;
 }

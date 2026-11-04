@@ -20,14 +20,14 @@ fn biolab_core_mandrake_scream(
     let covered = game.native_carried_stack(p::HEAD_SLOT).is_some();
     match p::scream(p::MANDRAKE, age.as_deref(), covered) {
         p::Scream::Silent => return,
-        p::Scream::Muffled => game.native_chat(p::SCREAM_MUFFLED),
+        p::Scream::Muffled => crate::game::biolab_say::say(game, p::SCREAM_MUFFLED),
         p::Scream::Nausea => {
             game.add_player_effect(horizon_client::effects::EffectInstance::new(
                 "nausea",
                 p::SCREAM_NAUSEA_TICKS,
                 0,
             ));
-            game.native_chat(p::SCREAM_MESSAGE);
+            crate::game::biolab_say::say(game, p::SCREAM_MESSAGE);
         }
     }
     // Крик слышат все рядом. Очередь уровня есть только у своего сервера.

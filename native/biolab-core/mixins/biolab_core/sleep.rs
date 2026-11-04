@@ -113,7 +113,7 @@ pub fn dose(
         }
     }
     if chat {
-        game.native_chat(&m::sleep_message(s, via, &kind, mass, outcome, repeated));
+        crate::game::biolab_say::say(game, &m::sleep_message(s, via, &kind, mass, outcome, repeated));
     }
     Some(outcome)
 }
@@ -377,7 +377,7 @@ fn player_tick(game: &mut crate::game::Game<'_>, now: u64, dimension: &str) {
             continue;
         }
         if let Some(state) = m::take_gas(&world, uuid, s.id, dose) {
-            game.native_chat(&m::gas_message(s, &state));
+            crate::game::biolab_say::say(game, &m::gas_message(s, &state));
         }
     }
 }
