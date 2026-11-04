@@ -74,6 +74,8 @@ fn group(item: &str) -> usize {
         | "extractor" | "cloning_vat" | "spectrometer" | "pen" | "console" | "operating_table" => 1,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
+        // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.
+        "blowpipe" | "tranq_crossbow" | "air_rifle" | "co2_canister" | "co2_canister_empty" => 2,
         _ if name.starts_with("element_") => 3,
         "culture" | "culture_weakened" | "mold" | "nutrient_broth" | "mutagen" => 4,
         _ if name.starts_with("extract_") => 4,

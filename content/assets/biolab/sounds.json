@@ -53,10 +53,22 @@
       "biolab:spray_use"
     ]
   },
-  "item.dart_gun.shoot": {
-    "subtitle": "subtitles.biolab.item.dart_gun.shoot",
+  "item.blowpipe.shoot": {
+    "subtitle": "subtitles.biolab.item.blowpipe.shoot",
     "sounds": [
-      "biolab:dart_shoot"
+      "biolab:blowpipe_shoot"
+    ]
+  },
+  "item.tranq_crossbow.shoot": {
+    "subtitle": "subtitles.biolab.item.tranq_crossbow.shoot",
+    "sounds": [
+      "biolab:tranq_crossbow_shoot"
+    ]
+  },
+  "item.air_rifle.shoot": {
+    "subtitle": "subtitles.biolab.item.air_rifle.shoot",
+    "sounds": [
+      "biolab:air_rifle_shoot"
     ]
   },
   "item.bandage.apply": {

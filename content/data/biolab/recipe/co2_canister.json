@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "biolab:co2_canister_empty",
+ "result": {
+  "id": "biolab:co2_canister",
+  "count": 1
+ },
+ "time": 200
+}

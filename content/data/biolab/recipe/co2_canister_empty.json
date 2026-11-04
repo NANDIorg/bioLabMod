@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:iron_ingot",
+  "minecraft:iron_ingot",
+  "minecraft:copper_ingot"
+ ],
+ "result": {
+  "id": "biolab:co2_canister_empty",
+  "count": 1
+ },
+ "time": 60
+}

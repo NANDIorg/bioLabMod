@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 65] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -155,6 +155,12 @@ pub const ITEM_HINTS: [(&str, &[&str]); 60] = [
     ("biolab:dart_sedative", &["ПКМ — бросить в моба, как снежок", "Усыпляет и замедляет, рукой — до 8 блоков"]),
     ("biolab:dart_venom", &["ПКМ — бросить в моба, как снежок", "Отравляет, рукой — до 8 блоков"]),
     ("biolab:bandage", &["ПКМ — остановить кровотечение"]),
+    // Оружие для дротиков (GDD 4.20): дальность — из `DART_WEAPONS`, тест сверяет.
+    ("biolab:blowpipe", &["ПКМ — дротик из инвентаря, до 16 блоков", "Тихая: сенсоры не слышат, перезарядка 1 с"]),
+    ("biolab:tranq_crossbow", &["Держите ПКМ — зарядить, ПКМ — выстрел", "Дротик из инвентаря, до 32 блоков"]),
+    ("biolab:air_rifle", &["ПКМ — магазин на 4, держите ПКМ — прицел", "Отпустите — выстрел до 48 блоков"]),
+    ("biolab:co2_canister", &["Газ ружья: 12 выстрелов, сам подключится"]),
+    ("biolab:co2_canister_empty", &["В ферментере заправится углекислым газом"]),
     ("biolab:scalpel", &["ПКМ по мутанту на операционном столе", "Срезает плоть, удар — кровоточащая рана"]),
     // Генетика.
     ("biolab:stretcher", &["ПКМ по усыплённому мобу — погрузить", "С пациентом — ПКМ по операционному столу"]),
@@ -818,6 +824,7 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
     (
         "biolab:fermenter",
         &[
+            "biolab:co2_canister_empty",
             "biolab:culture",
             "biolab:mold",
             "minecraft:birch_leaves",
@@ -864,6 +871,7 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
         "biolab:lab_bench",
         &[
             "biolab:agar",
+            "biolab:co2_canister_empty",
             "biolab:culture_weakened",
             "biolab:element_glaurium",
             "biolab:element_redstonium",
@@ -878,8 +886,10 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
             "biolab:syringe",
             "biolab:syringe_sedative",
             "biolab:syringe_venom",
+            "minecraft:bamboo",
             "minecraft:compass",
             "minecraft:copper_ingot",
+            "minecraft:crossbow",
             "minecraft:feather",
             "minecraft:glass",
             "minecraft:glass_bottle",
@@ -887,6 +897,7 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 8] = [
             "minecraft:iron_ingot",
             "minecraft:iron_nugget",
             "minecraft:slime_ball",
+            "minecraft:spyglass",
             "minecraft:stick",
             "minecraft:string",
             "minecraft:sugar",
@@ -1523,10 +1534,22 @@ pub enum Cue {
     Mutagen,
     /// В журнале открылся новый узел.
     Research,
+    /// Выстрел арбалета-транквилизатора (`DartShot` — духовая трубка).
+    CrossbowShot,
+    /// Выстрел пневматического ружья.
+    RifleShot,
+    /// Натяжение арбалета: начало и середина.
+    WeaponCharge,
+    /// Дротик заряжен: арбалет натянут, магазин ружья полон.
+    WeaponLoaded,
+    /// Осечка: нет дротиков или газа.
+    WeaponEmpty,
+    /// К ружью подключён новый баллон CO₂.
+    GasConnect,
 }
 
 impl Cue {
-    pub const ALL: [Cue; 18] = [
+    pub const ALL: [Cue; 24] = [
         Cue::Overheat,
         Cue::SyringeSelf,
         Cue::SyringeMob,
@@ -1545,23 +1568,31 @@ impl Cue {
         Cue::GeneTherapy,
         Cue::Mutagen,
         Cue::Research,
+        Cue::CrossbowShot,
+        Cue::RifleShot,
+        Cue::WeaponCharge,
+        Cue::WeaponLoaded,
+        Cue::WeaponEmpty,
+        Cue::GasConnect,
     ];
 }
 
 /// Событие → звук.
-pub const SOUNDS: [(Cue, Sound); 18] = [
+pub const SOUNDS: [(Cue, Sound); 24] = [
     // Набат: содержимое пропало, это надо услышать и из соседней комнаты.
     (Cue::Overheat, block("minecraft:block.bell.use", 1.0, 0.6)),
     // Укол — свой: щелчок поршня и «пфф» раствора (жало пчелы звучало
     // нападением, а не процедурой); себе чуть выше и тише, мобу ниже.
     (Cue::SyringeSelf, player("biolab:item.syringe.inject", 0.5, 1.1)),
     (Cue::SyringeMob, player("biolab:item.syringe.inject", 0.6, 0.9)),
-    // Дротик — свой пневматический хлопок со свистом пролёта (у лука — тетива).
-    // Пока не звучит: рукой дротик бросают, и игра сама играет бросок снежка
-    // (снаряд — копия снежка, `dart_hit.rs`); хлопок ждёт духовую трубку (4.20).
+    // Выстрелы оружия — свои (GDD 4.20). Рукой дротик бросают, и игра сама
+    // играет бросок снежка (снаряд — копия снежка, `dart_hit.rs`). Трубка —
+    // короткий выдох и шорох пролёта, и тихо: она тихое оружие. Арбалет —
+    // щелчок спуска и гул тетивы. Ружьё — пневматический хлопок со свистом
+    // пролёта и шипением остатка газа.
     // Попадание — ванильная стрела, выше обычного: дротик меньше, а «тук»
     // в цель у них одинаковый.
-    (Cue::DartShot, player("biolab:item.dart_gun.shoot", 0.5, 1.0)),
+    (Cue::DartShot, player("biolab:item.blowpipe.shoot", 0.25, 1.0)),
     (Cue::DartHit, player("minecraft:entity.arrow.hit", 0.6, 1.4)),
     // Бинт — свой: два-три оборота ткани, а не надетая кожаная броня.
     (Cue::Bandage, player("biolab:item.bandage.apply", 0.6, 1.0)),
@@ -1590,6 +1621,15 @@ pub const SOUNDS: [(Cue, Sound); 18] = [
     (Cue::Mutagen, player("minecraft:entity.zombie_villager.converted", 0.5, 0.8)),
     // Новый узел журнала — короткий звон повышения уровня, высоко и тихо.
     (Cue::Research, player("minecraft:entity.player.levelup", 0.35, 1.6)),
+    (Cue::CrossbowShot, player("biolab:item.tranq_crossbow.shoot", 0.6, 1.0)),
+    (Cue::RifleShot, player("biolab:item.air_rifle.shoot", 0.6, 1.0)),
+    // Натяжение и заряд — ванильный арбалет, чуть выше: наш легче и меньше.
+    (Cue::WeaponCharge, player("minecraft:item.crossbow.loading_middle", 0.5, 1.2)),
+    (Cue::WeaponLoaded, player("minecraft:item.crossbow.loading_end", 0.6, 1.2)),
+    // Осечка — сухой щелчок раздатчика, которому нечем стрелять.
+    (Cue::WeaponEmpty, player("minecraft:block.dispenser.fail", 0.5, 1.6)),
+    // Баллон подключён — короткое шипение газа, высоко.
+    (Cue::GasConnect, player("minecraft:block.fire.extinguish", 0.3, 1.8)),
 ];
 
 /// Свои события, которые объявлены в `sounds.json`, но код их пока не
@@ -2337,7 +2377,7 @@ pub const BENCH_UNLISTED: i32 = -3;
 /// только числом слота данных, поэтому номер — место в этой таблице, а имя
 /// отсюда же рисует табло. Тест сверяет таблицу с рецептами стола в
 /// `content/` и с именами в языковом файле.
-pub const BENCH_RESULTS: [(&str, &str); 19] = [
+pub const BENCH_RESULTS: [(&str, &str); 23] = [
     ("biolab:syringe", "Шприц"),
     ("biolab:syringe_penicillin", "Пенициллин, инъекция"),
     ("biolab:syringe_sedative", "Седативное, инъекция"),
@@ -2357,6 +2397,10 @@ pub const BENCH_RESULTS: [(&str, &str); 19] = [
     ("biolab:bandage", "Бинт"),
     ("biolab:mutagen", "Мутаген"),
     ("biolab:nutrient_broth", "Питательный раствор"),
+    ("biolab:blowpipe", "Духовая трубка"),
+    ("biolab:tranq_crossbow", "Арбалет-транквилизатор"),
+    ("biolab:air_rifle", "Пневматическое ружьё"),
+    ("biolab:co2_canister_empty", "Пустой баллон CO₂"),
 ];
 
 /// Номер результата для слота данных стола.
@@ -2464,7 +2508,9 @@ mod bench_tests {
     #[test]
     fn bench_results_are_numbered_by_the_table() {
         assert_eq!(bench_result_index("biolab:syringe"), 0);
-        assert_eq!(bench_result_index("biolab:nutrient_broth"), BENCH_RESULTS.len() as i32 - 1);
+        // Новое дописывается в конец: номера старых результатов не сдвигаются.
+        assert_eq!(bench_result_index("biolab:nutrient_broth"), 18);
+        assert_eq!(bench_result_index(CO2_CANISTER_EMPTY_ID), BENCH_RESULTS.len() as i32 - 1);
         assert_eq!(bench_result_index("minecraft:stick"), BENCH_UNLISTED);
         assert_eq!(machine_data_slots(LAB_BENCH), DATA_BENCH_RESULT + 1);
         let bench = machine(LAB_BENCH).expect("стол — машина");
@@ -3603,13 +3649,21 @@ pub fn dart_projectile(kind: &str) -> Option<&'static str> {
 
 /// Дальность броска рукой. Летит дротик дальше (баллистика снежка — до двух
 /// десятков блоков), но дальше этой точки игла входит на излёте и вещество
-/// не доходит. Дальний выстрел — дело оружия (трубка, арбалет, 4.20), со
-/// своей дальностью.
+/// не доходит. Дальний выстрел — дело оружия (`DART_WEAPONS`), у него своя
+/// дальность.
 pub const DART_THROW_RANGE: f64 = 8.0;
 
 /// Сколько тиков помним бросок, если о дротике больше ничего не слышно
 /// (улетел из прогруженных чанков, мир закрыли): минута полёта — с запасом.
 pub const DART_FLIGHT_MAX: u64 = 1200;
+
+/// Откуда и чем выпущен дротик: глаза бросавшего и дальность, до которой
+/// игла ещё входит, — броска рукой или оружия.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DartLaunch {
+    pub from: [f64; 3],
+    pub range: u32,
+}
 
 /// Что делает попадание дротика.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3619,26 +3673,26 @@ pub enum DartImpact {
     Nothing,
     /// Игла вошла: мобу — вещество этого шприца (`mob_injection`).
     Inject(&'static str),
-    /// В моба попал, но на излёте: дальше `DART_THROW_RANGE` от броска.
-    Spent,
+    /// В моба попал, но на излёте: дальше дальности выстрела (в блоках).
+    Spent(u32),
 }
 
-/// Попадание снаряда типа `kind`: в моба ли (`on_mob`), откуда его бросили
-/// (`thrown_from`, глаза бросавшего; None — бросок не слышали: дротик из
-/// `/summon` или из сохранения) и где он встретил цель (`at`). Без точки
-/// броска дальность не проверить, и такой дротик действует: лучше лишний
-/// укол, чем дротик, который молча не работает.
-pub fn dart_impact(kind: &str, on_mob: bool, thrown_from: Option<[f64; 3]>, at: [f64; 3]) -> DartImpact {
+/// Попадание снаряда типа `kind`: в моба ли (`on_mob`), откуда и чем его
+/// выпустили (`launch`; None — запуск не слышали: дротик из `/summon` или из
+/// сохранения) и где он встретил цель (`at`). Без точки запуска дальность не
+/// проверить, и такой дротик действует: лучше лишний укол, чем дротик,
+/// который молча не работает.
+pub fn dart_impact(kind: &str, on_mob: bool, launch: Option<DartLaunch>, at: [f64; 3]) -> DartImpact {
     let Some(dart) = dart_projectile(kind) else {
         return DartImpact::Nothing;
     };
     if !on_mob {
         return DartImpact::Nothing;
     }
-    if let Some(from) = thrown_from {
+    if let Some(DartLaunch { from, range }) = launch {
         let far = (0..3).map(|i| (at[i] - from[i]).powi(2)).sum::<f64>().sqrt();
-        if far > DART_THROW_RANGE {
-            return DartImpact::Spent;
+        if far > f64::from(range) {
+            return DartImpact::Spent(range);
         }
     }
     match dart_syringe(dart) {
@@ -3647,36 +3701,439 @@ pub fn dart_impact(kind: &str, on_mob: bool, thrown_from: Option<[f64; 3]>, at: 
     }
 }
 
-/// Броски дротиков, что ещё летят: id снаряда, точка броска, тик броска.
-/// Хук попадания точку броска не знает, а хук запуска знает игрока, —
+/// Запуски дротиков, что ещё летят: id снаряда, запуск, тик запуска.
+/// Хук попадания точку запуска не знает, а хук запуска знает игрока, —
 /// поэтому запуск её запоминает, а попадание забирает.
-fn dart_launches() -> &'static std::sync::Mutex<Vec<(u32, [f64; 3], u64)>> {
-    static LAUNCHES: std::sync::Mutex<Vec<(u32, [f64; 3], u64)>> = std::sync::Mutex::new(Vec::new());
+fn dart_launches() -> &'static std::sync::Mutex<Vec<(u32, DartLaunch, u64)>> {
+    static LAUNCHES: std::sync::Mutex<Vec<(u32, DartLaunch, u64)>> = std::sync::Mutex::new(Vec::new());
     &LAUNCHES
 }
 
-/// Запомнить бросок дротика `projectile` из точки `from` на тике `tick`.
-/// Заодно забываем давние: о дротике не слышно дольше `DART_FLIGHT_MAX` —
-/// он уже не прилетит. Разница по модулю, потому что после перезахода в мир
-/// тики идут заново, а давний бросок не должен висеть вечно.
-pub fn remember_dart_launch(projectile: u32, from: [f64; 3], tick: u64) {
+/// Запомнить запуск дротика `projectile` на тике `tick`. Заодно забываем
+/// давние: о дротике не слышно дольше `DART_FLIGHT_MAX` — он уже не
+/// прилетит. Разница по модулю, потому что после перезахода в мир тики идут
+/// заново, а давний бросок не должен висеть вечно.
+pub fn remember_dart_launch(projectile: u32, launch: DartLaunch, tick: u64) {
     let Ok(mut launches) = dart_launches().lock() else {
         return;
     };
     launches.retain(|&(id, _, at)| id != projectile && at.abs_diff(tick) <= DART_FLIGHT_MAX);
-    launches.push((projectile, from, tick));
+    launches.push((projectile, launch, tick));
 }
 
-/// Забрать точку броска дротика `projectile`: попадание у снаряда одно.
-pub fn take_dart_launch(projectile: u32) -> Option<[f64; 3]> {
+/// Забрать запуск дротика `projectile`: попадание у снаряда одно.
+pub fn take_dart_launch(projectile: u32) -> Option<DartLaunch> {
     let mut launches = dart_launches().lock().ok()?;
     let at = launches.iter().position(|&(id, _, _)| id == projectile)?;
     Some(launches.swap_remove(at).1)
 }
 
+/// Дальность оружия, которое прямо сейчас выпускает дротик. Хук запуска
+/// (`dart_launch.rs`) зовётся изнутри `add_projectile` и знает только id и
+/// тип снаряда — из чего выпущен, ему не сказать иначе. Оружие (`weapons.rs`)
+/// взводит дальность перед `add_projectile` и снимает после; бросок рукой
+/// её не взводит, и запуск берёт `DART_THROW_RANGE`. 0 — не взведено.
+static ARMED_RANGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Взвести дальность выстрела перед запуском дротика из оружия.
+pub fn arm_dart_range(range: u32) {
+    ARMED_RANGE.store(range, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Снять взведённую дальность: хук запуска забирает её, а оружие снимает
+/// после `add_projectile` — на случай, если хук не позвали (мод выключен),
+/// чтобы она не досталась следующему броску рукой.
+pub fn take_armed_range() -> Option<u32> {
+    match ARMED_RANGE.swap(0, std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        range => Some(range),
+    }
+}
+
+/// Запуск дротика из точки `from`: дальность — взведённая оружием, иначе
+/// броска рукой.
+pub fn dart_launch_from(from: [f64; 3]) -> DartLaunch {
+    DartLaunch { from, range: take_armed_range().unwrap_or(DART_THROW_RANGE as u32) }
+}
+
 /// Сообщение, когда дротик долетел на излёте.
-pub fn dart_spent_message() -> String {
-    format!("Дротик на излёте: игла не вошла (рукой — до {} блоков)", DART_THROW_RANGE as i32)
+pub fn dart_spent_message(range: u32) -> String {
+    if range == DART_THROW_RANGE as u32 {
+        format!("Дротик на излёте: игла не вошла (рукой — до {range} блоков)")
+    } else {
+        format!("Дротик на излёте: игла не вошла (дальность оружия — {range} блоков)")
+    }
+}
+
+// ---- Оружие для дротиков (GDD 4.20, «Оружие для снотворного») ----
+//
+// Оружие берёт дротики из инвентаря, как лук стрелы, и вещество задаёт
+// дротик, а не оружие. Выстрел — тот же снаряд-дротик, что и бросок рукой
+// (свой тип сущности, `dart_hit.rs`), но быстрее и с большей дальностью
+// действия: её запоминает запуск (`dart_launch.rs`), и граница «на излёте»
+// становится дальностью оружия. Снаряд выпускает `weapons.rs` (модуль игры):
+// `Projectile::new` + `shoot_from_rotation` из `projectiles.rs` пина и
+// `add_projectile`, как `throw_item` у снежка, только со своей скоростью.
+//
+// Ванильный арбалет взять шаблоном нельзя: его заряд, натяжение и выстрел в
+// пине привязаны к id `minecraft:crossbow` (`game/crossbow.rs`,
+// `use_crossbow`), берут только стрелы и фейерверки и выпускают стрелу.
+// Поэтому натяжение — своё, на «использовании со временем» предмета мода
+// (`native_use_duration` + `native_on_use_tick` + `native_release_using`).
+//
+// Здесь — чистая логика: таблица оружия, данные на стеке, решения клика,
+// натяжения и выстрела. Хуки (`remedy.rs`, `weapon_*.rs`) только исполняют.
+
+pub const BLOWPIPE_ID: &str = "biolab:blowpipe";
+pub const TRANQ_CROSSBOW_ID: &str = "biolab:tranq_crossbow";
+pub const AIR_RIFLE_ID: &str = "biolab:air_rifle";
+/// Баллон сжатого CO₂ — газ ружья. Заправляется в ферментере (побочный
+/// продукт брожения, GDD 4.2) из пустого.
+pub const CO2_CANISTER_ID: &str = "biolab:co2_canister";
+pub const CO2_CANISTER_EMPTY_ID: &str = "biolab:co2_canister_empty";
+
+/// Скорость броска рукой: `throw_item` пина бросает снежок с 1,5.
+pub const DART_THROW_SPEED: f32 = 1.5;
+
+/// Как оружие заряжается.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Loading {
+    /// Трубка: каждый выстрел берёт дротик прямо из инвентаря, без натяжения.
+    Each,
+    /// Арбалет: зажатый ПКМ натягивает и заряжает один дротик, следующий
+    /// клик стреляет — как ванильный арбалет.
+    Charge,
+    /// Ружьё: магазин заряжается из инвентаря кликом, зажатый ПКМ — прицел
+    /// с приближением, отпустить — выстрел.
+    Magazine,
+}
+
+/// Оружие для дротиков.
+pub struct DartWeapon {
+    pub item: &'static str,
+    /// Дальность действия, блоков: дальше игла входит на излёте.
+    pub range: u32,
+    /// Скорость снаряда, блоков за тик (у броска рукой 1,5). Выше 3,9 не
+    /// поднимаем: столько ванильный пакет скорости сущности передаёт клиенту.
+    pub speed: f32,
+    /// Разброс (`uncertainty` у `Projectile.shoot`): у броска рукой 1.
+    pub spread: f32,
+    /// Пауза после выстрела, тиков (кулдаун предмета).
+    pub cooldown: i32,
+    pub loading: Loading,
+    /// Тихий выстрел: без игрового события `projectile_shoot`, которое
+    /// слышат сенсоры скалка и страж, и почти без звука.
+    pub quiet: bool,
+    pub cue: Cue,
+}
+
+pub const DART_WEAPONS: [DartWeapon; 3] = [
+    DartWeapon {
+        item: BLOWPIPE_ID,
+        range: 16,
+        speed: 2.0,
+        spread: 1.0,
+        cooldown: 20,
+        loading: Loading::Each,
+        quiet: true,
+        cue: Cue::DartShot,
+    },
+    // Ванильный арбалет стреляет с 3,15 — так же и наш.
+    DartWeapon {
+        item: TRANQ_CROSSBOW_ID,
+        range: 32,
+        speed: 3.15,
+        spread: 0.5,
+        cooldown: 5,
+        loading: Loading::Charge,
+        quiet: false,
+        cue: Cue::CrossbowShot,
+    },
+    // Прицельное: разброс меньше всех.
+    DartWeapon {
+        item: AIR_RIFLE_ID,
+        range: 48,
+        speed: 3.8,
+        spread: 0.2,
+        cooldown: 10,
+        loading: Loading::Magazine,
+        quiet: false,
+        cue: Cue::RifleShot,
+    },
+];
+
+/// Оружие для дротиков с таким id.
+pub fn dart_weapon(item: &str) -> Option<&'static DartWeapon> {
+    DART_WEAPONS.iter().find(|w| w.item == item)
+}
+
+/// Использование со временем у арбалета и ружья: держится, пока зажат ПКМ,
+/// как у ванильного лука (`use_duration` пина: 72000).
+pub const WEAPON_USE_TICKS: i32 = 72_000;
+/// Натяжение арбалета, тиков: ванильные 1,25 с.
+pub const CROSSBOW_CHARGE_TICKS: u32 = 25;
+/// Магазин ружья.
+pub const MAGAZINE_SIZE: usize = 4;
+/// Выстрелов на один баллон CO₂.
+pub const CANISTER_SHOTS: u32 = 12;
+/// Пауза после зарядки магазина, тиков.
+pub const RIFLE_RELOAD_COOLDOWN: i32 = 30;
+/// Приближение прицела ружья (у подзорной трубы — 10) и замедление мыши в
+/// прицеле: при четырёхкратном приближении полная чувствительность дёргает.
+pub const RIFLE_ZOOM: f32 = 4.0;
+pub const RIFLE_ZOOM_TURN: f32 = 0.4;
+
+/// `use_duration` оружия: у арбалета и ружья — держится до отпускания, у
+/// трубки своего нет (клик и выстрел). Отвечает по одному id: игра спрашивает
+/// его каждый кадр, без игрока.
+pub fn weapon_use_duration(item: &str) -> Option<i32> {
+    match dart_weapon(item)?.loading {
+        Loading::Each => None,
+        Loading::Charge | Loading::Magazine => Some(WEAPON_USE_TICKS),
+    }
+}
+
+/// Ключ в `custom_data` оружия: что заряжено и сколько газа (`weapon_text`).
+pub const WEAPON_KEY: &str = "biolab_weapon";
+
+/// Данные на стеке оружия: заряженные дротики по порядку выстрела (у
+/// арбалета — один, у ружья — магазин) и газ ружья в выстрелах.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WeaponState {
+    pub load: Vec<&'static str>,
+    pub gas: u32,
+}
+
+/// Данные оружия из строки `load=<дротик>,<дротик>;gas=<n>`. Незнакомый
+/// дротик (убранный из мода) выпадает, битое число — 0: оружие не ломается,
+/// а разряжается.
+pub fn weapon_state(text: &str) -> WeaponState {
+    let mut state = WeaponState::default();
+    for part in text.split(';') {
+        match part.split_once('=') {
+            Some(("load", darts)) => {
+                state.load = darts.split(',').filter_map(dart_projectile).take(MAGAZINE_SIZE).collect();
+            }
+            Some(("gas", n)) => state.gas = n.trim().parse().unwrap_or(0).min(CANISTER_SHOTS),
+            _ => {}
+        }
+    }
+    state
+}
+
+pub fn weapon_text(state: &WeaponState) -> String {
+    format!("load={};gas={}", state.load.join(","), state.gas)
+}
+
+/// Что делает клик (ПКМ) оружием.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WeaponClick {
+    /// Выстрелить этим дротиком: трубка берёт его из инвентаря, арбалет —
+    /// заряженный.
+    Shoot(&'static str),
+    /// Клик не забираем: игра начинает использование — натяжение арбалета
+    /// или прицел ружья.
+    Use,
+    /// Магазин ружья пуст: зарядить из инвентаря.
+    Reload,
+    /// Нечем: дротиков нет ни в оружии, ни в инвентаре.
+    NoDarts,
+}
+
+/// Решение клика по оружию, его данным, первому дротику инвентаря и
+/// творчеству (там дротик не нужен: берётся первый из `DARTS`, как
+/// ванильный лук в творчестве стреляет без стрел).
+pub fn weapon_click(
+    weapon: &DartWeapon,
+    state: &WeaponState,
+    first_dart: Option<&'static str>,
+    creative: bool,
+) -> WeaponClick {
+    let dart = first_dart.or(creative.then_some(DARTS[0].0));
+    match weapon.loading {
+        Loading::Each => dart.map_or(WeaponClick::NoDarts, WeaponClick::Shoot),
+        Loading::Charge => match (state.load.first(), dart) {
+            (Some(loaded), _) => WeaponClick::Shoot(loaded),
+            (None, Some(_)) => WeaponClick::Use,
+            (None, None) => WeaponClick::NoDarts,
+        },
+        Loading::Magazine => match (state.load.is_empty(), dart) {
+            (false, _) => WeaponClick::Use,
+            (true, Some(_)) => WeaponClick::Reload,
+            (true, None) => WeaponClick::NoDarts,
+        },
+    }
+}
+
+/// Начать ли использование (`living_entity_use_item_start`). Сервер начинает
+/// его, только если клик не забран, а клиент предсказывает начало сам, не
+/// спрашивая `native_use_item`, — поэтому отказ здесь тот же, что у клика:
+/// иначе клиент рисовал бы натяжение заряженного арбалета, пока сервер уже
+/// выстрелил. Обе стороны решают по одному стеку и инвентарю.
+pub fn weapon_use_may_start(
+    weapon: &DartWeapon,
+    state: &WeaponState,
+    first_dart: Option<&'static str>,
+    creative: bool,
+) -> bool {
+    weapon_click(weapon, state, first_dart, creative) == WeaponClick::Use
+}
+
+/// Шаг натяжения арбалета.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChargeStep {
+    /// Звук начала: ванильный арбалет играет его на 20 % натяжения.
+    Start,
+    /// Звук середины, на 50 %.
+    Middle,
+    /// Натянут: дротик заряжен.
+    Loaded,
+}
+
+/// Что происходит на тике натяжения `held` (0 — первый тик зажатого ПКМ).
+/// Тики идут подряд, поэтому шаг — ровно в своей точке.
+pub fn crossbow_charge(held: u32) -> Option<ChargeStep> {
+    let point = |share: f32| (CROSSBOW_CHARGE_TICKS as f32 * share).round() as u32;
+    match held {
+        h if h == point(0.2) => Some(ChargeStep::Start),
+        h if h == point(0.5) => Some(ChargeStep::Middle),
+        h if h == CROSSBOW_CHARGE_TICKS => Some(ChargeStep::Loaded),
+        _ => None,
+    }
+}
+
+/// Сколько тиков держали ПКМ: `release_using` и `on_use_tick` пина дают
+/// оставшиеся тики `WEAPON_USE_TICKS`.
+pub fn weapon_held(remaining: i32) -> u32 {
+    u32::try_from(i64::from(WEAPON_USE_TICKS) - i64::from(remaining)).unwrap_or(0)
+}
+
+/// Зарядить магазин: из стопок дротиков `stacks` (слот, дротик, сколько —
+/// в порядке поиска) берём, пока магазин не полон. Вернёт, сколько взять из
+/// какого слота. В творчестве ничего не берём: магазин полнится первым
+/// дротиком инвентаря или первым из `DARTS`.
+pub fn reload_magazine(
+    state: &mut WeaponState,
+    stacks: &[(i32, &'static str, u32)],
+    creative: bool,
+) -> Vec<(i32, u32)> {
+    let mut take = Vec::new();
+    if creative {
+        let dart = first_dart(stacks).unwrap_or(DARTS[0].0);
+        while state.load.len() < MAGAZINE_SIZE {
+            state.load.push(dart);
+        }
+        return take;
+    }
+    for &(slot, dart, count) in stacks {
+        let mut taken = 0;
+        while taken < count && state.load.len() < MAGAZINE_SIZE {
+            state.load.push(dart);
+            taken += 1;
+        }
+        if taken > 0 {
+            take.push((slot, taken));
+        }
+    }
+    take
+}
+
+/// Выстрел ружья.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RifleShot {
+    /// Выстрелить этим дротиком; `connected` — для выстрела подключён новый
+    /// баллон (полный уходит из инвентаря, остаётся пустой).
+    Fired { dart: &'static str, connected: bool },
+    /// Магазин пуст.
+    Empty,
+    /// Газа нет, и баллона в инвентаре тоже.
+    NoGas,
+}
+
+/// Отпущен прицел ружья: первый дротик магазина и один выстрел газа. Газ
+/// кончился — подключаем полный баллон, если он есть (`canister`). В
+/// творчестве газ не тратится.
+pub fn rifle_fire(state: &mut WeaponState, canister: bool, creative: bool) -> RifleShot {
+    if state.load.is_empty() {
+        return RifleShot::Empty;
+    }
+    let mut connected = false;
+    if state.gas == 0 && !creative {
+        if !canister {
+            return RifleShot::NoGas;
+        }
+        state.gas = CANISTER_SHOTS;
+        connected = true;
+    }
+    let dart = state.load.remove(0);
+    if !creative {
+        state.gas -= 1;
+    }
+    RifleShot::Fired { dart, connected }
+}
+
+/// Первый дротик в стопках инвентаря.
+pub fn first_dart(stacks: &[(i32, &'static str, u32)]) -> Option<&'static str> {
+    stacks.first().map(|(_, dart, _)| *dart)
+}
+
+/// Имя дротика для подсказок и сообщений: как на табло стола (оно же имя
+/// предмета, тест сверяет с языковым файлом).
+pub fn dart_title(dart: &str) -> &str {
+    BENCH_RESULTS.iter().find(|(id, _)| *id == dart).map_or(dart, |(_, name)| name)
+}
+
+/// Полоска под иконкой (`item_bar`): у ружья — сколько дротиков в магазине
+/// (красная, когда кончился газ), у заряженного арбалета — полная. None —
+/// полоски нет. Ширина `0..=13`, как у ванильной.
+pub fn weapon_bar(item: &str, state: &WeaponState) -> Option<(i32, u32)> {
+    match dart_weapon(item)?.loading {
+        Loading::Each => None,
+        Loading::Charge => (!state.load.is_empty()).then_some((13, 0x96_7AC8)),
+        Loading::Magazine => {
+            let width = (state.load.len() * 13 / MAGAZINE_SIZE) as i32;
+            Some((width, if state.gas == 0 { 0xD2_4B4B } else { 0x8C_B4D2 }))
+        }
+    }
+}
+
+/// Строки данных в подсказке оружия.
+pub fn weapon_tooltip(item: &str, state: &WeaponState) -> Vec<String> {
+    let Some(weapon) = dart_weapon(item) else {
+        return Vec::new();
+    };
+    match weapon.loading {
+        Loading::Each => Vec::new(),
+        Loading::Charge => vec![match state.load.first() {
+            Some(dart) => format!("Заряжен: {}", dart_title(dart)),
+            None => "Не заряжен".to_string(),
+        }],
+        Loading::Magazine => {
+            let gas = if state.gas == 0 {
+                "Газ: нет, нужен баллон CO₂".to_string()
+            } else {
+                format!("Газ: {} из {CANISTER_SHOTS} выстрелов", state.gas)
+            };
+            vec![magazine_message(state), gas]
+        }
+    }
+}
+
+/// Сообщения оружия.
+pub fn no_darts_message() -> &'static str {
+    "Нет дротиков: положите их в инвентарь"
+}
+
+pub fn no_gas_message() -> &'static str {
+    "Нет газа: нужен баллон CO₂, заправка — в ферментере"
+}
+
+pub fn magazine_message(state: &WeaponState) -> String {
+    format!("Магазин: {} из {MAGAZINE_SIZE}", state.load.len())
+}
+
+pub fn canister_message() -> String {
+    format!("Подключён баллон CO₂: {CANISTER_SHOTS} выстрелов")
 }
 
 /// Пустой шприц: остаётся в руке после инъекции.
@@ -5814,6 +6271,11 @@ mod tests {
             FLASK_ID, FRAGMENT_ID, CULTURE_ID, BLUEPRINT_ID, GM_CROP, STRETCHER_ID,
             // Инструменты.
             SCALPEL_ID, ANALYZER_ID, MICROSCOPE_ID, MANUAL_ID,
+            // Оружие: свои данные (заряд, магазин, газ) и стопкой не держится.
+            BLOWPIPE_ID, TRANQ_CROSSBOW_ID, AIR_RIFLE_ID,
+            // Полный баллон меняется на пустой прямо в слоте (`weapons.rs`):
+            // выдача в инвентарь из хука ненадёжна, а стопку не подменить.
+            CO2_CANISTER_ID,
         ];
         let mut checked = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -7033,49 +7495,291 @@ mod tests {
 
     #[test]
     fn a_dart_injects_its_syringe_within_a_throw() {
+        let hand = |from| Some(DartLaunch { from, range: DART_THROW_RANGE as u32 });
         let from = [0.0, 65.62, 0.0];
         let near = [5.0, 65.0, 3.0];
         let far = [DART_THROW_RANGE + 0.5, 65.62, 0.0];
         for (dart, syringe) in DARTS {
             // В моба на дальности броска — то же, что укол шприцем.
-            assert_eq!(dart_impact(dart, true, Some(from), near), DartImpact::Inject(syringe));
+            assert_eq!(dart_impact(dart, true, hand(from), near), DartImpact::Inject(syringe));
             // Ровно на границе ещё входит.
             let edge = [DART_THROW_RANGE, 65.62, 0.0];
-            assert_eq!(dart_impact(dart, true, Some(from), edge), DartImpact::Inject(syringe));
+            assert_eq!(dart_impact(dart, true, hand(from), edge), DartImpact::Inject(syringe));
             // Дальше — на излёте.
-            assert_eq!(dart_impact(dart, true, Some(from), far), DartImpact::Spent);
+            assert_eq!(dart_impact(dart, true, hand(from), far), DartImpact::Spent(8));
             // Бросок не слышали (`/summon`, сохранение) — дротик всё равно действует.
             assert_eq!(dart_impact(dart, true, None, far), DartImpact::Inject(syringe));
             // Мимо, в блок: дротик ломается сам, мы ничего не делаем.
-            assert_eq!(dart_impact(dart, false, Some(from), near), DartImpact::Nothing);
+            assert_eq!(dart_impact(dart, false, hand(from), near), DartImpact::Nothing);
+            // Из оружия та же точка — не на излёте: граница — дальность оружия.
+            for weapon in &DART_WEAPONS {
+                let shot = Some(DartLaunch { from, range: weapon.range });
+                let edge = [f64::from(weapon.range) - 0.5, 65.62, 0.0];
+                let beyond = [f64::from(weapon.range) + 0.5, 65.62, 0.0];
+                assert_eq!(dart_impact(dart, true, shot, far), DartImpact::Inject(syringe), "{}", weapon.item);
+                assert_eq!(dart_impact(dart, true, shot, edge), DartImpact::Inject(syringe), "{}", weapon.item);
+                assert_eq!(dart_impact(dart, true, shot, beyond), DartImpact::Spent(weapon.range), "{}", weapon.item);
+            }
         }
         // Чужой снаряд — не наше дело.
-        assert_eq!(dart_impact("minecraft:snowball", true, Some(from), near), DartImpact::Nothing);
+        assert_eq!(dart_impact("minecraft:snowball", true, hand(from), near), DartImpact::Nothing);
         assert_eq!(dart_impact("minecraft:arrow", true, None, near), DartImpact::Nothing);
-        assert!(dart_spent_message().contains(&format!("до {} блоков", DART_THROW_RANGE as i32)));
+        // Сообщение называет ту дальность, которой не хватило.
+        assert!(dart_spent_message(8).contains(&format!("рукой — до {} блоков", DART_THROW_RANGE as i32)));
+        assert!(dart_spent_message(32).contains("32 блоков") && !dart_spent_message(32).contains("рукой"));
     }
 
-    /// Одним тестом: таблица бросков общая на процесс, а тесты идут потоками.
+    /// Одним тестом: таблица бросков и взведённая дальность общие на процесс,
+    /// а тесты идут потоками.
     #[test]
     fn a_dart_launch_is_remembered_until_its_hit() {
+        let at = |from: [f64; 3]| DartLaunch { from, range: 8 };
         let base = 4_000_000;
-        remember_dart_launch(base + 1, [1.0, 2.0, 3.0], 100);
-        remember_dart_launch(base + 2, [4.0, 5.0, 6.0], 110);
+        remember_dart_launch(base + 1, at([1.0, 2.0, 3.0]), 100);
+        remember_dart_launch(base + 2, at([4.0, 5.0, 6.0]), 110);
         // Попадание забирает точку броска, второе попадание её уже не найдёт.
-        assert_eq!(take_dart_launch(base + 1), Some([1.0, 2.0, 3.0]));
+        assert_eq!(take_dart_launch(base + 1), Some(at([1.0, 2.0, 3.0])));
         assert_eq!(take_dart_launch(base + 1), None);
         // Тот же id снова брошен — помним последний бросок.
-        remember_dart_launch(base + 2, [7.0, 8.0, 9.0], 120);
-        assert_eq!(take_dart_launch(base + 2), Some([7.0, 8.0, 9.0]));
+        remember_dart_launch(base + 2, at([7.0, 8.0, 9.0]), 120);
+        assert_eq!(take_dart_launch(base + 2), Some(at([7.0, 8.0, 9.0])));
         assert_eq!(take_dart_launch(base + 2), None);
         // Давний бросок забывается при следующем — и вперёд по тикам, и назад
         // (после перезахода в мир тики идут заново).
-        remember_dart_launch(base + 3, [0.0; 3], 200);
-        remember_dart_launch(base + 4, [0.0; 3], 200 + DART_FLIGHT_MAX + 1);
+        remember_dart_launch(base + 3, at([0.0; 3]), 200);
+        remember_dart_launch(base + 4, at([0.0; 3]), 200 + DART_FLIGHT_MAX + 1);
         assert_eq!(take_dart_launch(base + 3), None);
-        remember_dart_launch(base + 5, [0.0; 3], 10);
+        remember_dart_launch(base + 5, at([0.0; 3]), 10);
         assert_eq!(take_dart_launch(base + 4), None);
-        assert_eq!(take_dart_launch(base + 5), Some([0.0; 3]));
+        assert_eq!(take_dart_launch(base + 5), Some(at([0.0; 3])));
+
+        // Бросок рукой дальность не взводит — запуск берёт дальность руки.
+        assert_eq!(dart_launch_from([0.0; 3]).range, DART_THROW_RANGE as u32);
+        // Оружие взвело — запуск забирает её, и следующий бросок снова рукой.
+        arm_dart_range(48);
+        assert_eq!(dart_launch_from([1.0; 3]), DartLaunch { from: [1.0; 3], range: 48 });
+        assert_eq!(dart_launch_from([1.0; 3]).range, DART_THROW_RANGE as u32);
+        // Хук запуска не позвали — оружие снимает дальность само.
+        arm_dart_range(16);
+        assert_eq!(take_armed_range(), Some(16));
+        assert_eq!(take_armed_range(), None);
+    }
+
+    /// Полёт дротика по физике снежка пина (`projectiles.rs`, `tick_inner`:
+    /// гравитация 0,03, потом сопротивление 0,99, потом шаг): сколько блоков
+    /// по горизонтали он пролетит из выстрела горизонтально, пока не опустится
+    /// на `drop` блоков.
+    fn flat_reach(speed: f32, drop: f64) -> f64 {
+        let (mut x, mut y) = (0.0_f64, 0.0_f64);
+        let (mut vx, mut vy) = (f64::from(speed), 0.0_f64);
+        for _ in 0..400 {
+            vy -= 0.03;
+            vx *= f64::from(0.99_f32);
+            vy *= f64::from(0.99_f32);
+            x += vx;
+            y += vy;
+            if -y > drop {
+                break;
+            }
+        }
+        x
+    }
+
+    #[test]
+    fn every_weapon_reaches_its_range() {
+        // Бросок рукой долетает до своей границы, не уйдя ниже полутора блоков.
+        assert!(flat_reach(DART_THROW_SPEED, 1.5) >= DART_THROW_RANGE);
+        let mut last = DART_THROW_RANGE as u32;
+        for weapon in &DART_WEAPONS {
+            // Дальше и быстрее предыдущего: трубка → арбалет → ружьё (GDD 4.20).
+            assert!(weapon.range > last, "{}", weapon.item);
+            last = weapon.range;
+            assert!(weapon.speed > DART_THROW_SPEED && weapon.speed <= 3.9, "{}", weapon.item);
+            // На дальности оружия дротик ещё не упал ниже трёх блоков: им можно
+            // попасть, целясь чуть выше, а не навесом.
+            assert!(flat_reach(weapon.speed, 3.0) >= f64::from(weapon.range), "{}: {}", weapon.item, flat_reach(weapon.speed, 3.0));
+            assert!(weapon.spread <= 1.0 && weapon.cooldown >= 0, "{}", weapon.item);
+            assert_eq!(dart_weapon(weapon.item).map(|w| w.item), Some(weapon.item));
+        }
+        // GDD 4.20: 16, 32 и 48 блоков; тихая из них одна трубка, перезарядка 1 с.
+        let range = |id| dart_weapon(id).map(|w| w.range);
+        assert_eq!((range(BLOWPIPE_ID), range(TRANQ_CROSSBOW_ID), range(AIR_RIFLE_ID)), (Some(16), Some(32), Some(48)));
+        assert!(DART_WEAPONS.iter().all(|w| w.quiet == (w.item == BLOWPIPE_ID)));
+        assert_eq!(dart_weapon(BLOWPIPE_ID).map(|w| w.cooldown), Some(20));
+        assert!(dart_weapon("biolab:dart_sedative").is_none());
+        // У трубки нет использования со временем, у арбалета и ружья — до отпускания.
+        assert_eq!(weapon_use_duration(BLOWPIPE_ID), None);
+        assert_eq!(weapon_use_duration(TRANQ_CROSSBOW_ID), Some(WEAPON_USE_TICKS));
+        assert_eq!(weapon_use_duration(AIR_RIFLE_ID), Some(WEAPON_USE_TICKS));
+        assert_eq!(weapon_use_duration("minecraft:crossbow"), None);
+    }
+
+    #[test]
+    fn weapon_data_round_trips_and_survives_junk() {
+        let (sedative, venom) = (DARTS[0].0, DARTS[1].0);
+        let state = WeaponState { load: vec![sedative, venom, sedative], gas: 7 };
+        assert_eq!(weapon_state(&weapon_text(&state)), state);
+        assert_eq!(weapon_state(""), WeaponState::default());
+        // Убранный из мода дротик выпадает, лишний сверх магазина — тоже, газ не
+        // больше баллона, битое число — 0.
+        let junk = format!("load={sedative},biolab:gone,{venom},{venom},{venom},{venom};gas=99");
+        assert_eq!(weapon_state(&junk), WeaponState { load: vec![sedative, venom, venom, venom], gas: CANISTER_SHOTS });
+        assert_eq!(weapon_state("gas=много;load=").gas, 0);
+    }
+
+    #[test]
+    fn a_click_shoots_charges_or_reloads_by_the_weapon() {
+        let [blowpipe, crossbow, rifle] = [BLOWPIPE_ID, TRANQ_CROSSBOW_ID, AIR_RIFLE_ID].map(|id| dart_weapon(id).unwrap());
+        let (sedative, venom) = (DARTS[0].0, DARTS[1].0);
+        let empty = WeaponState::default();
+        let loaded = WeaponState { load: vec![venom], gas: 3 };
+        // Трубка стреляет первым дротиком инвентаря; без дротиков — осечка.
+        assert_eq!(weapon_click(blowpipe, &empty, Some(venom), false), WeaponClick::Shoot(venom));
+        assert_eq!(weapon_click(blowpipe, &empty, None, false), WeaponClick::NoDarts);
+        // В творчестве дротик не нужен.
+        assert_eq!(weapon_click(blowpipe, &empty, None, true), WeaponClick::Shoot(sedative));
+        // Арбалет: заряженный стреляет своим, хоть в инвентаре другой; пустой —
+        // натягивается, если есть чем зарядить.
+        assert_eq!(weapon_click(crossbow, &loaded, Some(sedative), false), WeaponClick::Shoot(venom));
+        assert_eq!(weapon_click(crossbow, &loaded, None, false), WeaponClick::Shoot(venom));
+        assert_eq!(weapon_click(crossbow, &empty, Some(sedative), false), WeaponClick::Use);
+        assert_eq!(weapon_click(crossbow, &empty, None, false), WeaponClick::NoDarts);
+        // Ружьё: с магазином — прицел, пустое — зарядка, без дротиков — осечка.
+        assert_eq!(weapon_click(rifle, &loaded, None, false), WeaponClick::Use);
+        assert_eq!(weapon_click(rifle, &empty, Some(sedative), false), WeaponClick::Reload);
+        assert_eq!(weapon_click(rifle, &empty, None, false), WeaponClick::NoDarts);
+        // Использование начинается ровно когда клик его не забрал: заряженный
+        // арбалет и пустое ружьё клиент не должен «натягивать».
+        assert!(weapon_use_may_start(crossbow, &empty, Some(sedative), false));
+        assert!(!weapon_use_may_start(crossbow, &loaded, Some(sedative), false));
+        assert!(weapon_use_may_start(rifle, &loaded, None, false));
+        assert!(!weapon_use_may_start(rifle, &empty, Some(sedative), false));
+        assert!(!weapon_use_may_start(blowpipe, &empty, Some(sedative), false));
+    }
+
+    #[test]
+    fn the_crossbow_charges_like_vanilla() {
+        // Тики натяжения идут подряд с нуля; звуки — на 20 и 50 %, заряд — на
+        // 1,25 с, как у ванильного арбалета.
+        let steps: Vec<(u32, ChargeStep)> =
+            (0..100).filter_map(|held| crossbow_charge(held).map(|step| (held, step))).collect();
+        assert_eq!(steps, vec![(5, ChargeStep::Start), (13, ChargeStep::Middle), (25, ChargeStep::Loaded)]);
+        assert_eq!(CROSSBOW_CHARGE_TICKS, 25);
+        // Оставшиеся тики пина → сколько держали.
+        assert_eq!(weapon_held(WEAPON_USE_TICKS), 0);
+        assert_eq!(weapon_held(WEAPON_USE_TICKS - 25), 25);
+        assert_eq!(weapon_held(WEAPON_USE_TICKS + 5), 0);
+    }
+
+    #[test]
+    fn the_magazine_fills_from_the_inventory() {
+        let (sedative, venom) = (DARTS[0].0, DARTS[1].0);
+        // Левая рука (-106) раньше инвентаря: стопки идут в порядке поиска.
+        let stacks = [(-106, venom, 1), (3, sedative, 16)];
+        let mut state = WeaponState::default();
+        assert_eq!(reload_magazine(&mut state, &stacks, false), vec![(-106, 1), (3, 3)]);
+        assert_eq!(state.load, vec![venom, sedative, sedative, sedative]);
+        // Полный магазин больше не берёт.
+        assert!(reload_magazine(&mut state, &stacks, false).is_empty());
+        // Доливает до полного.
+        let mut half = WeaponState { load: vec![venom, venom], gas: 0 };
+        assert_eq!(reload_magazine(&mut half, &[(0, sedative, 1)], false), vec![(0, 1)]);
+        assert_eq!(half.load, vec![venom, venom, sedative]);
+        // В творчестве ничего не тратится.
+        let mut creative = WeaponState::default();
+        assert!(reload_magazine(&mut creative, &[], true).is_empty());
+        assert_eq!(creative.load, vec![sedative; MAGAZINE_SIZE]);
+        assert_eq!(first_dart(&stacks), Some(venom));
+        assert_eq!(first_dart(&[]), None);
+    }
+
+    #[test]
+    fn the_rifle_spends_gas_and_connects_a_canister() {
+        let (sedative, venom) = (DARTS[0].0, DARTS[1].0);
+        let mut state = WeaponState { load: vec![venom, sedative], gas: 1 };
+        // Последний выстрел газа.
+        assert_eq!(rifle_fire(&mut state, false, false), RifleShot::Fired { dart: venom, connected: false });
+        assert_eq!(state, WeaponState { load: vec![sedative], gas: 0 });
+        // Газа нет и баллона нет — дротик остаётся в магазине.
+        assert_eq!(rifle_fire(&mut state, false, false), RifleShot::NoGas);
+        assert_eq!(state.load, vec![sedative]);
+        // Баллон есть — подключается, выстрел уходит.
+        assert_eq!(rifle_fire(&mut state, true, false), RifleShot::Fired { dart: sedative, connected: true });
+        assert_eq!(state, WeaponState { load: vec![], gas: CANISTER_SHOTS - 1 });
+        assert_eq!(rifle_fire(&mut state, true, false), RifleShot::Empty);
+        // В творчестве газ не тратится и не нужен.
+        let mut creative = WeaponState { load: vec![venom], gas: 0 };
+        assert_eq!(rifle_fire(&mut creative, false, true), RifleShot::Fired { dart: venom, connected: false });
+        assert_eq!(creative.gas, 0);
+    }
+
+    #[test]
+    fn weapons_show_their_load() {
+        let (sedative, venom) = (DARTS[0].0, DARTS[1].0);
+        let empty = WeaponState::default();
+        // Трубке показывать нечего.
+        assert_eq!(weapon_bar(BLOWPIPE_ID, &empty), None);
+        assert!(weapon_tooltip(BLOWPIPE_ID, &empty).is_empty());
+        // Арбалет: полоска — только заряженному, в подсказке — каким дротиком.
+        assert_eq!(weapon_bar(TRANQ_CROSSBOW_ID, &empty), None);
+        let loaded = WeaponState { load: vec![venom], gas: 0 };
+        assert_eq!(weapon_bar(TRANQ_CROSSBOW_ID, &loaded).map(|b| b.0), Some(13));
+        assert_eq!(weapon_tooltip(TRANQ_CROSSBOW_ID, &loaded), vec!["Заряжен: Яд, дротик".to_string()]);
+        assert_eq!(weapon_tooltip(TRANQ_CROSSBOW_ID, &empty), vec!["Не заряжен".to_string()]);
+        // Ружьё: полоска по магазину, красная без газа.
+        let rifle = |load: Vec<&'static str>, gas| WeaponState { load, gas };
+        assert_eq!(weapon_bar(AIR_RIFLE_ID, &rifle(vec![sedative; 4], 5)), Some((13, 0x8C_B4D2)));
+        assert_eq!(weapon_bar(AIR_RIFLE_ID, &rifle(vec![sedative; 2], 5)).map(|b| b.0), Some(6));
+        assert_eq!(weapon_bar(AIR_RIFLE_ID, &rifle(vec![], 0)), Some((0, 0xD2_4B4B)));
+        assert_eq!(
+            weapon_tooltip(AIR_RIFLE_ID, &rifle(vec![sedative; 3], 7)),
+            vec!["Магазин: 3 из 4".to_string(), "Газ: 7 из 12 выстрелов".to_string()]
+        );
+        assert!(weapon_tooltip(AIR_RIFLE_ID, &rifle(vec![], 0))[1].contains("баллон"));
+        assert_eq!(weapon_bar("biolab:dart_sedative", &empty), None);
+        // Подсказки называют дальность и способ — как делает код.
+        for weapon in &DART_WEAPONS {
+            let hint = item_hint(weapon.item).join(" / ");
+            assert!(hint.contains(&format!("{} блоков", weapon.range)) || hint.contains(&format!("{} блока", weapon.range)), "{}: {hint}", weapon.item);
+            assert!(hint.contains("ПКМ"), "{}: {hint}", weapon.item);
+        }
+        assert!(item_hint(AIR_RIFLE_ID).join(" ").contains(&MAGAZINE_SIZE.to_string()));
+        assert!(item_hint(CO2_CANISTER_ID).join(" ").contains(&CANISTER_SHOTS.to_string()));
+        assert!(item_hint(CO2_CANISTER_EMPTY_ID).join(" ").contains("ферментер"));
+    }
+
+    #[test]
+    fn weapons_and_canisters_exist_in_content() {
+        let root = content_dir();
+        for id in [BLOWPIPE_ID, TRANQ_CROSSBOW_ID, AIR_RIFLE_ID, CO2_CANISTER_ID, CO2_CANISTER_EMPTY_ID] {
+            let short = id.trim_start_matches("biolab:");
+            assert!(root.join(format!("data/biolab/horizon/item/{short}.json")).exists(), "{id}: нет предмета");
+            assert!(root.join(format!("assets/biolab/items/{short}.json")).exists(), "{id}: нет модели");
+        }
+        // Оружие и пустой баллон — на лабораторном столе, полный баллон — из
+        // пустого в ферментере (CO₂ брожения, GDD 4.2).
+        for id in [BLOWPIPE_ID, TRANQ_CROSSBOW_ID, AIR_RIFLE_ID, CO2_CANISTER_EMPTY_ID] {
+            let path = root.join(format!("data/biolab/recipe/{}.json", id.trim_start_matches("biolab:")));
+            let json = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("{id}: нет рецепта"));
+            assert!(
+                matches!(recipe_view(&json), Some(RecipeView::Bench { result, .. }) if result == id),
+                "{id}: рецепт не стола"
+            );
+        }
+        let json = std::fs::read_to_string(root.join("data/biolab/recipe/co2_canister.json")).unwrap();
+        let Some(RecipeView::Machine { input, machine, result, .. }) = recipe_view(&json) else {
+            panic!("баллон не заправляется в машине");
+        };
+        assert_eq!((input.as_str(), machine.as_str(), result.as_str()), (CO2_CANISTER_EMPTY_ID, "biolab:fermenter", CO2_CANISTER_ID));
+        // Ванильный арбалет — сырьё транквилизатора: GDD 4.20, «арбалет + шприц + железо».
+        let crossbow = std::fs::read_to_string(root.join("data/biolab/recipe/tranq_crossbow.json")).unwrap();
+        assert!(crossbow.contains("minecraft:crossbow") && crossbow.contains("biolab:syringe"));
+        let blowpipe = std::fs::read_to_string(root.join("data/biolab/recipe/blowpipe.json")).unwrap();
+        assert_eq!(blowpipe.matches("minecraft:bamboo").count(), 3);
+        assert!(blowpipe.contains("minecraft:string"));
+        // Ружьё собирается с баллоном.
+        let rifle = std::fs::read_to_string(root.join("data/biolab/recipe/air_rifle.json")).unwrap();
+        assert!(rifle.contains(CO2_CANISTER_EMPTY_ID) && rifle.contains("minecraft:copper_ingot"));
     }
 
     #[test]
@@ -8142,7 +8846,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 50] = [
+pub const RESEARCH: [Research; 54] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -8183,6 +8887,12 @@ pub const RESEARCH: [Research; 50] = [
     node("window", 3, (4, 0), "biolab:pill_analgesic", "Терапевтическое окно", &["pills"], Unlock::Medicine, "Примите лекарство: в руку и ПКМ в воздух."),
     node("overdose", 3, (5, 0), "biolab:pill_stimulant", "Передозировка", &["window"], Unlock::Overdose, "Примите двойную дозу или дождитесь ломки."),
     node("darts", 3, (4, 1), "biolab:dart_sedative", "Дротики", &["injections"], Unlock::Item(&["biolab:dart_sedative", "biolab:dart_venom"]), "Соберите дротик: шприц, перо и палка."),
+    // Оружие для дротиков (GDD 4.20): трубка рано, арбалет в середине, ружьё
+    // поздно — после баллона CO₂, из которого оно стреляет.
+    node("blowpipe", 3, (5, 1), "biolab:blowpipe", "Духовая трубка", &["darts"], Unlock::Item(&["biolab:blowpipe"]), "Соберите трубку на столе: бамбук и нить."),
+    node("tranq_crossbow", 3, (4, 2), "biolab:tranq_crossbow", "Арбалет-транквилизатор", &["darts"], Unlock::Item(&["biolab:tranq_crossbow"]), "Соберите на столе: арбалет, шприц, железо."),
+    node("co2", 3, (4, 3), "biolab:co2_canister", "Баллон CO₂", &["tranq_crossbow"], Unlock::Item(&["biolab:co2_canister", "biolab:co2_canister_empty"]), "Соберите баллон на столе: железо и медь."),
+    node("air_rifle", 3, (5, 3), "biolab:air_rifle", "Пневматическое ружьё", &["co2"], Unlock::Item(&["biolab:air_rifle"]), "Соберите ружьё на столе: нужен баллон."),
     // Генетика
     node("scalpel", 4, (0, 1), "biolab:scalpel", "Скальпель", &[], Unlock::Item(&["biolab:scalpel"]), "Соберите скальпель на лабораторном столе."),
     // Операционная (GDD 4.17): носилки и стол над скальпелем, ткань — там,
