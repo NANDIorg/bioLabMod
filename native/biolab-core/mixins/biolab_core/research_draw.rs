@@ -315,6 +315,23 @@ fn biolab_core_research_draw(
                                     slot(game, batch, [plus + plus_width + 3.0, row], Some(&extra), extra_count);
                                 }
                             }
+                            // Колонна (GDD 4.18): вход, колонна, время и
+                            // фракции в ряд — слева направо сверху башни вниз.
+                            m::RecipeView::Column { input, machine, fractions, seconds } => {
+                                slot(game, batch, [left, row], Some(&input), 1);
+                                game.native_item(batch, &machine, [left + 24.0, row + 1.0], 16.0);
+                                let time = format!("{seconds} с →");
+                                game.native_text(batch, &time, [left + 43.0, row + 5.0], INK, false);
+                                let tw = game.native_text_width(&time);
+                                let mut spot = left + 47.0 + tw;
+                                for (item, count) in fractions {
+                                    if spot + 18.0 > left + text_width {
+                                        break;
+                                    }
+                                    slot(game, batch, [spot, row], Some(&item), count);
+                                    spot += 19.0;
+                                }
+                            }
                         }
                     }
                 }

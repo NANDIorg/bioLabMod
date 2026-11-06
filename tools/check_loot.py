@@ -53,6 +53,9 @@ TEMPLATE_REQUIRES_TOOL = {
     "minecraft:crafting_table": False,
     "minecraft:mushroom_stem": False,
     "minecraft:beetroots": False,
+    # Части многоблочных установок (GDD 4.18).
+    "minecraft:iron_block": True,
+    "minecraft:glass": False,
 }
 
 # Шаблоны культур (GDD 4.20): у блока нет своего предмета — семена отдельный

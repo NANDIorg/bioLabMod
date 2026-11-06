@@ -7,7 +7,8 @@
 Что проверяет:
 - все JSON в content/assets/*/{blockstates,models,items} читаются;
 - blockstates: у каждого состояния блока есть вариант (свойства — из ванильного
-  blockstate шаблона блока, content/data/<ns>/horizon/block/<id>.json), ссылки на
+  blockstate шаблона блока, content/data/<ns>/horizon/block/<id>.json, и его
+  своих `state_properties` — `formed` частей установок), ссылки на
   модели существуют, поворот `x`/`y` кратен 90; у multipart условия `when`
   (с `OR`/`AND`, `a|b`, `!a`) — только по свойствам шаблона, и у каждого
   состояния рисуется хоть одна часть (секции стола на шаблоне `mushroom_stem`);
@@ -55,6 +56,8 @@ MAX_Y = 20
 KNOWN_STATES = {
     "minecraft:furnace": {"facing": ["east", "north", "south", "west"], "lit": ["false", "true"]},
     "minecraft:iron_block": {},
+    # Стекло установки (GDD 4.18): своих свойств у стекла нет.
+    "minecraft:glass": {},
     "minecraft:snow": {"layers": [str(i) for i in range(1, 9)]},
     # Свои растения (GDD 4.20): четыре стадии свёклы.
     "minecraft:beetroots": {"age": ["0", "1", "2", "3"]},
@@ -365,8 +368,30 @@ def check_model(assets, ref, where, machine, checked_tex, checked_models):
             err(w, f"нет display для {', '.join(missing)} (родитель minecraft:block/block их даёт)")
 
 
-def state_space(assets, template):
-    """Свойства блока по ванильному blockstate шаблона: {свойство: [значения]}."""
+def declared_states(decl):
+    """Свои свойства блока (`state_properties` в его файле, GDD 4.18:
+    `formed` частей установок): {свойство: [значения]}."""
+    out = {}
+    for name, prop in (decl or {}).get("state_properties", {}).items():
+        if prop.get("type") == "boolean":
+            out[name] = ["false", "true"]
+        else:
+            out[name] = sorted(prop.get("values", []))
+    return out
+
+
+def state_space(assets, template, decl=None):
+    """Свойства блока: шаблона по его ванильному blockstate и свои
+    (`state_properties`): {свойство: [значения]}."""
+    own = declared_states(decl)
+    base = template_space(assets, template)
+    if base is None:
+        return None
+    return {**base, **own}
+
+
+def template_space(assets, template):
+    """Свойства шаблона по ванильному blockstate: {свойство: [значения]}."""
     ns, path = split(template)
     p = assets.path(ns, "blockstates", path, ".json")
     if not p or not os.path.isfile(p):
@@ -429,7 +454,7 @@ def when_terms(cond):
             yield k, term.lstrip("!")
 
 
-def check_blockstate(assets, ns, block, path, template, checked_tex, checked_models):
+def check_blockstate(assets, ns, block, path, template, checked_tex, checked_models, decl=None):
     where = rel(path)
     data = load(path)
     if data is None:
@@ -447,7 +472,7 @@ def check_blockstate(assets, ns, block, path, template, checked_tex, checked_mod
                     if v.get(axis, 0) % 90:
                         err(where, f"вариант «{key}»: {axis} = {v[axis]} не кратен 90")
                 models.append((key, v["model"]))
-        space = state_space(assets, template) if template else None
+        space = state_space(assets, template, decl) if template else None
         if space is not None:
             names = sorted(space)
             for combo in itertools.product(*(space[n] for n in names)):
@@ -472,7 +497,7 @@ def check_blockstate(assets, ns, block, path, template, checked_tex, checked_mod
                         err(where, f"часть {i}: {axis} = {v[axis]} не кратен 90")
                 models.append((f"часть {i}", v["model"]))
         # Условия — по свойствам шаблона, и у каждого состояния что-то рисуется.
-        space = state_space(assets, template) if template else None
+        space = state_space(assets, template, decl) if template else None
         if space is not None:
             for i, part in enumerate(parts):
                 for k, v in when_terms(part.get("when")):
@@ -730,7 +755,7 @@ def main():
         n_states += 1
         if template in CUBE_TEMPLATES:
             n_machines += 1
-        check_blockstate(assets, ns, block, path, template, checked_tex, checked_models)
+        check_blockstate(assets, ns, block, path, template, checked_tex, checked_models, data)
         if args.verbose:
             print(f"  {ns}:{block} ({template})")
         if data.get("item", False):

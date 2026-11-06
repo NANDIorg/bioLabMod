@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ccc",
+  "cic",
+  "ccc"
+ ],
+ "key": {
+  "c": "minecraft:copper_ingot",
+  "i": "minecraft:iron_bars"
+ },
+ "result": {
+  "id": "biolab:column_condenser",
+  "count": 1
+ }
+}

@@ -162,5 +162,12 @@
  "death.attack.biolab.infection.player": "%1$s succumbed to infection while fighting %2$s",
  "death.attack.biolab.mutation": "%1$s was torn apart by their own mutation",
  "death.attack.biolab.mutation.player": "%1$s was torn apart by their own mutation while fighting %2$s",
- "entity.biolab.infected": "Infected"
+ "entity.biolab.infected": "Infected",
+ "block.biolab.casing": "Machine Casing",
+ "block.biolab.casing_glass": "Machine Glass",
+ "block.biolab.input_port": "Input Port",
+ "block.biolab.output_port": "Output Port",
+ "block.biolab.column": "Column Reboiler",
+ "block.biolab.column_tray": "Column Tray",
+ "block.biolab.column_condenser": "Column Condenser"
 }

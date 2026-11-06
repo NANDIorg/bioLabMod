@@ -1,0 +1,23 @@
+{
+ "type": "biolab:column",
+ "ingredient": "minecraft:kelp",
+ "fractions": [
+  {
+   "id": "biolab:element_oxygen",
+   "count": 2
+  },
+  {
+   "id": "biolab:element_iodine",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_sodium",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_potassium",
+   "count": 1
+  }
+ ],
+ "time": 160
+}

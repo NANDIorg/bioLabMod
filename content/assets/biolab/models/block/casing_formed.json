@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {"all": "biolab:block/casing_formed", "particle": "biolab:block/casing"}
+}

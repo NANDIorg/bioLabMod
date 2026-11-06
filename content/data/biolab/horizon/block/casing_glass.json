@@ -1,0 +1,15 @@
+{
+ "template": "minecraft:glass",
+ "properties": {
+  "hardness": 1.0,
+  "explosion_resistance": 3.0,
+  "requires_tool": false,
+  "sounds": "minecraft:glass"
+ },
+ "state_properties": {
+  "formed": {
+   "type": "boolean"
+  }
+ },
+ "item": true
+}

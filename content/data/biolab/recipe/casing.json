@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ici",
+  "c c",
+  "ici"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "c": "minecraft:copper_ingot"
+ },
+ "result": {
+  "id": "biolab:casing",
+  "count": 4
+ }
+}

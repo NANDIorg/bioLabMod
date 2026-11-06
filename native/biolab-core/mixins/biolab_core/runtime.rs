@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 96] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 103] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -117,6 +117,14 @@ pub const ITEM_HINTS: [(&str, &[&str]); 96] = [
     ("biolab:pen", &["Держит подопытного моба на месте"]),
     ("biolab:console", &["ПКМ — отчёт о подопытных и опытах"]),
     ("biolab:gm_plot", &["ПКМ фрагментом ДНК или урожаем — посадить", "Спелую — ПКМ: собрать урожай"]),
+    // Многоблочные установки (GDD 4.18): каркас и колонна.
+    ("biolab:casing", &["Стенки больших установок"]),
+    ("biolab:casing_glass", &["Стенка установки, сквозь которую видно"]),
+    ("biolab:input_port", &["Вход установки: воронки кладут сюда", "Ставится вплотную к контроллеру"]),
+    ("biolab:output_port", &["Выход установки: воронки забирают отсюда", "Ставится вплотную к контроллеру"]),
+    ("biolab:column", &["Низ колонны: огонь под ним, тарелки сверху", "Сырьё → до пяти элементов за раз"]),
+    ("biolab:column_tray", &["Секция колонны: одна тарелка — одна фракция"]),
+    ("biolab:column_condenser", &["Вершина колонны, над тарелками"]),
     // Химия.
     ("biolab:flask", &["Центрифуга разложит, спектрометр опознает"]),
     ("biolab:blueprint", &["В синтезаторе задаёт состав, не тратится"]),
@@ -267,7 +275,7 @@ pub struct PlayerState {
     /// Выдана ли книга-руководство: второй раз она не приходит.
     pub manual: bool,
     /// Изученные узлы карты исследований: бит на узел `RESEARCH`.
-    pub research: u64,
+    pub research: u128,
 }
 
 // `Default` для массивов длиннее 32 сам не выводится, а генов теперь 40.
@@ -465,7 +473,7 @@ pub struct Machine {
     pub menu: &'static str,
 }
 
-pub const MACHINES: [Machine; 11] = [
+pub const MACHINES: [Machine; 12] = [
     Machine { id: "biolab:still", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:incubator", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:fermenter", slots: 3, menu: "minecraft:furnace" },
@@ -480,6 +488,9 @@ pub const MACHINES: [Machine; 11] = [
     // Лабораторный стол — верстак точных вещей: сетка 3×3, как у
     // синтезатора, 0–7 входы, 8 — выход.
     Machine { id: "biolab:lab_bench", slots: 9, menu: "minecraft:generic_3x3" },
+    // Контроллеры многоблочных установок (GDD 4.18, раздел «M8»): роли
+    // слотов — из их строки `MULTIBLOCKS`, меню — всегда своё.
+    Machine { id: COLUMN, slots: COLUMN_SLOTS, menu: MULTIBLOCK_MENU },
 ];
 
 /// Машина с таким id, если она наша.
@@ -542,6 +553,9 @@ pub fn machine_data_slots(id: &str) -> usize {
         CLONING_VAT | "biolab:extractor" => DATA_GENE_STRENGTH + 1,
         "biolab:incubator" => DATA_STRAIN + 4,
         LAB_BENCH => DATA_BENCH_RESULT + 1,
+        // Контроллер установки: общие числа сборки (раздел «M8»); свои
+        // числа установки — после `DATA_MB_END`.
+        id if multiblock(id).is_some() => DATA_MB_END,
         _ => DATA_SLOTS,
     }
 }
@@ -790,6 +804,10 @@ pub fn slot_role(machine: &Machine, slot: usize) -> SlotRole {
     if slot >= machine.slots {
         return SlotRole::Unused;
     }
+    // Контроллер установки: роли — в строке `MULTIBLOCKS`.
+    if let Some(mb) = multiblock(machine.id) {
+        return mb.slots.get(slot).copied().unwrap_or(SlotRole::Unused);
+    }
     match machine.menu {
         "minecraft:furnace" => match slot {
             SLOT_INPUT => SlotRole::Input,
@@ -817,7 +835,8 @@ pub const OWN_MENUS: bool = true;
 /// Какое меню открывает машина: свой тип меню мода называется так же, как
 /// машина (`data/biolab/horizon/menu/<машина>.json`).
 pub fn machine_menu(machine: &Machine) -> &'static str {
-    if OWN_MENUS { machine.id } else { machine.menu }
+    // У контроллера установки ванильной раскладки нет: меню всегда своё.
+    if OWN_MENUS || machine.menu == MULTIBLOCK_MENU { machine.id } else { machine.menu }
 }
 
 /// Машина, чей это тип меню; None — меню не наше.
@@ -829,7 +848,7 @@ pub fn machine_of_menu(menu: &str) -> Option<&'static Machine> {
 /// (`ingredients` у стола) её рецептов в `content/`. Правилам слотов мир не
 /// виден (ни рецептов, ни уровня), поэтому список свой; тест сверяет его с
 /// рецептами, так что новый рецепт без строки здесь не пройдёт.
-pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 9] = [
+pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
     (
         "biolab:still",
         &[
@@ -967,6 +986,17 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 9] = [
             // Приходят из ветки растений (агент растений, M5).
             "biolab:belladonna_berries",
             "biolab:mandrake_root",
+        ],
+    ),
+    // Ректификационная колонна (GDD 4.18): входы рецептов `biolab:column`.
+    (
+        COLUMN,
+        &[
+            "minecraft:bone",
+            "minecraft:gunpowder",
+            "minecraft:kelp",
+            "minecraft:rotten_flesh",
+            "minecraft:seagrass",
         ],
     ),
 ];
@@ -1351,8 +1381,17 @@ mod automation_tests {
                 .collect();
             assert_eq!(results, machine_outputs(machine), "{name}");
         }
+        // Порты установок (GDD 4.18): пять слотов, у выходного все — `results`.
+        for p in &PORTS {
+            let name = p.id.trim_start_matches("biolab:");
+            let text = std::fs::read_to_string(dir.join(format!("{name}.json"))).unwrap_or_else(|_| panic!("нет меню {name}"));
+            let json = Json::parse(&text).unwrap();
+            assert_eq!(json.get("slots").and_then(Json::num), Some(PORT_SLOTS as f64), "{name}");
+            let results = json.get("results").and_then(Json::arr).map_or(0, |r| r.len());
+            assert_eq!(results, if p.kind == PortKind::Output { PORT_SLOTS } else { 0 }, "{name}");
+        }
         let files = std::fs::read_dir(&dir).unwrap().count();
-        assert_eq!(files, MACHINES.len(), "лишний тип меню");
+        assert_eq!(files, MACHINES.len() + PORTS.len(), "лишний тип меню");
     }
 
     #[test]
@@ -1466,7 +1505,7 @@ pub struct MachineSounds {
 
 /// Машина → её звуки. Каждой — свой характер, чтобы по звуку было ясно, какая
 /// из соседних машин закончила.
-pub const MACHINE_SOUNDS: [MachineSounds; 11] = [
+pub const MACHINE_SOUNDS: [MachineSounds; 12] = [
     // Перегонный куб: закипает, побулькивает, перелив готового в колбу.
     MachineSounds {
         machine: "biolab:still",
@@ -1548,6 +1587,14 @@ pub const MACHINE_SOUNDS: [MachineSounds; 11] = [
         start: block("minecraft:block.wooden_button.click_on", 0.4, 1.2),
         work: block("minecraft:ui.cartography_table.take_result", 0.3, 1.0),
         done: block("minecraft:block.crafter.craft", 0.5, 1.0),
+    },
+    // Ректификационная колонна: кипятильник разгорается, гудит топка под
+    // башней, фракции стекают по тарелкам — ниже, чем у перегонного куба.
+    MachineSounds {
+        machine: COLUMN,
+        start: block("minecraft:block.fire.extinguish", 0.3, 0.8),
+        work: block("minecraft:block.blastfurnace.fire_crackle", 0.35, 0.8),
+        done: block("minecraft:item.bottle.fill", 0.6, 0.7),
     },
 ];
 
@@ -10065,7 +10112,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 62] = [
+pub const RESEARCH: [Research; 64] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10143,6 +10190,11 @@ pub const RESEARCH: [Research; 62] = [
     node("gases", 3, (5, 2), "biolab:grenade_ether", "Эфир и хлороформ", &["topical"], Unlock::Item(&["biolab:ether", "biolab:chloroform", "biolab:spray_ether", "biolab:spray_chloroform", "biolab:grenade_ether", "biolab:grenade_chloroform", "biolab:rag_chloroform"]), "Спирт с серой — на стол, смесь — в реактор."),
     node("tranquilizer", 3, (1, 0), "biolab:syringe_tranquilizer", "Транквилизатор зверолова", &["sleep_scale"], Unlock::Item(&["biolab:tranquilizer", "biolab:syringe_tranquilizer", "biolab:dart_tranquilizer", "biolab:syringe_wake"]), "Седативное, настойку и золото — в синтезатор."),
     node("curare", 3, (3, 3), "biolab:dart_curare", "Кураре", &["antidote"], Unlock::Item(&["biolab:curare_mash", "biolab:curare_raw", "biolab:extract_curare", "biolab:syringe_curare", "biolab:dart_curare"]), "Лианы, паучий глаз и колбу — на стол."),
+    // Многоблочные установки (GDD 4.18, M8). Общие части — в Основах: из них
+    // строят все установки. Каждая установка — узел своей науки: колонна —
+    // химия (после элементов: она их и даёт).
+    node("multiblock", 0, (4, 1), "biolab:casing", "Установки", &["bench"], Unlock::Item(&["biolab:casing", "biolab:casing_glass", "biolab:input_port", "biolab:output_port"]), "Сделайте корпус установки: железо и медь."),
+    node("column", 1, (1, 2), "biolab:column", "Ректификационная колонна", &["elements"], Unlock::Item(&["biolab:column", "biolab:column_tray", "biolab:column_condenser"]), "Сделайте кипятильник: куб и доменная печь."),
 ];
 
 /// Номер узла по id.
@@ -10151,8 +10203,8 @@ pub fn research_index(id: &str) -> Option<usize> {
 }
 
 /// Бит узла в маске изученного.
-pub fn research_bit(index: usize) -> u64 {
-    1u64 << index
+pub fn research_bit(index: usize) -> u128 {
+    1u128 << index
 }
 
 /// Что игрок сейчас держит и что записано в журнале: всё, что нужно
@@ -10185,7 +10237,7 @@ pub fn research_met(r: &Research, s: &PlayerState, f: &ResearchFacts) -> bool {
 }
 
 /// Маска узлов, чьи условия выполнены прямо сейчас.
-pub fn research_now(s: &PlayerState, f: &ResearchFacts) -> u64 {
+pub fn research_now(s: &PlayerState, f: &ResearchFacts) -> u128 {
     RESEARCH
         .iter()
         .enumerate()
@@ -10199,7 +10251,7 @@ pub fn research_tick(
     world: &std::path::Path,
     uuid: u128,
     facts: &ResearchFacts,
-) -> (u64, Vec<usize>) {
+) -> (u128, Vec<usize>) {
     let Ok(mut table) = states().lock() else {
         return (0, Vec::new());
     };
@@ -10226,7 +10278,7 @@ pub fn research_message(index: usize) -> String {
 
 /// Маска изученного в файле: id через запятую, чтобы перестановка таблицы
 /// не путала сохранения.
-pub fn research_to_text(mask: u64) -> String {
+pub fn research_to_text(mask: u128) -> String {
     RESEARCH
         .iter()
         .enumerate()
@@ -10237,34 +10289,41 @@ pub fn research_to_text(mask: u64) -> String {
 }
 
 /// Маска из файла: незнакомые id пропускаем.
-pub fn research_from_text(text: &str) -> u64 {
+pub fn research_from_text(text: &str) -> u128 {
     text.split(',')
         .filter_map(|id| research_index(id.trim()))
         .fold(0, |mask, i| mask | research_bit(i))
 }
 
-/// Пакет для клиента: маска, восемь байт.
-pub fn research_packet(mask: u64) -> Vec<u8> {
+/// Пакет для клиента: маска, шестнадцать байт. Узлов стало больше 64
+/// (M8, многоблочные установки), и маска выросла до 128 бит; старый пакет
+/// в восемь байт ещё читается — от сервера старой сборки.
+pub fn research_packet(mask: u128) -> Vec<u8> {
     mask.to_le_bytes().to_vec()
 }
 
-pub fn research_from_packet(data: &[u8]) -> Option<u64> {
-    Some(u64::from_le_bytes(data.get(..8)?.try_into().ok()?))
+pub fn research_from_packet(data: &[u8]) -> Option<u128> {
+    if let Some(wide) = data.get(..16) {
+        return Some(u128::from_le_bytes(wide.try_into().ok()?));
+    }
+    Some(u128::from(u64::from_le_bytes(data.get(..8)?.try_into().ok()?)))
 }
 
-fn known_research() -> &'static std::sync::atomic::AtomicU64 {
-    static KNOWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+/// Изученное на клиенте. 128-битного атомика в стабильном Rust нет —
+/// мьютекс: читают его раз в кадр, пишут раз в секунду.
+fn known_research() -> &'static std::sync::Mutex<u128> {
+    static KNOWN: std::sync::Mutex<u128> = std::sync::Mutex::new(1);
     &KNOWN
 }
 
 /// Клиент запомнил, что изучено (пришло с сервера).
-pub fn remember_research(mask: u64) {
-    known_research().store(mask, std::sync::atomic::Ordering::Relaxed);
+pub fn remember_research(mask: u128) {
+    *known_research().lock().unwrap_or_else(|e| e.into_inner()) = mask;
 }
 
 /// Что изучено, как его знает клиент. Первый узел изучен всегда.
-pub fn shown_research() -> u64 {
-    known_research().load(std::sync::atomic::Ordering::Relaxed) | research_bit(0)
+pub fn shown_research() -> u128 {
+    *known_research().lock().unwrap_or_else(|e| e.into_inner()) | research_bit(0)
 }
 
 /// Как узел выглядит на карте.
@@ -10280,7 +10339,7 @@ pub enum NodeState {
     Hidden,
 }
 
-pub fn node_state(mask: u64, index: usize) -> NodeState {
+pub fn node_state(mask: u128, index: usize) -> NodeState {
     if mask & research_bit(index) != 0 {
         return NodeState::Done;
     }
@@ -10305,13 +10364,13 @@ pub fn node_state(mask: u64, index: usize) -> NodeState {
 }
 
 /// Сколько изучено: подпись в углу карты.
-pub fn research_progress(mask: u64) -> String {
+pub fn research_progress(mask: u128) -> String {
     let done = (0..RESEARCH.len()).filter(|i| mask & research_bit(*i) != 0).count();
     format!("Изучено {done} из {}", RESEARCH.len())
 }
 
 /// Подсказка у курсора над узлом.
-pub fn research_tooltip(mask: u64, index: usize) -> Vec<String> {
+pub fn research_tooltip(mask: u128, index: usize) -> Vec<String> {
     let r = &RESEARCH[index];
     match node_state(mask, index) {
         NodeState::Done => vec![r.title.to_string(), "Изучено — щёлкните, чтобы читать".to_string()],
@@ -10478,7 +10537,7 @@ impl PageRow {
             PageRow::Items(_) => (16.0, 19.0),
             PageRow::Recipe(RecipeView::Grid { .. }) => (54.0, 58.0),
             PageRow::Recipe(RecipeView::Bench { .. }) => (65.0, 70.0),
-            PageRow::Recipe(RecipeView::Machine { .. }) => (18.0, 22.0),
+            PageRow::Recipe(RecipeView::Machine { .. } | RecipeView::Column { .. }) => (18.0, 22.0),
         }
     }
 }
@@ -10607,7 +10666,7 @@ pub enum ResearchHit {
     Nothing,
 }
 
-pub fn research_hit(l: &ResearchLayout, view: &ResearchView, mask: u64, at: [f32; 2]) -> ResearchHit {
+pub fn research_hit(l: &ResearchLayout, view: &ResearchView, mask: u128, at: [f32; 2]) -> ResearchHit {
     for science in 0..SCIENCES.len() {
         if inside(tab_rect(l, science), at) {
             return ResearchHit::Tab(science);
@@ -10638,7 +10697,7 @@ pub fn research_hit(l: &ResearchLayout, view: &ResearchView, mask: u64, at: [f32
 
 /// Щелчок меняет вид: вкладка, запись, страница. `pages` — сколько страниц у
 /// открытой записи.
-pub fn research_click(view: ResearchView, hit: ResearchHit, mask: u64, pages: usize) -> ResearchView {
+pub fn research_click(view: ResearchView, hit: ResearchHit, mask: u128, pages: usize) -> ResearchView {
     match hit {
         ResearchHit::Tab(science) => ResearchView { science, page: None, ..view },
         ResearchHit::Node(i) => match node_state(mask, i) {
@@ -11057,6 +11116,14 @@ pub enum RecipeView {
         seconds: u32,
         byproduct: Option<(String, u32)>,
     },
+    /// Ректификационная колонна (GDD 4.18): вход, время и фракции сверху
+    /// вниз — первая с верхней тарелки.
+    Column {
+        input: String,
+        machine: String,
+        fractions: Vec<(String, u32)>,
+        seconds: u32,
+    },
 }
 
 /// Выход рецепта: `{"id", "count"}` или просто id. Так записаны и основной
@@ -11089,6 +11156,16 @@ pub fn recipe_path(name: &str) -> String {
 pub fn recipe_view(text: &str) -> Option<RecipeView> {
     let j = Json::parse(text)?;
     let kind = j.get("type")?.str()?;
+    // У колонны вместо одного `result` — список фракций.
+    if kind == COLUMN {
+        let (input, fractions, ticks) = column_recipe(&j)?;
+        return Some(RecipeView::Column {
+            input,
+            machine: kind.to_string(),
+            fractions: fractions.into_iter().map(|f| (f.item, f.count)).collect(),
+            seconds: (ticks.max(1) as u32).div_ceil(20),
+        });
+    }
     let (result, count) = stack_of(j.get("result")?)?;
     match kind {
         "minecraft:crafting_shaped" => {
@@ -11160,7 +11237,7 @@ mod research_tests {
 
     #[test]
     fn the_map_is_consistent() {
-        assert!(RESEARCH.len() <= 64, "маска изученного — 64 бита");
+        assert!(RESEARCH.len() <= 128, "маска изученного — 128 бит");
         let mut cells = std::collections::HashSet::new();
         for (i, r) in RESEARCH.iter().enumerate() {
             assert_eq!(research_index(r.id), Some(i), "{} дважды", r.id);
@@ -11236,12 +11313,18 @@ mod research_tests {
     }
 
     #[test]
-    fn research_is_saved_by_name_and_sent_as_eight_bytes() {
+    fn research_is_saved_by_name_and_sent_as_sixteen_bytes() {
         let mask = research_bit(0) | research_bit(research_index("vat").unwrap());
         assert_eq!(research_to_text(mask), "manual,vat");
         assert_eq!(research_from_text("manual, vat,ghost"), mask);
+        assert_eq!(research_packet(mask).len(), 16);
         assert_eq!(research_from_packet(&research_packet(mask)), Some(mask));
         assert_eq!(research_from_packet(&[1, 2]), None);
+        // Узел за 64-м битом доходит до клиента.
+        let far = research_bit(100);
+        assert_eq!(research_from_packet(&research_packet(far)), Some(far));
+        // Старый пакет в восемь байт.
+        assert_eq!(research_from_packet(&5u64.to_le_bytes()), Some(5));
         let mut s = PlayerState::default();
         s.research = mask;
         assert_eq!(state_from_text(&state_to_text(&s)).research, mask);
@@ -11471,6 +11554,8 @@ mod research_tests {
             RecipeView::Grid { result, .. }
             | RecipeView::Bench { result, .. }
             | RecipeView::Machine { result, .. } => result.clone(),
+            // Колонна показана — показаны все её фракции; ключ — первая.
+            RecipeView::Column { fractions, .. } => fractions.first().map(|f| f.0.clone()).unwrap_or_default(),
         }
     }
 
@@ -12440,6 +12525,1217 @@ mod infected_tests {
     }
 }
 
+// ---- M8: многоблочные установки (GDD 4.18) ----
+//
+// Общий каркас для всех установок: ректификационной колонны (первая, на ней
+// каркас отлажен), биореактора, карантинной камеры и генного секвенатора.
+// Здесь только решения — схемы, проверка сборки, тексты нехватки, раскладка
+// чисел для экрана, раскладка фракций колонны. Исполнение на игре — модули
+// `crate::game::biolab_multiblock` (`multiblock.rs`: раз в секунду проверить
+// схему, склеить или расклеить блоки, носить предметы через порты) и
+// `crate::game::biolab_column` (`column.rs`: работа колонны). Тик контроллера
+// зовёт их из `machine.rs`.
+//
+// *Контроллер* — обычная машина из `MACHINES` (блок-сущность, слоты, своё
+// меню и экран, компаратор, лампа `lit`, воронки на нём самом), у которой
+// есть строка в `MULTIBLOCKS`: схема, тексты нехватки и роли слотов.
+//
+// *Схема* (`Shape`) — ярусы снизу вверх. Ярусы до `controller` стоят под
+// контроллером по одному, ярус `controller` — его собственный (сам
+// контроллер — точка [0, 0] этого яруса, клеткой не пишется), ярусы выше
+// могут повторяться (`min..=max`: тарелки колонны). Клетка — место
+// относительно контроллера: `[вправо, назад]`, где «назад» — вглубь
+// установки от лица контроллера, «вправо» — направо для игрока, который
+// смотрит на это лицо (`Facing`). На клетке может стоять любая из частей
+// её `Need`; необязательная клетка (`optional`) нехватки не даёт — так
+// стоят порты колонны.
+//
+// *Проверка* — чистая функция: на вход замыкание «какой блок в точке», на
+// выход `Verdict`: собрано (`Assembly`: секции, найденные части и порты)
+// или нехватка (`Shortage`: что, сколько, ярус, сторона), которую
+// `shortage_text` пишет человеческим текстом. Проверка другого рода
+// (карантинная камера — замкнутость комнаты заливкой) встаёт через
+// `Check::Custom`: своя функция с той же подписью, отвечает тем же
+// `Verdict`.
+
+/// Корпус установки: стенки, пол и потолок больших установок.
+pub const CASING: &str = "biolab:casing";
+/// Стекло установки: то же, что корпус, но видно внутрь.
+pub const CASING_GLASS: &str = "biolab:casing_glass";
+/// Порт входа: контроллер забирает из него сырьё.
+pub const INPUT_PORT: &str = "biolab:input_port";
+/// Порт выхода: контроллер кладёт в него готовое.
+pub const OUTPUT_PORT: &str = "biolab:output_port";
+/// Ректификационная колонна: контроллер — куб-кипятильник внизу башни.
+pub const COLUMN: &str = "biolab:column";
+/// Тарелка колонны — секция башни.
+pub const COLUMN_TRAY: &str = "biolab:column_tray";
+/// Конденсатор — вершина колонны.
+pub const COLUMN_CONDENSER: &str = "biolab:column_condenser";
+
+/// Свойство «склеенного» вида: свой `state_properties` блока (boolean), его
+/// ваниль не трогает — ставит только контроллер (`native_set_block_property`).
+pub const FORMED: &str = "formed";
+/// Блоки со свойством `formed` (данные блоков объявляют его в
+/// `state_properties`, тест сверяет).
+pub const FORMABLE: [&str; 4] = [CASING, CASING_GLASS, COLUMN_TRAY, COLUMN_CONDENSER];
+
+/// Есть ли у блока «склеенный» вид.
+pub fn is_formable(id: &str) -> bool {
+    FORMABLE.contains(&id)
+}
+
+/// Значение свойства `formed`.
+pub fn formed_value(formed: bool) -> &'static str {
+    if formed { "true" } else { "false" }
+}
+
+/// Порт: вход или выход.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortKind {
+    Input,
+    Output,
+}
+
+/// Порт установки: блок со слотами, к которому цепляют воронки.
+pub struct Port {
+    pub id: &'static str,
+    pub kind: PortKind,
+}
+
+/// Сколько слотов у порта: как у воронки.
+pub const PORT_SLOTS: usize = 5;
+
+pub const PORTS: [Port; 2] = [
+    Port { id: INPUT_PORT, kind: PortKind::Input },
+    Port { id: OUTPUT_PORT, kind: PortKind::Output },
+];
+
+/// Порт с таким id.
+pub fn port(id: &str) -> Option<&'static Port> {
+    PORTS.iter().find(|p| p.id == id)
+}
+
+/// Слоты порта для воронок: стороны, куда кладут, откуда забирают.
+/// Входной — воронка кладёт с любой стороны, забрать нельзя; выходной —
+/// наоборот. Руками из меню забирают из обоих, кладут только во входной
+/// (у выходного все слоты — `results` его меню).
+pub fn port_faces(port: &Port) -> ([Vec<usize>; 6], Vec<usize>, Vec<usize>) {
+    let all: Vec<usize> = (0..PORT_SLOTS).collect();
+    let faces = std::array::from_fn(|_| all.clone());
+    match port.kind {
+        PortKind::Input => (faces, all, Vec::new()),
+        PortKind::Output => (faces, Vec::new(), all),
+    }
+}
+
+/// Нужна ли блоку блок-сущность мода: машинам, грядке и портам.
+pub fn has_block_entity(id: &str) -> bool {
+    is_machine(id) || id == GM_PLOT || port(id).is_some()
+}
+
+/// Куда смотрит лицо контроллера (`facing` шаблона печи: сторона, где лицо).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Facing {
+    North,
+    South,
+    West,
+    East,
+}
+
+impl Facing {
+    pub fn from_name(name: &str) -> Option<Facing> {
+        match name {
+            "north" => Some(Facing::North),
+            "south" => Some(Facing::South),
+            "west" => Some(Facing::West),
+            "east" => Some(Facing::East),
+            _ => None,
+        }
+    }
+
+    /// Шаг «вглубь установки» по X и Z — от лица контроллера назад.
+    pub fn back(self) -> [i32; 2] {
+        match self {
+            Facing::North => [0, 1],
+            Facing::South => [0, -1],
+            Facing::West => [1, 0],
+            Facing::East => [-1, 0],
+        }
+    }
+
+    /// Шаг «вправо» для игрока, который стоит перед лицом и смотрит на него
+    /// (то есть смотрит «назад»): у взгляда на север правая рука — восток.
+    pub fn right(self) -> [i32; 2] {
+        let [x, z] = self.back();
+        [-z, x]
+    }
+}
+
+/// Точка установки: контроллер в `origin`, клетка `[вправо, вверх, назад]`.
+pub fn place(origin: [i32; 3], facing: Facing, at: [i32; 3]) -> [i32; 3] {
+    let (r, b) = (facing.right(), facing.back());
+    [
+        origin[0] + at[0] * r[0] + at[2] * b[0],
+        origin[1] + at[1],
+        origin[2] + at[0] * r[1] + at[2] * b[1],
+    ]
+}
+
+/// Что может стоять на клетке схемы.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    /// Блок с этим id.
+    Block(&'static str),
+    /// Источник тепла — те же блоки, что греют реактор (`heat_target`).
+    Heat,
+    /// Любой порт (`PORTS`).
+    Port,
+    /// Пусто: воздух (внутренность биореактора).
+    Air,
+}
+
+impl Part {
+    pub fn matches(self, block: &str) -> bool {
+        match self {
+            Part::Block(id) => id == block,
+            Part::Heat => heat_target(block).is_some(),
+            Part::Port => port(block).is_some(),
+            Part::Air => is_air(block),
+        }
+    }
+}
+
+/// Что нужно на клетку и как это назвать в нехватке: «Нет тарелки», «Нет 3
+/// блоков корпуса» — родительный падеж, единственное и множественное.
+pub struct Need {
+    pub parts: &'static [Part],
+    pub one: &'static str,
+    pub many: &'static str,
+}
+
+impl Need {
+    pub fn matches(&self, block: &str) -> bool {
+        self.parts.iter().any(|p| p.matches(block))
+    }
+}
+
+/// Клетка яруса: `[вправо, назад]` от контроллера, номер нужды в `needs`
+/// установки, необязательна ли.
+pub struct Cell {
+    pub at: [i32; 2],
+    pub need: usize,
+    pub optional: bool,
+}
+
+/// Обязательная клетка.
+pub const fn cell(right: i32, back: i32, need: usize) -> Cell {
+    Cell { at: [right, back], need, optional: false }
+}
+
+/// Необязательная клетка: если там то, что нужно, — часть установки (порт),
+/// если нет — не беда.
+pub const fn maybe(right: i32, back: i32, need: usize) -> Cell {
+    Cell { at: [right, back], need, optional: true }
+}
+
+/// Ярус: клетки, сколько раз подряд повторяется (`min..=max`, обычно 1) и
+/// имя для нехватки. Пустое имя — «N-й ярус», счёт снизу по ярусам без
+/// имени; с именем («под кипятильником») — номер ярус не занимает.
+pub struct Layer {
+    pub cells: &'static [Cell],
+    pub min: u32,
+    pub max: u32,
+    pub name: &'static str,
+}
+
+/// Схема из ярусов снизу вверх. `controller` — номер яруса контроллера:
+/// ниже него ярусы стоят по одному, выше — могут повторяться.
+pub struct Shape {
+    pub layers: &'static [Layer],
+    pub controller: usize,
+}
+
+/// Где стоит контроллер установки.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Site {
+    pub origin: [i32; 3],
+    pub facing: Facing,
+}
+
+/// «Какой блок в точке»: id без свойств, воздух — `minecraft:air`.
+pub type BlockAt<'a> = &'a dyn Fn([i32; 3]) -> String;
+
+/// Своя проверка установки (карантинная камера — заливкой комнаты): та же
+/// подпись и тот же ответ, что у проверки по схеме.
+pub type CustomCheck = fn(&Multiblock, Site, BlockAt) -> Verdict;
+
+/// Вид проверки установки.
+pub enum Check {
+    /// По схеме ярусов.
+    Shape(Shape),
+    /// Своей функцией.
+    Custom(CustomCheck),
+}
+
+/// Установка: её контроллер (машина из `MACHINES`), название, нужды для
+/// текстов нехватки, проверка и роли слотов контроллера.
+pub struct Multiblock {
+    pub controller: &'static str,
+    pub title: &'static str,
+    pub needs: &'static [Need],
+    pub check: Check,
+    pub slots: &'static [SlotRole],
+}
+
+/// Сторона клетки в ярусе — для текста нехватки.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    /// Ярус в одну клетку — сторона не нужна.
+    None,
+    Left,
+    Right,
+    Front,
+    Back,
+    /// Не у стенки: внутри или в середине пола и потолка.
+    Middle,
+}
+
+impl Side {
+    pub const ALL: [Side; 6] = [Side::None, Side::Left, Side::Right, Side::Front, Side::Back, Side::Middle];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Side::None => "",
+            Side::Left => "слева",
+            Side::Right => "справа",
+            Side::Front => "спереди",
+            Side::Back => "сзади",
+            Side::Middle => "в середине",
+        }
+    }
+}
+
+/// Ярус в тексте нехватки.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tier {
+    /// Без яруса (своя проверка).
+    None,
+    /// «N-й ярус», счёт снизу с 1.
+    Number(u32),
+    /// Ярус с именем: номер яруса в схеме.
+    Named(usize),
+}
+
+/// Нехватка: чего (номер в `needs`), сколько, где.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortage {
+    pub need: usize,
+    pub count: u32,
+    pub tier: Tier,
+    pub side: Side,
+}
+
+/// Собранная установка.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Assembly {
+    /// Сколько раз повторился первый повторяющийся ярус (тарелки колонны).
+    pub sections: u32,
+    /// Найденные части, кроме контроллера, портов и воздуха: им склеивать вид.
+    pub parts: Vec<[i32; 3]>,
+    /// Найденные порты.
+    pub ports: Vec<([i32; 3], PortKind)>,
+}
+
+impl Assembly {
+    pub fn inputs(&self) -> impl Iterator<Item = [i32; 3]> + '_ {
+        self.ports.iter().filter(|(_, k)| *k == PortKind::Input).map(|(p, _)| *p)
+    }
+
+    pub fn outputs(&self) -> impl Iterator<Item = [i32; 3]> + '_ {
+        self.ports.iter().filter(|(_, k)| *k == PortKind::Output).map(|(p, _)| *p)
+    }
+}
+
+/// Итог проверки.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    Formed(Assembly),
+    Broken(Vec<Shortage>),
+}
+
+/// Сторона клетки по крайним клеткам яруса: у края по «вправо» — слева или
+/// справа (углы тоже), иначе у края по «назад» — спереди или сзади, иначе в
+/// середине. У яруса в одну клетку стороны нет.
+pub fn cell_side(layer: &Layer, at: [i32; 2]) -> Side {
+    let span = |axis: usize| {
+        let values = layer.cells.iter().map(|c| c.at[axis]);
+        (values.clone().min().unwrap_or(0), values.max().unwrap_or(0))
+    };
+    let ((rmin, rmax), (bmin, bmax)) = (span(0), span(1));
+    if rmax > rmin {
+        if at[0] == rmin {
+            return Side::Left;
+        }
+        if at[0] == rmax {
+            return Side::Right;
+        }
+    }
+    if bmax > bmin {
+        if at[1] == bmin {
+            return Side::Front;
+        }
+        if at[1] == bmax {
+            return Side::Back;
+        }
+    }
+    if rmax > rmin || bmax > bmin { Side::Middle } else { Side::None }
+}
+
+/// Проверка по схеме. Ярусы ниже контроллера — по одному вниз, выше —
+/// повторяющийся ярус берётся жадно, пока он целиком собран (не больше
+/// `max`); если вышло меньше `min`, нехватка — в первом несобранном, а
+/// следующие ярусы ждут выше, как будто повторов `min`. Поэтому ярус после
+/// повторяющегося должен от него отличаться (конденсатор — не тарелка).
+pub fn check_shape(mb: &Multiblock, shape: &Shape, site: Site, at: BlockAt) -> Verdict {
+    let block_at = |cell: &Cell, y: i32| at(place(site.origin, site.facing, [cell.at[0], y, cell.at[1]]));
+    let complete = |layer: &Layer, y: i32| {
+        layer.cells.iter().all(|c| c.optional || mb.needs.get(c.need).is_some_and(|n| n.matches(&block_at(c, y))))
+    };
+
+    // Ярусы по местам: (номер яруса в схеме, высота над контроллером).
+    let mut placed: Vec<(usize, i32)> = Vec::new();
+    for (i, _) in shape.layers.iter().enumerate().take(shape.controller).rev() {
+        placed.push((i, i as i32 - shape.controller as i32));
+    }
+    placed.push((shape.controller, 0));
+    let mut sections = None;
+    let mut y = 1;
+    for (i, layer) in shape.layers.iter().enumerate().skip(shape.controller + 1) {
+        let mut found = 0;
+        while found < layer.max && complete(layer, y + found as i32) {
+            found += 1;
+        }
+        if layer.min != layer.max && sections.is_none() {
+            sections = Some(found);
+        }
+        for k in 0..found.max(layer.min) {
+            placed.push((i, y + k as i32));
+        }
+        y += found.max(layer.min) as i32;
+    }
+    placed.sort_by_key(|(_, y)| *y);
+
+    let mut assembly = Assembly { sections: sections.unwrap_or(0), ..Default::default() };
+    let mut short: Vec<Shortage> = Vec::new();
+    let mut number = 0;
+    for (i, y) in placed {
+        let layer = &shape.layers[i];
+        let tier = if layer.name.is_empty() {
+            number += 1;
+            Tier::Number(number)
+        } else {
+            Tier::Named(i)
+        };
+        for c in layer.cells {
+            let Some(need) = mb.needs.get(c.need) else {
+                continue;
+            };
+            let pos = place(site.origin, site.facing, [c.at[0], y, c.at[1]]);
+            let block = at(pos);
+            if need.matches(&block) {
+                match port(&block) {
+                    Some(p) => assembly.ports.push((pos, p.kind)),
+                    None if !is_air(&block) => assembly.parts.push(pos),
+                    None => {}
+                }
+                continue;
+            }
+            if c.optional {
+                continue;
+            }
+            let side = cell_side(layer, c.at);
+            match short.iter_mut().find(|s| s.need == c.need && s.tier == tier && s.side == side) {
+                Some(s) => s.count += 1,
+                None => short.push(Shortage { need: c.need, count: 1, tier, side }),
+            }
+        }
+    }
+    if short.is_empty() { Verdict::Formed(assembly) } else { Verdict::Broken(short) }
+}
+
+/// Проверка установки её видом проверки.
+pub fn check_multiblock(mb: &Multiblock, site: Site, at: BlockAt) -> Verdict {
+    match &mb.check {
+        Check::Shape(shape) => check_shape(mb, shape, site, at),
+        Check::Custom(check) => check(mb, site, at),
+    }
+}
+
+/// Слово после числа: 1, 21 — «блока», остальное — «блоков».
+pub fn count_form<'a>(n: u32, one: &'a str, many: &'a str) -> &'a str {
+    if n % 10 == 1 && n % 100 != 11 { one } else { many }
+}
+
+/// «Нет 3 блоков корпуса: 2-й ярус, слева», «Нет тарелки: 2-й ярус», «Нет
+/// источника тепла: под кипятильником».
+pub fn shortage_text(mb: &Multiblock, s: &Shortage) -> String {
+    let Some(need) = mb.needs.get(s.need) else {
+        return "Не хватает части".to_string();
+    };
+    let what = if s.count == 1 {
+        need.one.to_string()
+    } else {
+        format!("{} {}", s.count, count_form(s.count, need.one, need.many))
+    };
+    let mut place = Vec::new();
+    match s.tier {
+        Tier::Number(n) => place.push(format!("{n}-й ярус")),
+        Tier::Named(i) => {
+            if let Check::Shape(shape) = &mb.check
+                && let Some(layer) = shape.layers.get(i)
+            {
+                place.push(layer.name.to_string());
+            }
+        }
+        Tier::None => {}
+    }
+    if s.side != Side::None {
+        place.push(s.side.word().to_string());
+    }
+    if place.is_empty() { format!("Нет {what}") } else { format!("Нет {what}: {}", place.join(", ")) }
+}
+
+// Числа экрана контроллера (общие для всех установок, после четырёх общих
+// чисел машины). Нехватку экрану не послать строкой: слоты данных — 16-битные
+// числа. Поэтому строка нехватки идёт четырьмя числами (нужда, сколько,
+// ярус, сторона), а текст собирает экран той же `shortage_text`.
+
+/// Собрана ли установка: `MB_UNKNOWN` — ещё не проверяли (первая секунда
+/// после загрузки), `MB_FORMED`, `MB_BROKEN`.
+pub const DATA_MB_STATE: usize = 4;
+/// Секций (тарелок колонны).
+pub const DATA_MB_SECTIONS: usize = 5;
+/// Найдено портов входа и выхода.
+pub const DATA_MB_INPUTS: usize = 6;
+pub const DATA_MB_OUTPUTS: usize = 7;
+/// Сколько всего строк нехватки (на экран идут первые `MB_ROWS`).
+pub const DATA_MB_SHORTAGES: usize = 8;
+/// Первая строка нехватки: по `MB_ROW` чисел.
+pub const DATA_MB_ROWS: usize = 9;
+pub const MB_ROWS: usize = 4;
+pub const MB_ROW: usize = 4;
+/// Конец общих чисел установки: свои числа установки — отсюда.
+pub const DATA_MB_END: usize = DATA_MB_ROWS + MB_ROWS * MB_ROW;
+
+pub const MB_UNKNOWN: i32 = 0;
+pub const MB_FORMED: i32 = 1;
+pub const MB_BROKEN: i32 = 2;
+
+/// Раз в сколько тиков контроллер сверяет схему: раз в секунду.
+pub const MB_CHECK_EVERY: i64 = 20;
+/// Раз в сколько тиков контроллер носит предметы через порты: как воронка.
+pub const MB_PORT_EVERY: i64 = 8;
+
+/// Пора ли проверять схему: раз в секунду, разнесено по месту, чтобы десять
+/// установок не проверялись в один тик; сразу — если ещё не проверяли.
+pub fn check_due(ticks: i64, pos: [i32; 3], state: i32) -> bool {
+    let spread = (pos[0] as i64 * 7 + pos[2] as i64 * 13 + pos[1] as i64).rem_euclid(MB_CHECK_EVERY);
+    state == MB_UNKNOWN || (ticks + spread).rem_euclid(MB_CHECK_EVERY) == 0
+}
+
+/// Строка нехватки числами.
+pub fn encode_shortage(s: &Shortage) -> [i32; MB_ROW] {
+    let tier = match s.tier {
+        Tier::None => 0,
+        Tier::Number(n) => n as i32,
+        Tier::Named(i) => -(i as i32) - 1,
+    };
+    let side = Side::ALL.iter().position(|x| *x == s.side).unwrap_or(0) as i32;
+    [s.need as i32, s.count.min(i16::MAX as u32) as i32, tier, side]
+}
+
+/// Строка нехватки из чисел; None — пустая строка или битые числа.
+pub fn decode_shortage(row: &[i32]) -> Option<Shortage> {
+    let [need, count, tier, side] = <[i32; MB_ROW]>::try_from(row.get(..MB_ROW)?).ok()?;
+    if count <= 0 || need < 0 {
+        return None;
+    }
+    let tier = match tier {
+        0 => Tier::None,
+        n if n > 0 => Tier::Number(n as u32),
+        n => Tier::Named((-n - 1) as usize),
+    };
+    Some(Shortage {
+        need: need as usize,
+        count: count as u32,
+        tier,
+        side: *Side::ALL.get(usize::try_from(side).ok()?)?,
+    })
+}
+
+/// Записать итог проверки в числа экрана контроллера (`data` длиной не
+/// меньше `DATA_MB_END`).
+pub fn write_verdict(data: &mut [i32], verdict: &Verdict) {
+    if data.len() < DATA_MB_END {
+        return;
+    }
+    for v in &mut data[DATA_MB_STATE..DATA_MB_END] {
+        *v = 0;
+    }
+    match verdict {
+        Verdict::Formed(a) => {
+            data[DATA_MB_STATE] = MB_FORMED;
+            data[DATA_MB_SECTIONS] = a.sections as i32;
+            data[DATA_MB_INPUTS] = a.inputs().count() as i32;
+            data[DATA_MB_OUTPUTS] = a.outputs().count() as i32;
+        }
+        Verdict::Broken(short) => {
+            data[DATA_MB_STATE] = MB_BROKEN;
+            data[DATA_MB_SHORTAGES] = short.len() as i32;
+            for (k, s) in short.iter().take(MB_ROWS).enumerate() {
+                let at = DATA_MB_ROWS + k * MB_ROW;
+                data[at..at + MB_ROW].copy_from_slice(&encode_shortage(s));
+            }
+        }
+    }
+}
+
+/// Что экран знает о сборке.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MultiblockShown {
+    /// Ещё не проверяли.
+    Unknown,
+    /// Собрано: секций, портов входа и выхода.
+    Formed { sections: u32, inputs: u32, outputs: u32 },
+    /// Не собрано: первые строки нехватки и сколько их всего.
+    Broken { rows: Vec<Shortage>, total: u32 },
+}
+
+pub fn multiblock_shown(data: &[i32]) -> MultiblockShown {
+    let n = |i: usize| screen_datum(data, i, 0).max(0) as u32;
+    match screen_datum(data, DATA_MB_STATE, MB_UNKNOWN) {
+        MB_FORMED => MultiblockShown::Formed {
+            sections: n(DATA_MB_SECTIONS),
+            inputs: n(DATA_MB_INPUTS),
+            outputs: n(DATA_MB_OUTPUTS),
+        },
+        MB_BROKEN => {
+            let rows = (0..MB_ROWS)
+                .filter_map(|k| {
+                    let at = DATA_MB_ROWS + k * MB_ROW;
+                    decode_shortage(data.get(at..at + MB_ROW)?)
+                })
+                .collect();
+            MultiblockShown::Broken { rows, total: n(DATA_MB_SHORTAGES) }
+        }
+        _ => MultiblockShown::Unknown,
+    }
+}
+
+/// Тексты нехватки для экрана: строки и «…и ещё N».
+pub fn shortage_lines(mb: &Multiblock, rows: &[Shortage], total: u32) -> Vec<String> {
+    let mut lines: Vec<String> = rows.iter().map(|s| shortage_text(mb, s)).collect();
+    let more = total.saturating_sub(rows.len() as u32);
+    if more > 0 {
+        lines.push(format!("…и ещё {more}"));
+    }
+    lines
+}
+
+/// Позиции в сейве: `[x, y, z, …]` в `IntArray` блок-сущности.
+pub fn positions_to_ints(list: &[[i32; 3]]) -> Vec<i32> {
+    list.iter().flat_map(|p| p.iter().copied()).collect()
+}
+
+pub fn positions_from_ints(ints: &[i32]) -> Vec<[i32; 3]> {
+    ints.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect()
+}
+
+/// Порты в сейве: `[x, y, z, вид, …]`, вид 0 — вход, 1 — выход.
+pub fn ports_to_ints(list: &[([i32; 3], PortKind)]) -> Vec<i32> {
+    list.iter()
+        .flat_map(|(p, k)| [p[0], p[1], p[2], i32::from(*k == PortKind::Output)])
+        .collect()
+}
+
+pub fn ports_from_ints(ints: &[i32]) -> Vec<([i32; 3], PortKind)> {
+    ints.chunks_exact(4)
+        .map(|c| ([c[0], c[1], c[2]], if c[3] == 1 { PortKind::Output } else { PortKind::Input }))
+        .collect()
+}
+
+/// Ключи сейва контроллера.
+pub const MB_FORMED_KEY: &str = "biolab_mb_formed";
+pub const MB_SECTIONS_KEY: &str = "biolab_mb_sections";
+pub const MB_PARTS_KEY: &str = "biolab_mb_parts";
+pub const MB_PORTS_KEY: &str = "biolab_mb_ports";
+
+/// Склейка: что поставить `formed=true` (новые части), что вернуть в
+/// `false` (были склеены, а в установке их больше нет). Расклеивается всё
+/// старое, если установка разобрана (`now` пусто).
+pub fn glue_changes(before: &[[i32; 3]], now: &[[i32; 3]]) -> (Vec<[i32; 3]>, Vec<[i32; 3]>) {
+    let unglue = before.iter().filter(|p| !now.contains(p)).copied().collect();
+    (now.to_vec(), unglue)
+}
+
+/// Сколько из стака влезет в слот: пустой — до стопки, тот же предмет с
+/// теми же данными (`same`) — до полной стопки, чужой — ничего. `held` —
+/// слот: пусто или (тот же ли, сколько).
+pub fn stack_room(held: Option<(bool, u32)>, max: u32) -> u32 {
+    match held {
+        None => max.max(1),
+        Some((true, count)) => max.max(1).saturating_sub(count),
+        Some((false, _)) => 0,
+    }
+}
+
+/// Куда в слоты порта (`held`) лечь стаку из `count` штук: сперва долить
+/// такие же, потом пустые. Вернёт (слот, сколько); сумма — сколько влезло.
+pub fn port_plan(held: &[Option<(bool, u32)>], count: u32, max: u32) -> Vec<(usize, u32)> {
+    let mut left = count;
+    let mut plan = Vec::new();
+    for pass in [true, false] {
+        for (slot, h) in held.iter().enumerate() {
+            if left == 0 {
+                return plan;
+            }
+            let fits = match h {
+                Some((true, _)) if pass => stack_room(*h, max),
+                None if !pass => stack_room(None, max),
+                _ => 0,
+            };
+            let put = fits.min(left);
+            if put > 0 {
+                plan.push((slot, put));
+                left -= put;
+            }
+        }
+    }
+    plan
+}
+
+// ---- Ректификационная колонна (GDD 4.18, п. 1) ----
+//
+// Башня 1×1: источник тепла, над ним куб-кипятильник (контроллер), выше
+// тарелки (1–5), на вершине конденсатор — высота от 3 до 7 блоков. Порты
+// входа и выхода — по бокам кипятильника (слева, справа, сзади), не
+// обязательны: без них сырьё кладут и готовое забирают руками или воронками
+// прямо у кипятильника.
+//
+// Рецепт `biolab:column`: `ingredient`, `fractions` — список выходов
+// сверху вниз (первая — с верхней тарелки: самая лёгкая), `time`. Тарелок
+// столько, сколько фракций выходит за раз: колонна из одной тарелки даёт
+// только первую фракцию, из пяти — до пяти. Фракция k лежит в слоте выхода
+// k + 1 кипятильника: слоты на экране идут в ряд слева направо — сверху
+// башни вниз. Выход ждёт, если хоть одна фракция не влезает в свой слот.
+
+/// Тарелок в колонне: от одной до пяти (высота от 3 до 7 с кипятильником и
+/// конденсатором).
+pub const COLUMN_TRAYS: (u32, u32) = (1, 5);
+/// Слоты кипятильника: вход и по слоту на фракцию.
+pub const COLUMN_SLOTS: usize = 1 + COLUMN_TRAYS.1 as usize;
+
+pub const COLUMN_NEEDS: [Need; 4] = [
+    Need { parts: &[Part::Heat], one: "источника тепла", many: "источников тепла" },
+    Need { parts: &[Part::Block(COLUMN_TRAY)], one: "тарелки", many: "тарелок" },
+    Need { parts: &[Part::Block(COLUMN_CONDENSER)], one: "конденсатора", many: "конденсаторов" },
+    Need { parts: &[Part::Port], one: "порта", many: "портов" },
+];
+
+pub const COLUMN_SHAPE: Shape = Shape {
+    layers: &[
+        Layer { cells: &[cell(0, 0, 0)], min: 1, max: 1, name: "под кипятильником" },
+        // Кипятильник: порты по бокам и сзади, если есть.
+        Layer { cells: &[maybe(-1, 0, 3), maybe(1, 0, 3), maybe(0, 1, 3)], min: 1, max: 1, name: "" },
+        Layer { cells: &[cell(0, 0, 1)], min: COLUMN_TRAYS.0, max: COLUMN_TRAYS.1, name: "" },
+        Layer { cells: &[cell(0, 0, 2)], min: 1, max: 1, name: "" },
+    ],
+    controller: 1,
+};
+
+/// Роли слотов кипятильника: вход и пять фракций.
+pub const COLUMN_SLOT_ROLES: [SlotRole; COLUMN_SLOTS] = [
+    SlotRole::Input,
+    SlotRole::Output,
+    SlotRole::Output,
+    SlotRole::Output,
+    SlotRole::Output,
+    SlotRole::Output,
+];
+
+/// Установки мода. Новая установка — строка здесь и машина в `MACHINES`.
+pub const MULTIBLOCKS: [Multiblock; 1] = [Multiblock {
+    controller: COLUMN,
+    title: "Ректификационная колонна",
+    needs: &COLUMN_NEEDS,
+    check: Check::Shape(COLUMN_SHAPE),
+    slots: &COLUMN_SLOT_ROLES,
+}];
+
+/// Установка, чей это контроллер.
+pub fn multiblock(controller: &str) -> Option<&'static Multiblock> {
+    MULTIBLOCKS.iter().find(|m| m.controller == controller)
+}
+
+/// Тип меню контроллеров в строке `MACHINES`: своей ванильной раскладки у
+/// них нет, открывается всегда своё меню мода (`machine_menu`), роли слотов
+/// — из строки `MULTIBLOCKS`.
+pub const MULTIBLOCK_MENU: &str = "biolab:multiblock";
+
+/// Фракция рецепта колонны.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fraction {
+    pub item: String,
+    pub count: u32,
+}
+
+/// Рецепт колонны из JSON: вход, фракции сверху вниз, время. None — битый.
+pub fn column_recipe(json: &Json) -> Option<(String, Vec<Fraction>, i32)> {
+    if json.get("type").and_then(Json::str) != Some(COLUMN) {
+        return None;
+    }
+    let input = json.get("ingredient")?.str()?.to_string();
+    let list = json.get("fractions")?.arr()?;
+    if list.is_empty() || list.len() > COLUMN_TRAYS.1 as usize {
+        return None;
+    }
+    let fractions = list
+        .iter()
+        .map(|f| {
+            let (item, count) = stack_of(f)?;
+            Some(Fraction { item, count })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let time = json.get("time").and_then(Json::num).unwrap_or(DEFAULT_TIME as f64) as i32;
+    Some((input, fractions, time.max(1)))
+}
+
+/// Сколько фракций выходит за раз: по фракции на тарелку.
+pub fn column_yield(fractions: usize, trays: u32) -> usize {
+    fractions.min(trays as usize)
+}
+
+/// Влезут ли фракции, каждая в свой слот: `held` — слоты фракций по
+/// порядку (пусто или что лежит), `piles` — первые `column_yield` фракций.
+pub fn column_fits(held: &[Option<Pile>], piles: &[Pile], max_stack: impl Fn(&str) -> u32) -> bool {
+    piles.iter().enumerate().all(|(k, pile)| match held.get(k) {
+        Some(None) => pile.count <= max_stack(pile.item).max(1),
+        Some(Some(h)) => {
+            h.plain && pile.plain && h.item == pile.item && h.count + pile.count <= max_stack(pile.item)
+        }
+        None => false,
+    })
+}
+
+/// Форма слова после числа: 1 тарелка, 3 тарелки, 5 тарелок.
+pub fn plural<'a>(n: u32, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
+    match (n % 10, n % 100) {
+        (_, 11..=14) => many,
+        (1, _) => one,
+        (2..=4, _) => few,
+        _ => many,
+    }
+}
+
+/// Сводка собранной колонны: высота и сколько фракций за раз.
+pub fn column_status(sections: u32) -> String {
+    format!("{sections} {}, фракций за раз: {sections}", plural(sections, "тарелка", "тарелки", "тарелок"))
+}
+
+#[cfg(test)]
+mod multiblock_tests {
+    use super::*;
+
+    /// Мир для проверки: блоки по точкам, остальное — воздух.
+    fn world(blocks: &[([i32; 3], &str)]) -> impl Fn([i32; 3]) -> String + use<> {
+        let map: std::collections::HashMap<[i32; 3], String> =
+            blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+        move |p| map.get(&p).cloned().unwrap_or_else(|| "minecraft:air".to_string())
+    }
+
+    fn column() -> &'static Multiblock {
+        multiblock(COLUMN).expect("колонна — установка")
+    }
+
+    /// Колонна из `trays` тарелок над (0, 64, 0), лицом на юг.
+    fn tower(trays: i32, heat: &'static str) -> Vec<([i32; 3], &'static str)> {
+        let mut out = vec![([0, 63, 0], heat), ([0, 64, 0], COLUMN)];
+        for k in 1..=trays {
+            out.push(([0, 64 + k, 0], COLUMN_TRAY));
+        }
+        out.push(([0, 65 + trays, 0], COLUMN_CONDENSER));
+        out
+    }
+
+    const SOUTH: Site = Site { origin: [0, 64, 0], facing: Facing::South };
+
+    #[test]
+    fn facing_turns_right_and_back() {
+        // Лицо на юг: игрок стоит южнее и смотрит на север — вглубь
+        // установки север, справа от него восток.
+        assert_eq!(Facing::South.back(), [0, -1]);
+        assert_eq!(Facing::South.right(), [1, 0]);
+        assert_eq!(Facing::North.right(), [-1, 0]);
+        assert_eq!(Facing::East.back(), [-1, 0]);
+        assert_eq!(Facing::East.right(), [0, -1]);
+        assert_eq!(Facing::West.right(), [0, 1]);
+        for f in [Facing::North, Facing::South, Facing::West, Facing::East] {
+            let (r, b) = (f.right(), f.back());
+            assert_eq!(r[0] * b[0] + r[1] * b[1], 0, "вправо поперёк «назад»");
+            assert_eq!(r[0] * b[1] - r[1] * b[0], -1, "правая тройка у всех сторон одна");
+        }
+        assert_eq!(place([10, 64, 10], Facing::South, [1, 2, 3]), [11, 66, 7]);
+        assert_eq!(Facing::from_name("east"), Some(Facing::East));
+        assert_eq!(Facing::from_name("up"), None);
+    }
+
+    #[test]
+    fn a_column_of_any_height_from_three_to_seven_is_formed() {
+        for trays in 1..=5 {
+            let at = world(&tower(trays, "minecraft:campfire"));
+            let Verdict::Formed(a) = check_multiblock(column(), SOUTH, &at) else {
+                panic!("{trays} тарелок — не собрано");
+            };
+            assert_eq!(a.sections, trays as u32);
+            // Тарелки и конденсатор — склеиваемые части; источник тепла тоже
+            // в списке, но склеивать его нечем (не `formed`).
+            assert_eq!(a.parts.len(), trays as usize + 2);
+            assert!(a.ports.is_empty());
+        }
+        for heat in ["minecraft:magma_block", "minecraft:lava", "minecraft:soul_campfire"] {
+            assert!(matches!(check_multiblock(column(), SOUTH, &world(&tower(2, heat))), Verdict::Formed(_)), "{heat}");
+        }
+    }
+
+    #[test]
+    fn what_is_missing_is_said_in_words() {
+        let mb = column();
+        // Без огня.
+        let mut blocks = tower(2, "minecraft:stone");
+        let Verdict::Broken(short) = check_multiblock(mb, SOUTH, &world(&blocks)) else { panic!() };
+        assert_eq!(short.iter().map(|s| shortage_text(mb, s)).collect::<Vec<_>>(), vec!["Нет источника тепла: под кипятильником"]);
+        // Без тарелок: конденсатор прямо на кипятильнике — тарелки нет на
+        // 2-м ярусе, а конденсатор ждут выше.
+        blocks = vec![([0, 63, 0], "minecraft:lava"), ([0, 64, 0], COLUMN), ([0, 65, 0], COLUMN_CONDENSER)];
+        let Verdict::Broken(short) = check_multiblock(mb, SOUTH, &world(&blocks)) else { panic!() };
+        let texts: Vec<String> = short.iter().map(|s| shortage_text(mb, s)).collect();
+        assert_eq!(texts, vec!["Нет тарелки: 2-й ярус", "Нет конденсатора: 3-й ярус"]);
+        // Три тарелки без конденсатора.
+        blocks = tower(3, "minecraft:lava");
+        blocks.pop();
+        let Verdict::Broken(short) = check_multiblock(mb, SOUTH, &world(&blocks)) else { panic!() };
+        assert_eq!(shortage_text(mb, &short[0]), "Нет конденсатора: 5-й ярус");
+        // Шесть тарелок — конденсатор ждут на седьмом ярусе, там тарелка.
+        let blocks = tower(6, "minecraft:lava");
+        let Verdict::Broken(short) = check_multiblock(mb, SOUTH, &world(&blocks)) else { panic!() };
+        assert_eq!(shortage_text(mb, &short[0]), "Нет конденсатора: 7-й ярус");
+    }
+
+    #[test]
+    fn ports_beside_the_boiler_are_found_whatever_the_facing() {
+        let mut blocks = tower(1, "minecraft:campfire");
+        // Лицо на юг: слева (запад), справа (восток), сзади (север).
+        blocks.push(([-1, 64, 0], INPUT_PORT));
+        blocks.push(([0, 64, -1], OUTPUT_PORT));
+        // Спереди порт не считается.
+        blocks.push(([0, 64, 1], OUTPUT_PORT));
+        let Verdict::Formed(a) = check_multiblock(column(), SOUTH, &world(&blocks)) else { panic!() };
+        assert_eq!(a.inputs().collect::<Vec<_>>(), vec![[-1, 64, 0]]);
+        assert_eq!(a.outputs().collect::<Vec<_>>(), vec![[0, 64, -1]]);
+        assert!(!a.parts.iter().any(|p| port_by_pos(&a, *p)), "порты не склеиваются");
+        // Повернули кипятильник лицом на север: задний порт оказался спереди.
+        let north = Site { facing: Facing::North, ..SOUTH };
+        let Verdict::Formed(a) = check_multiblock(column(), north, &world(&blocks)) else { panic!() };
+        assert_eq!(a.outputs().collect::<Vec<_>>(), vec![[0, 64, 1]]);
+    }
+
+    fn port_by_pos(a: &Assembly, p: [i32; 3]) -> bool {
+        a.ports.iter().any(|(q, _)| *q == p)
+    }
+
+    /// Куб 3×3×3 с контроллером в середине передней стенки — так будет
+    /// стоять биореактор. Проверяет каркас на большой схеме: стороны, ярусы
+    /// и подсчёт нехватки.
+    const BOX_NEEDS: [Need; 2] = [
+        Need { parts: &[Part::Block(CASING), Part::Block(CASING_GLASS), Part::Port], one: "блока корпуса", many: "блоков корпуса" },
+        Need { parts: &[Part::Air], one: "пустоты", many: "пустот" },
+    ];
+    const WALL: [Cell; 9] = [
+        cell(-1, 0, 0), cell(0, 0, 0), cell(1, 0, 0),
+        cell(-1, 1, 0), cell(0, 1, 0), cell(1, 1, 0),
+        cell(-1, 2, 0), cell(0, 2, 0), cell(1, 2, 0),
+    ];
+    const MIDDLE: [Cell; 8] = [
+        cell(-1, 0, 0), cell(1, 0, 0),
+        cell(-1, 1, 0), cell(0, 1, 1), cell(1, 1, 0),
+        cell(-1, 2, 0), cell(0, 2, 0), cell(1, 2, 0),
+    ];
+    const BOX: Multiblock = Multiblock {
+        controller: "biolab:test_box",
+        title: "Куб",
+        needs: &BOX_NEEDS,
+        check: Check::Shape(Shape {
+            layers: &[
+                Layer { cells: &WALL, min: 1, max: 1, name: "" },
+                Layer { cells: &MIDDLE, min: 1, max: 1, name: "" },
+                Layer { cells: &WALL, min: 1, max: 1, name: "" },
+            ],
+            controller: 1,
+        }),
+        slots: &[SlotRole::Input, SlotRole::Output],
+    };
+
+    fn cube(site: Site) -> Vec<([i32; 3], &'static str)> {
+        let mut out = Vec::new();
+        for y in -1..=1 {
+            for r in -1..=1 {
+                for b in 0..=2 {
+                    let at = [r, y, b];
+                    let block = match at {
+                        [0, 0, 0] => "biolab:test_box",
+                        [0, 0, 1] => "minecraft:air",
+                        [-1, 0, 1] => INPUT_PORT,
+                        [_, 0, _] if r == 1 => CASING_GLASS,
+                        _ => CASING,
+                    };
+                    out.push((place(site.origin, site.facing, at), block));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_cube_reports_walls_by_tier_and_side() {
+        let site = Site { origin: [100, 70, -20], facing: Facing::East };
+        let Verdict::Formed(a) = check_multiblock(&BOX, site, &world(&cube(site))) else { panic!("куб не собран") };
+        assert_eq!(a.sections, 0, "повторов нет");
+        assert_eq!(a.ports.len(), 1);
+        assert_eq!(a.parts.len(), 27 - 3, "без контроллера, порта и пустоты");
+        // Сломали левую стенку второго яруса (три блока) и один угол сверху.
+        let mut blocks = cube(site);
+        for b in 0..=2 {
+            let p = place(site.origin, site.facing, [-1, 0, b]);
+            blocks.retain(|(q, _)| *q != p);
+        }
+        let corner = place(site.origin, site.facing, [1, 1, 2]);
+        blocks.retain(|(q, _)| *q != corner);
+        let Verdict::Broken(short) = check_multiblock(&BOX, site, &world(&blocks)) else { panic!() };
+        let texts: Vec<String> = short.iter().map(|s| shortage_text(&BOX, s)).collect();
+        assert_eq!(texts, vec!["Нет 3 блоков корпуса: 2-й ярус, слева", "Нет блока корпуса: 3-й ярус, справа"]);
+        // Внутри не пусто.
+        let mut blocks = cube(site);
+        let inside = place(site.origin, site.facing, [0, 0, 1]);
+        blocks.retain(|(q, _)| *q != inside);
+        blocks.push((inside, "minecraft:dirt"));
+        let Verdict::Broken(short) = check_multiblock(&BOX, site, &world(&blocks)) else { panic!() };
+        assert_eq!(shortage_text(&BOX, &short[0]), "Нет пустоты: 2-й ярус, в середине");
+    }
+
+    /// Своя проверка — так встанет карантинная камера (заливкой).
+    fn always_short(mb: &Multiblock, _: Site, _: BlockAt) -> Verdict {
+        let _ = mb;
+        Verdict::Broken(vec![Shortage { need: 0, count: 2, tier: Tier::None, side: Side::None }])
+    }
+
+    #[test]
+    fn a_custom_check_plugs_in() {
+        const NEEDS: [Need; 1] = [Need { parts: &[], one: "двери шлюза", many: "дверей шлюза" }];
+        let room = Multiblock { controller: "biolab:test_room", title: "Комната", needs: &NEEDS, check: Check::Custom(always_short), slots: &[] };
+        let Verdict::Broken(short) = check_multiblock(&room, SOUTH, &world(&[])) else { panic!() };
+        assert_eq!(shortage_text(&room, &short[0]), "Нет 2 дверей шлюза");
+    }
+
+    #[test]
+    fn counts_take_the_right_word() {
+        let forms: Vec<&str> = [1, 2, 5, 11, 21, 22].iter().map(|n| count_form(*n, "блока", "блоков")).collect();
+        assert_eq!(forms, vec!["блока", "блоков", "блоков", "блоков", "блока", "блоков"]);
+        assert_eq!(column_status(1), "1 тарелка, фракций за раз: 1");
+        assert_eq!(column_status(3), "3 тарелки, фракций за раз: 3");
+        assert_eq!(column_status(5), "5 тарелок, фракций за раз: 5");
+    }
+
+    #[test]
+    fn the_screen_gets_the_verdict_through_numbers() {
+        let mb = column();
+        let at = world(&[([0, 64, 0], COLUMN)]);
+        let verdict = check_multiblock(mb, SOUTH, &at);
+        let Verdict::Broken(short) = &verdict else { panic!() };
+        assert_eq!(short.len(), 3, "нет огня, тарелки и конденсатора");
+        let mut data = vec![0; DATA_MB_END];
+        write_verdict(&mut data, &verdict);
+        let MultiblockShown::Broken { rows, total } = multiblock_shown(&data) else { panic!() };
+        assert_eq!((rows.as_slice(), total), (short.as_slice(), 3));
+        assert_eq!(
+            shortage_lines(mb, &rows, total),
+            vec!["Нет источника тепла: под кипятильником", "Нет тарелки: 2-й ярус", "Нет конденсатора: 3-й ярус"]
+        );
+        // Строк больше, чем влезает в числа, — «и ещё».
+        let many: Vec<Shortage> = (1..=6).map(|n| Shortage { need: 1, count: 1, tier: Tier::Number(n), side: Side::None }).collect();
+        write_verdict(&mut data, &Verdict::Broken(many));
+        let MultiblockShown::Broken { rows, total } = multiblock_shown(&data) else { panic!() };
+        assert_eq!(rows.len(), MB_ROWS);
+        assert_eq!(shortage_lines(mb, &rows, total).last().unwrap(), "…и ещё 2");
+        // Собрано.
+        let verdict = check_multiblock(mb, SOUTH, &world(&tower(4, "minecraft:lava")));
+        write_verdict(&mut data, &verdict);
+        assert_eq!(multiblock_shown(&data), MultiblockShown::Formed { sections: 4, inputs: 0, outputs: 0 });
+        assert_eq!(multiblock_shown(&[]), MultiblockShown::Unknown, "до первого пакета");
+        // Строка числами туда и обратно, ярус с именем — отрицательным.
+        for s in [
+            Shortage { need: 3, count: 40, tier: Tier::Named(0), side: Side::Back },
+            Shortage { need: 0, count: 1, tier: Tier::None, side: Side::Middle },
+        ] {
+            assert_eq!(decode_shortage(&encode_shortage(&s)), Some(s));
+        }
+        assert_eq!(decode_shortage(&[0, 0, 0, 0]), None, "пустая строка");
+        assert_eq!(decode_shortage(&[0, 1, 0, 99]), None, "битая сторона");
+    }
+
+    #[test]
+    fn checks_spread_over_the_second() {
+        let pos = [5, 64, -3];
+        let due: Vec<i64> = (0..40).filter(|t| check_due(*t, pos, MB_FORMED)).collect();
+        assert_eq!(due.len(), 2, "раз в секунду");
+        assert_eq!(due[1] - due[0], MB_CHECK_EVERY);
+        assert!(check_due(7, pos, MB_UNKNOWN), "не проверяли — сразу");
+        let other = (0..20).find(|t| check_due(*t, [6, 64, -3], MB_FORMED));
+        assert_ne!(other, Some(due[0]), "соседние установки — в разные тики");
+    }
+
+    #[test]
+    fn the_save_keeps_positions_and_ports() {
+        let parts = vec![[1, 2, 3], [-4, 70, 9]];
+        assert_eq!(positions_from_ints(&positions_to_ints(&parts)), parts);
+        let ports = vec![([0, 64, 1], PortKind::Input), ([1, 64, 0], PortKind::Output)];
+        assert_eq!(ports_from_ints(&ports_to_ints(&ports)), ports);
+        assert!(positions_from_ints(&[1, 2]).is_empty(), "обрывок не позиция");
+        let (glue, unglue) = glue_changes(&[[0, 1, 0], [0, 2, 0]], &[[0, 1, 0]]);
+        assert_eq!((glue, unglue), (vec![[0, 1, 0]], vec![[0, 2, 0]]));
+        let (glue, unglue) = glue_changes(&[[0, 1, 0]], &[]);
+        assert!(glue.is_empty() && unglue == vec![[0, 1, 0]], "разобрали — расклеить всё");
+    }
+
+    #[test]
+    fn ports_fill_like_a_hopper() {
+        assert_eq!(stack_room(None, 64), 64);
+        assert_eq!(stack_room(Some((true, 60)), 64), 4);
+        assert_eq!(stack_room(Some((false, 1)), 64), 0);
+        assert_eq!(stack_room(None, 0), 1, "стопка не меньше 1");
+        let held = [Some((false, 3)), Some((true, 62)), None, Some((true, 64)), None];
+        assert_eq!(port_plan(&held, 10, 64), vec![(1, 2), (2, 8)]);
+        assert_eq!(port_plan(&held, 1, 64), vec![(1, 1)]);
+        assert_eq!(port_plan(&held, 200, 64), vec![(1, 2), (2, 64), (4, 64)]);
+        assert_eq!(port_plan(&[Some((false, 1)); 5], 3, 64), vec![]);
+        // Колба (стопка 1): по одной в пустые слоты.
+        assert_eq!(port_plan(&[None, None, Some((true, 1))], 2, 1), vec![(0, 1), (1, 1)]);
+    }
+
+    #[test]
+    fn ports_open_to_hoppers_one_way() {
+        let (faces, inputs, outputs) = port_faces(port(INPUT_PORT).unwrap());
+        assert_eq!(inputs.len(), PORT_SLOTS);
+        assert!(outputs.is_empty(), "из входного порта воронка не тянет");
+        assert!(faces.iter().all(|f| f.len() == PORT_SLOTS));
+        let (_, inputs, outputs) = port_faces(port(OUTPUT_PORT).unwrap());
+        assert!(inputs.is_empty(), "в выходной порт воронка не кладёт");
+        assert_eq!(outputs.len(), PORT_SLOTS);
+        assert!(has_block_entity(INPUT_PORT) && has_block_entity(COLUMN) && !has_block_entity(CASING));
+    }
+
+    #[test]
+    fn the_column_shares_its_fractions_by_trays() {
+        let json = Json::parse(
+            r#"{"type":"biolab:column","ingredient":"minecraft:rotten_flesh","fractions":[{"id":"biolab:element_nitrogen","count":2},"biolab:element_carbon",{"id":"biolab:element_phosphorus","count":1}],"time":160}"#,
+        )
+        .unwrap();
+        let (input, fractions, time) = column_recipe(&json).expect("рецепт");
+        assert_eq!((input.as_str(), time), ("minecraft:rotten_flesh", 160));
+        assert_eq!(fractions[0], Fraction { item: "biolab:element_nitrogen".into(), count: 2 });
+        assert_eq!(fractions[1].count, 1, "строка — одна штука");
+        assert_eq!(column_yield(fractions.len(), 1), 1, "одна тарелка — одна фракция");
+        assert_eq!(column_yield(fractions.len(), 5), 3, "фракций не больше, чем в рецепте");
+        let piles: Vec<Pile> = fractions.iter().map(|f| Pile { item: &f.item, count: f.count, plain: true }).collect();
+        let max = |_: &str| 64;
+        assert!(column_fits(&[None, None, None], &piles, max));
+        let carbon = Pile { item: "biolab:element_carbon", count: 64, plain: true };
+        assert!(!column_fits(&[None, Some(carbon), None], &piles, max), "углерод не влезет");
+        assert!(column_fits(&[None, Some(carbon), None], &piles[..1], max), "одна тарелка — второй слот не нужен");
+        let alien = Pile { item: "minecraft:dirt", count: 1, plain: true };
+        assert!(!column_fits(&[Some(alien)], &piles[..1], max), "чужое в слоте фракции");
+        assert!(column_recipe(&Json::parse(r#"{"type":"biolab:still","ingredient":"a","result":"b"}"#).unwrap()).is_none());
+        let six = r#"{"type":"biolab:column","ingredient":"a","fractions":["b","c","d","e","f","g"]}"#;
+        assert!(column_recipe(&Json::parse(six).unwrap()).is_none(), "тарелок только пять");
+    }
+
+    /// Рецепты колонны в `content/`: не меньше четырёх, все разбираются,
+    /// фракции — существующие предметы.
+    #[test]
+    fn column_recipes_are_in_content() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let mut found = 0;
+        for entry in std::fs::read_dir(root.join("data/biolab/recipe")).unwrap() {
+            let path = entry.unwrap().path();
+            let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            if json.get("type").and_then(Json::str) != Some(COLUMN) {
+                continue;
+            }
+            let (input, fractions, _) = column_recipe(&json).unwrap_or_else(|| panic!("{}: битый рецепт колонны", path.display()));
+            assert!(machine_ingredients(COLUMN).contains(&input.as_str()), "{input}: нет во входах колонны");
+            for f in &fractions {
+                if let Some(name) = f.item.strip_prefix("biolab:") {
+                    assert!(root.join(format!("assets/biolab/items/{name}.json")).exists(), "{}", f.item);
+                }
+            }
+            found += 1;
+        }
+        assert!(found >= 4, "рецептов колонны {found}, а в GDD — не меньше четырёх");
+    }
+
+    /// Блоки каркаса и колонны в `content/`: со свойством `formed` —
+    /// ровно `FORMABLE`, у портов и кипятильника шаблон, открывающий меню.
+    #[test]
+    fn multiblock_blocks_are_declared() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/horizon/block");
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER] {
+            let name = id.trim_start_matches("biolab:");
+            let text = std::fs::read_to_string(root.join(format!("{name}.json"))).unwrap_or_else(|_| panic!("нет блока {id}"));
+            let json = Json::parse(&text).unwrap();
+            let formed = json.get("state_properties").and_then(|p| p.get(FORMED));
+            assert_eq!(formed.is_some(), is_formable(id), "{id}: свойство formed");
+            if let Some(f) = formed {
+                assert_eq!(f.get("type").and_then(Json::str), Some("boolean"), "{id}");
+            }
+            if port(id).is_some() || id == COLUMN {
+                assert_eq!(json.get("template").and_then(Json::str), Some("minecraft:furnace"), "{id}: меню открывает шаблон");
+            }
+        }
+        // Каждый контроллер установки — машина, и его меню — своё.
+        for mb in &MULTIBLOCKS {
+            let machine = machine(mb.controller).unwrap_or_else(|| panic!("{} не машина", mb.controller));
+            assert_eq!(machine.menu, MULTIBLOCK_MENU);
+            assert_eq!(machine.slots, mb.slots.len(), "{}: роли слотов", mb.controller);
+            assert!(machine_data_slots(mb.controller) >= DATA_MB_END);
+            if let Check::Shape(shape) = &mb.check {
+                assert!(shape.controller < shape.layers.len());
+                for (i, layer) in shape.layers.iter().enumerate() {
+                    assert!(layer.min <= layer.max && layer.max >= 1, "{}: ярус {i}", mb.controller);
+                    if i <= shape.controller {
+                        assert_eq!((layer.min, layer.max), (1, 1), "{}: ниже контроллера ярусы не повторяются", mb.controller);
+                    }
+                    for c in layer.cells {
+                        assert!(c.need < mb.needs.len(), "{}: ярус {i}", mb.controller);
+                        if i == shape.controller {
+                            assert_ne!(c.at, [0, 0], "{}: клетка на месте контроллера", mb.controller);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ---- Экраны машин ----
 //
 // У каждой машины свой экран поверх её ванильного меню (GDD 4.16): раскладка
@@ -12478,7 +13774,7 @@ pub const SCREEN_HEADER: f32 = 16.0;
 
 /// Название машины на экране, если сервер не прислал своё, и что она делает —
 /// для подсказки над шкалой.
-pub const SCREEN_NAMES: [(&str, &str, &str); 11] = [
+pub const SCREEN_NAMES: [(&str, &str, &str); 14] = [
     ("biolab:still", "Перегонный куб", "Перегонка"),
     ("biolab:incubator", "Инкубатор", "Рост культуры"),
     ("biolab:fermenter", "Ферментер", "Брожение"),
@@ -12490,6 +13786,10 @@ pub const SCREEN_NAMES: [(&str, &str, &str); 11] = [
     ("biolab:cloning_vat", "Клонирующий чан", "Рост клона"),
     ("biolab:spectrometer", "Спектрометр", "Анализ"),
     ("biolab:lab_bench", "Лабораторный стол", "Сборка"),
+    (COLUMN, "Ректификационная колонна", "Перегонка"),
+    // Порты установок (GDD 4.18): не машины, но экран у них свой.
+    (INPUT_PORT, "Входной порт", "Подача"),
+    (OUTPUT_PORT, "Выходной порт", "Выдача"),
 ];
 
 /// Название машины для заголовка.
@@ -12533,6 +13833,18 @@ fn furnace_screen(
 /// раскладка наша у всех, но места те же — чтобы откат на ванильные меню
 /// ничего не сдвинул.
 pub fn machine_screen(id: &str) -> Option<MachineScreen> {
+    // Порт установки: пять слотов в ряд, как у воронки; слева — стрелка
+    // подачи, справа — табличка «вход»/«выход».
+    if port(id).is_some() {
+        return Some(MachineScreen {
+            width: SCREEN_WIDTH,
+            height: HOPPER_HEIGHT,
+            slots: (0..PORT_SLOTS).map(|i| Some([44.0 + i as f32 * 18.0, 20.0])).collect(),
+            inventory: [8.0, HOPPER_INVENTORY_Y],
+            gauge: [14.0, 18.0, 20.0, 20.0],
+            progress: [138.0, 18.0, 30.0, 20.0],
+        });
+    }
     let machine = machine(id)?;
     let screen = match machine.id {
         "biolab:still" => furnace_screen(
@@ -12623,18 +13935,81 @@ pub fn machine_screen(id: &str) -> Option<MachineScreen> {
             gauge: [14.0, 18.0, 20.0, 20.0],
             progress: [138.0, 24.0, 30.0, 10.0],
         },
+        // Ректификационная колонна: слева башня (шкала — пар поднимается по
+        // тарелкам), у её подножия вход, сверху в ряд пять фракций — слева
+        // направо с верхней тарелки вниз, под ними табло сборки.
+        COLUMN => MachineScreen {
+            width: SCREEN_WIDTH,
+            height: SCREEN_HEIGHT,
+            slots: std::iter::once(Some([32.0, 54.0]))
+                .chain((0..COLUMN_TRAYS.1).map(|k| Some([54.0 + k as f32 * 18.0, 18.0])))
+                .collect(),
+            inventory: [8.0, SCREEN_INVENTORY_Y],
+            gauge: [52.0, 38.0, 118.0, 34.0],
+            progress: [6.0, 17.0, 22.0, 55.0],
+        },
         _ => return None,
     };
     Some(screen)
 }
 
-/// Выход ли этот слот: у центрифуги выходы 1–4, у остальных — последний слот.
-/// Выходы на экране в бирюзовой рамке.
+/// Выход ли этот слот — по роли слота (у центрифуги выходы 1–4, у машин на
+/// меню печки и сетке — последний слот, у колонны — фракции), у выходного
+/// порта — все. Выходы на экране в бирюзовой рамке.
 pub fn is_output_slot(id: &str, slot: usize) -> bool {
+    if let Some(p) = port(id) {
+        return p.kind == PortKind::Output && slot < PORT_SLOTS;
+    }
     match machine(id) {
-        Some(m) if m.id == "biolab:centrifuge" => slot >= 1 && slot < m.slots,
-        Some(m) => slot + 1 == m.slots,
+        Some(m) => slot_role(m, slot) == SlotRole::Output,
         None => false,
+    }
+}
+
+/// Строка о портах установки.
+pub fn ports_line(inputs: u32, outputs: u32) -> String {
+    if inputs == 0 && outputs == 0 {
+        return "Портов нет: сырьё и выход — в самом контроллере".to_string();
+    }
+    format!("Порты: входов {inputs}, выходов {outputs}")
+}
+
+/// Подсказка над табло установки: собрана ли, а если нет — вся нехватка.
+pub fn multiblock_tooltip(id: &str, data: &[i32]) -> Vec<String> {
+    let Some(mb) = multiblock(id) else {
+        return Vec::new();
+    };
+    match multiblock_shown(data) {
+        MultiblockShown::Unknown => vec![format!("{}: проверяю схему…", mb.title)],
+        MultiblockShown::Formed { sections, inputs, outputs } => {
+            let mut lines = vec![format!("{}: собрана", mb.title)];
+            if id == COLUMN {
+                lines.push(column_status(sections));
+            }
+            lines.push(ports_line(inputs, outputs));
+            lines
+        }
+        MultiblockShown::Broken { rows, total } => {
+            let mut lines = vec![format!("{}: не собрана", mb.title)];
+            lines.extend(shortage_lines(mb, &rows, total).into_iter().map(|l| format!("§c{l}")));
+            lines.push("§7Схема — в журнале лаборанта".to_string());
+            lines
+        }
+    }
+}
+
+/// Подсказка над прибором порта.
+pub fn port_tooltip(id: &str) -> Vec<String> {
+    match port(id).map(|p| p.kind) {
+        Some(PortKind::Input) => vec![
+            "Входной порт".to_string(),
+            "§7Контроллер установки рядом забирает отсюда сырьё".to_string(),
+        ],
+        Some(PortKind::Output) => vec![
+            "Выходной порт".to_string(),
+            "§7Сюда контроллер кладёт готовое; воронки забирают".to_string(),
+        ],
+        None => Vec::new(),
     }
 }
 
@@ -13080,8 +14455,17 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
     let Some(screen) = machine_screen(id) else {
         return Vec::new();
     };
+    if port(id).is_some() {
+        let over = inside(screen.gauge, at) || inside(screen.progress, at);
+        return if over { port_tooltip(id) } else { Vec::new() };
+    }
     if inside(screen.progress, at) {
         let mut lines = Vec::new();
+        if let MultiblockShown::Formed { sections, .. } = multiblock_shown(data)
+            && id == COLUMN
+        {
+            lines.push(column_status(sections));
+        }
         if id == SYNTHESIZER {
             let status = screen_datum(data, DATA_SYNTH_STATUS, SYNTH_EMPTY);
             lines.push(synth_status_text(status).to_string());
@@ -13098,6 +14482,7 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
     let working = screen_working(data);
     let percent = (screen_progress(data) * 100.0) as i32;
     match id {
+        id if multiblock(id).is_some() => multiblock_tooltip(id, data),
         REACTOR => reactor_tooltip(data),
         SYNTHESIZER => synth_tooltip(data),
         LAB_BENCH => bench_tooltip(data),
@@ -13496,7 +14881,7 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 22, "блоков стало больше — решите, выпадают ли новые");
+        assert_eq!(blocks.len(), 29, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,
@@ -13541,6 +14926,10 @@ mod drop_tests {
         for id in [OPERATING_TABLE, PEN, CONSOLE, GM_PLOT] {
             assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
         }
+        // Части многоблочных установок (GDD 4.18) — тоже.
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN_TRAY, COLUMN_CONDENSER] {
+            assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
+        }
         for fluid in &FLUIDS {
             assert!(!dropping.contains(&fluid.block.trim_start_matches("biolab:")), "{}", fluid.block);
         }
@@ -13575,5 +14964,9 @@ mod drop_tests {
         // (быстрее), хотя ломаются и рукой.
         assert!(pickaxe.contains(&LAB_BENCH.to_string()));
         assert!(pickaxe.contains(&OPERATING_TABLE.to_string()));
+        // Части установок — металл и стекло в раме: киркой.
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER] {
+            assert!(pickaxe.contains(&id.to_string()), "{id}");
+        }
     }
 }

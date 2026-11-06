@@ -1,0 +1,3 @@
+{ "variants": {
+  "formed=false": {"model": "biolab:block/column_condenser"},
+  "formed=true": {"model": "biolab:block/column_condenser_formed"} } }

@@ -1,0 +1,23 @@
+{
+ "type": "biolab:column",
+ "ingredient": "minecraft:rotten_flesh",
+ "fractions": [
+  {
+   "id": "biolab:element_nitrogen",
+   "count": 2
+  },
+  {
+   "id": "biolab:element_carbon",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_phosphorus",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_sulfur",
+   "count": 1
+  }
+ ],
+ "time": 160
+}

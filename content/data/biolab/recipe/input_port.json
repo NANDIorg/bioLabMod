@@ -1,0 +1,12 @@
+{
+ "type": "minecraft:crafting_shapeless",
+ "category": "misc",
+ "ingredients": [
+  "biolab:casing",
+  "minecraft:hopper"
+ ],
+ "result": {
+  "id": "biolab:input_port",
+  "count": 1
+ }
+}

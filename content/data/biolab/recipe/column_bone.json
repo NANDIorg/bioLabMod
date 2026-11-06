@@ -1,0 +1,15 @@
+{
+ "type": "biolab:column",
+ "ingredient": "minecraft:bone",
+ "fractions": [
+  {
+   "id": "biolab:element_calcium",
+   "count": 2
+  },
+  {
+   "id": "biolab:element_phosphorus",
+   "count": 2
+  }
+ ],
+ "time": 160
+}

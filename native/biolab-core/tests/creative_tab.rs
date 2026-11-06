@@ -72,6 +72,9 @@ fn group(item: &str) -> usize {
         "lab_bench" | "lab_manual" => 0,
         "still" | "incubator" | "fermenter" | "centrifuge" | "synthesizer" | "reactor" | "press"
         | "extractor" | "cloning_vat" | "spectrometer" | "pen" | "console" | "operating_table" => 1,
+        // Многоблочные установки (GDD 4.18): общие части и колонна — к машинам.
+        "casing" | "casing_glass" | "input_port" | "output_port" | "column" | "column_tray"
+        | "column_condenser" => 1,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
         // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.

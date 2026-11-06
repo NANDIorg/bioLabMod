@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/cube_column",
+  "textures": {"side": "biolab:block/column_tray_side", "end": "biolab:block/column_tray_end", "particle": "biolab:block/column_tray_side"}
+}

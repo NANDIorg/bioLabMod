@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  " g ",
+  "gcg",
+  " g "
+ ],
+ "key": {
+  "g": "minecraft:glass",
+  "c": "biolab:casing"
+ },
+ "result": {
+  "id": "biolab:casing_glass",
+  "count": 4
+ }
+}

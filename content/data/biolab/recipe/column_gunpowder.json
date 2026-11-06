@@ -1,0 +1,27 @@
+{
+ "type": "biolab:column",
+ "ingredient": "minecraft:gunpowder",
+ "fractions": [
+  {
+   "id": "biolab:element_nitrogen",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_oxygen",
+   "count": 2
+  },
+  {
+   "id": "biolab:element_carbon",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_potassium",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_sulfur",
+   "count": 2
+  }
+ ],
+ "time": 160
+}

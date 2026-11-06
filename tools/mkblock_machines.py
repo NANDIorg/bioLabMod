@@ -14,7 +14,10 @@
   текстурой — её пиксели рисуются полной яркостью. Светятся ядра горящих ламп,
   волна на экране и индикаторы (кисть `glow`). Индикатор работы горит только у
   горящей машины: её модель берёт копию `<машина>_<текстура>_on.png`;
-- optifine/ctm/lab_bench_top/ — сшивка столешниц лабораторных столов в ряд.
+- optifine/ctm/lab_bench_top/ — сшивка столешниц лабораторных столов в ряд;
+- части многоблочных установок (GDD 4.18, `write_multiblock`): корпус, стекло,
+  порты, колонна; у склеиваемых — модель `<блок>_formed` для `formed=true`,
+  и ещё items/<блок>.json.
 
 Правила геометрии (блоки по шаблону печки — для игры сплошной куб, соседи не
 рисуют прилегающие грани, поэтому дыры в модели показали бы пустоту):
@@ -1452,5 +1455,289 @@ def write_operating_table():
           f"(частей секции {len(TABLE_PARTS)})")
 
 
+# ---------------------------------------------------------------- установки (GDD 4.18)
+#
+# Многоблочные установки: общие части (корпус, стекло, порты) и колонна.
+# Блоки — сплошные кубы на ванильных родителях (`cube_all`, `cube_column`,
+# `cube_bottom_top`, `orientable`): установка — это стена из блоков, детали
+# снаружи куба выпирали бы из стены. Вид задают текстуры.
+#
+# «Склеенный» вид (`formed=true`, его ставит контроллер собранной установки):
+# у корпуса и стекла пропадает рамка по краю — соседние блоки сливаются в одну
+# стену; у тарелки и конденсатора пропадают фланцы на стыках — башня идёт
+# одной трубой, а у тарелки появляется отвод фракции. Склеенная текстура не
+# должна рисовать ничего у края, иначе шов останется (`seamless` ниже).
+#
+# Контроллер колонны рисует только себя: модель может выйти за блок на один
+# блок в каждую сторону (`elements` от −16 до 32), а башня до 7 блоков —
+# общий вид колонны всё равно собирают её секции. Рисунок контроллера на всю
+# грань установки — дело кубических установок (биореактор, секвенатор).
+
+CASING = (70, 80, 88)  # корпус: темнее машин, чтобы машины на его фоне читались
+
+
+def casing_tex(seed, formed):
+    """Плита корпуса. Несклеенная — фаска, тёмный шов по краю и заклёпки;
+    склеенная — тот же металл без края (тянется через соседей) и бирюзовая
+    жила посередине: установка под током."""
+    img = canvas(CASING)
+    grain(img, 4, seed)
+    if formed:
+        for y in (7, 8):
+            for x in range(16):
+                put(img, x, y, shade(CASING, -14))
+        for x in range(1, 16, 4):
+            put(img, x, 7, TEAL_DIM)
+        return img
+    bevel(img, 0, 0, 16, 16)
+    outline(img, 0, 0, 16, 16, EDGE)
+    for x, y in ((2, 2), (12, 2), (2, 12), (12, 12)):
+        rivet(img, x, y)
+    rect(img, 5, 7, 11, 9, shade(CASING, -14))
+    put(img, 5, 7, TEAL_DIM)
+    return img
+
+
+def glass_tex(formed):
+    """Стекло установки (шаблон стекла — вырезанные пиксели, полупрозрачности
+    нет): несклеенное — стальная рамка и блики, склеенное — одни блики, рамки
+    нет, стекло тянется сплошь."""
+    img = canvas((0, 0, 0), 0)
+    for y in range(16):
+        for x in range(16):
+            if x + y in (6, 7, 19):
+                put(img, x, y, (226, 246, 250), 200)
+    if not formed:
+        outline(img, 0, 0, 16, 16, STEEL_DARK)
+        outline(img, 1, 1, 15, 15, STEEL)
+        for x, y in ((1, 1), (14, 1), (1, 14), (14, 14)):
+            put(img, x, y, STEEL_LIGHT)
+    return img
+
+
+def port_front(kind):
+    """Лицо порта: люк с горловиной и стрелкой — бирюзовая внутрь (вход),
+    янтарная наружу (выход)."""
+    img = casing_tex(stable("port_" + kind) & 0xFFF, False)
+    c = TEAL if kind == "input" else HAZARD
+    rect(img, 3, 3, 13, 13, STEEL_DARK)
+    outline(img, 3, 3, 13, 13, EDGE)
+    rect(img, 5, 5, 11, 11, (24, 30, 34))
+    bevel(img, 3, 3, 13, 13, 20, -30)
+    # Стрелка: вход — остриём вниз, в горловину; выход — остриём вверх.
+    rows = [(7, 9), (7, 9), (6, 10), (7, 9)] if kind == "input" else [(7, 9), (6, 10), (7, 9), (7, 9)]
+    for i, (a, b) in enumerate(rows):
+        for x in range(a, b):
+            put(img, x, 6 + i, c)
+    for x in range(4, 12, 2):  # полоса-маркировка под люком
+        put(img, x, 14, c)
+        put(img, x + 1, 14, EDGE)
+    return img
+
+
+def column_textures():
+    """Кипятильник, тарелка и конденсатор колонны."""
+    # Кипятильник: топка с окном внизу лица, манометр, медный котёл по бокам.
+    front = plate(STEEL, stable("column_front") & 0xFFF)
+    dial(front, 10, 2)
+    rect(front, 2, 2, 7, 5, COPPER)
+    outline(front, 2, 2, 7, 5, COPPER_DARK)
+    rect(front, 3, 8, 13, 14, EDGE)
+    outline(front, 2, 7, 14, 15, STEEL_DARK)
+    lit = [row[:] for row in front]
+    for x in range(4, 12, 2):  # колосники
+        put(front, x, 12, (60, 40, 30))
+        put(front, x + 1, 13, (90, 50, 30))
+    rng = random.Random(stable("column_fire"))
+    for y in range(9, 14):
+        for x in range(3, 13):
+            heat = (y - 8) / 5
+            c = mix((255, 120, 30), (255, 230, 140), rng.random() * (1 - heat))
+            put(lit, x, y, c if rng.random() < 0.35 + 0.6 * heat else (200, 70, 20))
+    write_png("column_front", front)
+    write_png("column_front_on", lit)
+    write_e("column_front_on", lit, bright_pixels(lit, 200))
+    side = canvas(COPPER)
+    grain(side, 5, stable("column_side") & 0xFFF)
+    bevel(side, 0, 0, 16, 16)
+    for y in (3, 12):  # обручи котла
+        rect(side, 0, y, 16, y + 1, STEEL_DARK)
+        rect(side, 0, y + 1, 16, y + 2, STEEL)
+    for x in (2, 6, 10, 14):
+        put(side, x, 3, STEEL_LIGHT)
+    write_png("column_side", side)
+    top = plate(STEEL_DARK, stable("column_top") & 0xFFF, amp=3)
+    rect(top, 4, 4, 12, 12, COPPER_DARK)
+    rect(top, 5, 5, 11, 11, (34, 26, 22))
+    outline(top, 4, 4, 12, 12, EDGE)
+    write_png("column_top", top)
+
+    # Тарелка: стальная обечайка, смотровое окно с уровнем флегмы. Без
+    # склейки — фланцы сверху и снизу (секция сама по себе); склеенная —
+    # гладкая труба и медный отвод фракции справа.
+    def tray(formed):
+        img = canvas(STEEL)
+        grain(img, 4, stable("column_tray") & 0xFFF)
+        for x in (4, 11):  # продольные блики обечайки — через стык
+            for y in range(16):
+                put(img, x, y, shade(img[y][x], 18))
+        rect(img, 5, 5, 11, 11, EDGE)
+        rect(img, 6, 6, 10, 10, (200, 236, 240))
+        rect(img, 6, 8, 10, 10, (190, 150, 70))
+        put(img, 6, 6, (255, 255, 255))
+        if formed:
+            rect(img, 12, 7, 16, 9, COPPER)
+            rect(img, 12, 9, 16, 10, COPPER_DARK)
+            put(img, 12, 7, COPPER_LIGHT)
+        else:
+            for y in (0, 15):
+                rect(img, 0, y, 16, y + 1, STEEL_DARK)
+            for y in (1, 14):
+                rect(img, 0, y, 16, y + 1, STEEL_LIGHT)
+            for x in (2, 7, 12):
+                put(img, x, 1, STEEL_DARK)
+                put(img, x, 14, STEEL_DARK)
+        return img
+
+    write_png("column_tray_side", tray(False))
+    write_png("column_tray_side_formed", tray(True))
+    end = plate(STEEL_DARK, stable("column_tray_end") & 0xFFF, amp=3, rivets=False)
+    outline(end, 1, 1, 15, 15, STEEL)
+    for x, y in ((4, 4), (10, 4), (4, 10), (10, 10), (7, 7)):  # колпачки тарелки
+        rect(end, x, y, x + 2, y + 2, COPPER)
+        put(end, x, y, COPPER_LIGHT)
+    write_png("column_tray_end", end)
+
+    # Конденсатор: медный змеевик под кожухом, решётка охлаждения. Без склейки
+    # — фланец снизу; склеенный — кожух уходит вниз в тарелку без шва.
+    def condenser(formed):
+        img = plate(STEEL_DARK, stable("column_condenser") & 0xFFF, amp=3, rivets=False)
+        if formed:  # без фаски по низу и бокам: шов только сверху, где колонна кончается
+            for y in range(16):
+                for x in range(16):
+                    img[y][x] = shade(STEEL_DARK, 0) + (255,)
+            grain(img, 3, stable("column_condenser") & 0xFFF)
+            rect(img, 0, 0, 16, 1, STEEL_LIGHT)
+        for i, y in enumerate(range(3, 13, 3)):
+            rect(img, 2, y, 14, y + 2, COPPER)
+            rect(img, 2, y + 1, 14, y + 2, COPPER_DARK)
+            put(img, 2 if i % 2 else 13, y + 2, COPPER)
+        if not formed:
+            rect(img, 0, 14, 16, 16, STEEL)
+            rect(img, 0, 15, 16, 16, EDGE)
+        return img
+
+    write_png("column_condenser_side", condenser(False))
+    write_png("column_condenser_side_formed", condenser(True))
+    top = plate(STEEL, stable("column_condenser_top") & 0xFFF)
+    vents(top, 3, 3, 13, 13)
+    write_png("column_condenser_top", top)
+    write_png("column_condenser_bottom", end)
+
+
+def seamless(img):
+    """Склеенная текстура не рисует шов по краю: каждый крайний пиксель —
+    тот же материал, что внутри. Проверка грубая — нет ли у края рамки:
+    крайние ряды не темнее середины больше чем на порог."""
+    def lum(p):
+        return sum(p[:3]) / 3 if p[3] else None
+
+    inner = [lum(img[y][x]) for y in range(4, 12) for x in range(4, 12)]
+    inner = [v for v in inner if v is not None]
+    if not inner:
+        return True
+    mid = sum(inner) / len(inner)
+    edge = [lum(img[y][x]) for y in (0, 15) for x in range(16)] + \
+           [lum(img[y][x]) for x in (0, 15) for y in range(16)]
+    edge = [v for v in edge if v is not None]
+    return not edge or sum(edge) / len(edge) > mid - 30
+
+
+def write_model(name, parent, textures):
+    dump_model(os.path.join(MODELS, name + ".json"), {
+        "parent": parent,
+        "textures": {k: f"biolab:block/{v}" for k, v in textures.items()},
+    })
+
+
+def write_states(name, variants):
+    with open(os.path.join(STATES, name + ".json"), "w") as f:
+        f.write('{ "variants": {\n')
+        f.write(",\n".join(f'  "{k}": {json.dumps(v)}' for k, v in variants.items()))
+        f.write(" } }\n")
+
+
+def write_item(name):
+    with open(os.path.join(ASSETS, "items", name + ".json"), "w") as f:
+        f.write('{ "model": { "type": "minecraft:model", "model": "biolab:block/%s" } }\n' % name)
+
+
+def formed_states(name):
+    """`formed` — свойство блока (`state_properties`), ставит контроллер."""
+    write_states(name, {"formed=false": {"model": f"biolab:block/{name}"},
+                        "formed=true": {"model": f"biolab:block/{name}_formed"}})
+
+
+def facing_states(name, lit_model=None):
+    """Шаблон печи: `facing` поворачивает модель, `lit` — горящая (если есть)."""
+    variants = {}
+    for facing, y in (("north", 0), ("east", 90), ("south", 180), ("west", 270)):
+        for lit in ("false", "true"):
+            model = lit_model if lit == "true" and lit_model else name
+            v = {"model": f"biolab:block/{model}"}
+            if y:
+                v["y"] = y
+            variants[f"facing={facing},lit={lit}"] = v
+    write_states(name, variants)
+
+
+def write_multiblock():
+    casing = casing_tex(stable("casing") & 0xFFF, False)
+    casing_formed = casing_tex(stable("casing") & 0xFFF, True)
+    glass, glass_formed = glass_tex(False), glass_tex(True)
+    for img, what in ((casing_formed, "корпус"), (glass_formed, "стекло")):
+        if not seamless(img):
+            raise SystemExit(f"склеенное {what}: шов по краю")
+    write_png("casing", casing)
+    write_png("casing_formed", casing_formed)
+    write_png("casing_glass", glass)
+    write_png("casing_glass_formed", glass_formed)
+    for name in ("casing", "casing_glass"):
+        write_model(name, "minecraft:block/cube_all", {"all": name, "particle": name})
+        write_model(name + "_formed", "minecraft:block/cube_all",
+                    {"all": name + "_formed", "particle": name})
+        formed_states(name)
+        write_item(name)
+
+    for kind in ("input", "output"):
+        name = f"{kind}_port"
+        write_png(f"{name}_front", port_front(kind))
+        write_model(name, "minecraft:block/orientable",
+                    {"front": f"{name}_front", "side": "casing", "top": "casing", "particle": "casing"})
+        facing_states(name)
+        write_item(name)
+
+    column_textures()
+    write_model("column", "minecraft:block/orientable",
+                {"front": "column_front", "side": "column_side", "top": "column_top", "particle": "column_side"})
+    write_model("column_on", "minecraft:block/orientable",
+                {"front": "column_front_on", "side": "column_side", "top": "column_top", "particle": "column_side"})
+    facing_states("column", "column_on")
+    write_item("column")
+    for formed in (False, True):
+        suffix = "_formed" if formed else ""
+        write_model("column_tray" + suffix, "minecraft:block/cube_column",
+                    {"side": "column_tray_side" + suffix, "end": "column_tray_end",
+                     "particle": "column_tray_side"})
+        write_model("column_condenser" + suffix, "minecraft:block/cube_bottom_top",
+                    {"side": "column_condenser_side" + suffix, "top": "column_condenser_top",
+                     "bottom": "column_condenser_bottom", "particle": "column_condenser_side"})
+    for name in ("column_tray", "column_condenser"):
+        formed_states(name)
+        write_item(name)
+    print("установки: корпус, стекло, порты, колонна (кипятильник, тарелка, конденсатор)")
+
+
 if __name__ == "__main__":
     main()
+    write_multiblock()

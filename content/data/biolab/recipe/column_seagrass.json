@@ -1,0 +1,23 @@
+{
+ "type": "biolab:column",
+ "ingredient": "minecraft:seagrass",
+ "fractions": [
+  {
+   "id": "biolab:element_oxygen",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_potassium",
+   "count": 2
+  },
+  {
+   "id": "biolab:element_sodium",
+   "count": 1
+  },
+  {
+   "id": "biolab:element_chlorine",
+   "count": 1
+  }
+ ],
+ "time": 160
+}

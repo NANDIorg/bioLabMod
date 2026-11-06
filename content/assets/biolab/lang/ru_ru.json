@@ -162,5 +162,12 @@
  "death.attack.biolab.infection.player": "%1$s сгубила болезнь в бою с %2$s",
  "death.attack.biolab.mutation": "%1$s разорвала собственная мутация",
  "death.attack.biolab.mutation.player": "%1$s разорвала собственная мутация в бою с %2$s",
- "entity.biolab.infected": "Заражённый"
+ "entity.biolab.infected": "Заражённый",
+ "block.biolab.casing": "Корпус установки",
+ "block.biolab.casing_glass": "Стекло установки",
+ "block.biolab.input_port": "Входной порт",
+ "block.biolab.output_port": "Выходной порт",
+ "block.biolab.column": "Кипятильник колонны",
+ "block.biolab.column_tray": "Тарелка колонны",
+ "block.biolab.column_condenser": "Конденсатор колонны"
 }

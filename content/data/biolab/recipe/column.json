@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ici",
+  "isi",
+  "ibi"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "c": "minecraft:copper_ingot",
+  "s": "biolab:still",
+  "b": "minecraft:blast_furnace"
+ },
+ "result": {
+  "id": "biolab:column",
+  "count": 1
+ }
+}
