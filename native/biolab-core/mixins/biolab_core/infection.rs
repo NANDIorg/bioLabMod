@@ -57,8 +57,15 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
+    // Внутри держащей карантинной камеры (GDD 4.18 п. 4) нельзя заразиться:
+    // лужи, аура мутанта, близость зомби и утечка не действуют.
+    let clean = game
+        .native_player()
+        .is_some_and(|p| m::in_quarantine_at(p.dimension, [p.x, p.y, p.z]));
+
     // Стоим в луже: она действует и подсыхает.
     if state.ticks % m::FLUID_EVERY == 0
+        && !clean
         && let Some(player) = game.native_player()
     {
         let at = [
@@ -109,6 +116,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
     // поэтому сначала берём тех, кто достаточно близко для самой сильной
     // ауры, а гены спрашиваем уже у них.
     if state.ticks % m::FLUID_EVERY == 0
+        && !clean
         && let Some(player) = game.native_player()
     {
         let reach = m::acid_radius(&[("acid_glands", 3)]).unwrap_or(0.0);
@@ -211,8 +219,21 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
+    // Утечка тяжёлого штамма из машины рядом (вне камеры): тот же шаг
+    // болезни, что у близости к зомби, но сильнее.
+    if state.ticks % m::INFECTION_EVERY == 0
+        && !clean
+        && let Some(player) = game.native_player()
+        && let Some(strain) = m::leak_near(player.dimension, [player.x, player.y, player.z])
+        && m::infect_world_player(&world, uuid, &strain, m::LEAK_STEP) == Some(m::LEAK_STEP)
+    {
+        // Штамм записан только здоровому: с нуля уровень — ровно шаг утечки.
+        crate::game::biolab_say::say(game, m::LEAK_MESSAGE);
+    }
+
     // Близкий контакт с заражённым мобом поднимает уровень.
     if state.ticks % m::INFECTION_EVERY == 0
+        && !clean
         && let Some(player) = game.native_player()
     {
         // Заражённый (`biolab:infected`) — тоже зомби по виду шаблона; рядом

@@ -301,6 +301,9 @@ fn biolab_core_machine_tick(
         if let Some(lit) = m::machine_lit(&entity.id, &entity.data) {
             game.native_set_block_property(pos, "lit", lit);
         }
+        // Утечка тяжёлого штамма вне карантинной камеры (GDD 4.18 п. 4):
+        // тоже по числам прошлого тика, одной точкой на все машины.
+        crate::game::biolab_quarantine::leak(game, pos, entity);
     }
 
     // ГМ-грядка: растёт сама, а на последней стадии подмешивает ген соседа.
@@ -380,6 +383,7 @@ fn biolab_core_machine_tick(
         let assembly = crate::game::biolab_multiblock::tick(game, pos, entity);
         let step = match entity.id.as_str() {
             m::COLUMN => crate::game::biolab_column::work(game, entity, assembly.as_ref()),
+            m::QUARANTINE => crate::game::biolab_quarantine::work(game, pos, entity, assembly.as_ref()),
             _ => m::Step::Idle,
         };
         machine_sound(game, pos, entity, step);

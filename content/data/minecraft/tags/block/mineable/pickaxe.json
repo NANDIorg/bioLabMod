@@ -20,6 +20,8 @@
     "biolab:reactor",
     "biolab:spectrometer",
     "biolab:still",
-    "biolab:synthesizer"
+    "biolab:synthesizer",
+    "biolab:quarantine",
+    "biolab:clean_panel"
   ]
 }

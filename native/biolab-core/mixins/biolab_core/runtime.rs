@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 103] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 106] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -125,6 +125,10 @@ pub const ITEM_HINTS: [(&str, &[&str]); 103] = [
     ("biolab:column", &["Низ колонны: огонь под ним, тарелки сверху", "Сырьё → до пяти элементов за раз"]),
     ("biolab:column_tray", &["Секция колонны: одна тарелка — одна фракция"]),
     ("biolab:column_condenser", &["Вершина колонны, над тарелками"]),
+    // Карантинная камера (GDD 4.18 п. 4).
+    ("biolab:quarantine", &["Фильтр чистой комнаты: ставится в её стену", "Внутри камеры нельзя заразиться"]),
+    ("biolab:clean_panel", &["Стены, пол и потолок карантинной камеры"]),
+    ("biolab:filter_cartridge", &["Расходник фильтра камеры: ~20 минут", "Без патрона камера не держит"]),
     // Химия.
     ("biolab:flask", &["Центрифуга разложит, спектрометр опознает"]),
     ("biolab:blueprint", &["В синтезаторе задаёт состав, не тратится"]),
@@ -473,7 +477,7 @@ pub struct Machine {
     pub menu: &'static str,
 }
 
-pub const MACHINES: [Machine; 12] = [
+pub const MACHINES: [Machine; 13] = [
     Machine { id: "biolab:still", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:incubator", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:fermenter", slots: 3, menu: "minecraft:furnace" },
@@ -491,6 +495,8 @@ pub const MACHINES: [Machine; 12] = [
     // Контроллеры многоблочных установок (GDD 4.18, раздел «M8»): роли
     // слотов — из их строки `MULTIBLOCKS`, меню — всегда своё.
     Machine { id: COLUMN, slots: COLUMN_SLOTS, menu: MULTIBLOCK_MENU },
+    // Фильтр карантинной камеры: один слот — фильтрующий патрон.
+    Machine { id: QUARANTINE, slots: QUARANTINE_SLOTS, menu: MULTIBLOCK_MENU },
 ];
 
 /// Машина с таким id, если она наша.
@@ -553,6 +559,8 @@ pub fn machine_data_slots(id: &str) -> usize {
         CLONING_VAT | "biolab:extractor" => DATA_GENE_STRENGTH + 1,
         "biolab:incubator" => DATA_STRAIN + 4,
         LAB_BENCH => DATA_BENCH_RESULT + 1,
+        // Фильтр карантинной камеры: точка дыры, размер, патрон.
+        QUARANTINE => DATA_QR_END,
         // Контроллер установки: общие числа сборки (раздел «M8»); свои
         // числа установки — после `DATA_MB_END`.
         id if multiblock(id).is_some() => DATA_MB_END,
@@ -1023,6 +1031,8 @@ pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
             SPECTROMETER => item == FLASK_ID,
             // Центрифуга разлагает колбы и вдобавок крутит свои рецепты.
             CENTRIFUGE => item == FLASK_ID || machine_ingredients(machine.id).contains(&item),
+            // Фильтр карантинной камеры — только патрон.
+            QUARANTINE => item == FILTER_CARTRIDGE,
             id => machine_ingredients(id).contains(&item),
         },
     }
@@ -1168,7 +1178,8 @@ mod automation_tests {
         for machine in &MACHINES {
             let roles: Vec<SlotRole> = (0..machine.slots).map(|s| slot_role(machine, s)).collect();
             assert!(roles.contains(&SlotRole::Input), "{}", machine.id);
-            assert!(roles.contains(&SlotRole::Output), "{}", machine.id);
+            // Фильтр карантинной камеры ничего не выдаёт: только патрон.
+            assert_eq!(roles.contains(&SlotRole::Output), machine.id != QUARANTINE, "{}", machine.id);
             assert_eq!(roles.contains(&SlotRole::Fuel), machine.id == CLONING_VAT, "{}", machine.id);
             assert_eq!(slot_role(machine, machine.slots), SlotRole::Unused, "за пределами");
         }
@@ -1505,7 +1516,7 @@ pub struct MachineSounds {
 
 /// Машина → её звуки. Каждой — свой характер, чтобы по звуку было ясно, какая
 /// из соседних машин закончила.
-pub const MACHINE_SOUNDS: [MachineSounds; 12] = [
+pub const MACHINE_SOUNDS: [MachineSounds; 13] = [
     // Перегонный куб: закипает, побулькивает, перелив готового в колбу.
     MachineSounds {
         machine: "biolab:still",
@@ -1595,6 +1606,14 @@ pub const MACHINE_SOUNDS: [MachineSounds; 12] = [
         start: block("minecraft:block.fire.extinguish", 0.3, 0.8),
         work: block("minecraft:block.blastfurnace.fire_crackle", 0.35, 0.8),
         done: block("minecraft:item.bottle.fill", 0.6, 0.7),
+    },
+    // Фильтр карантинной камеры: камера закрылась (маяк включился), ровный
+    // гул вытяжки, патрон износился — маяк гаснет.
+    MachineSounds {
+        machine: QUARANTINE,
+        start: block("minecraft:block.beacon.activate", 0.4, 1.4),
+        work: block("minecraft:block.beacon.ambient", 0.25, 1.6),
+        done: block("minecraft:block.beacon.deactivate", 0.5, 1.2),
     },
 ];
 
@@ -7223,6 +7242,8 @@ mod tests {
             // Полный баллон меняется на пустой прямо в слоте (`weapons.rs`):
             // выдача в инвентарь из хука ненадёжна, а стопку не подменить.
             CO2_CANISTER_ID,
+            // Фильтрующий патрон карантинной камеры: износ — прочность предмета.
+            FILTER_CARTRIDGE,
         ];
         let mut checked = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -9328,7 +9349,7 @@ mod tests {
         for machine in &MACHINES {
             let inputs = machine_inputs(machine);
             let outputs = machine_outputs(machine);
-            assert!(!inputs.is_empty() && !outputs.is_empty(), "{}", machine.id);
+            assert!(!inputs.is_empty() && (!outputs.is_empty() || machine.id == QUARANTINE), "{}", machine.id);
             assert!(inputs.iter().chain(&outputs).all(|s| *s < machine.slots), "{}", machine.id);
             assert!(inputs.iter().all(|s| !outputs.contains(s)), "{}", machine.id);
             if machine.menu == "minecraft:furnace" {
@@ -10112,7 +10133,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 64] = [
+pub const RESEARCH: [Research; 65] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10195,6 +10216,9 @@ pub const RESEARCH: [Research; 64] = [
     // химия (после элементов: она их и даёт).
     node("multiblock", 0, (4, 1), "biolab:casing", "Установки", &["bench"], Unlock::Item(&["biolab:casing", "biolab:casing_glass", "biolab:input_port", "biolab:output_port"]), "Сделайте корпус установки: железо и медь."),
     node("column", 1, (1, 2), "biolab:column", "Ректификационная колонна", &["elements"], Unlock::Item(&["biolab:column", "biolab:column_tray", "biolab:column_condenser"]), "Сделайте кипятильник: куб и доменная печь."),
+    // Карантинная камера — микробиология, после штамма: она нужна, когда
+    // штамм выведен тяжёлым.
+    node("quarantine", 2, (3, 0), "biolab:quarantine", "Карантинная камера", &["strain"], Unlock::Item(&["biolab:quarantine", "biolab:clean_panel", "biolab:filter_cartridge"]), "Сделайте фильтр: корпус, решётки, шерсть."),
 ];
 
 /// Номер узла по id.
@@ -11996,7 +12020,7 @@ mod m11g_tests {
         let known: Vec<&str> = MACHINE_INGREDIENTS
             .iter()
             .flat_map(|(_, items)| items.iter().copied())
-            .chain([FRAGMENT_ID, BROTH_ID, FLASK_ID, "biolab:element_oxygen"])
+            .chain([FRAGMENT_ID, BROTH_ID, FLASK_ID, "biolab:element_oxygen", FILTER_CARTRIDGE])
             .collect();
         for machine in &MACHINES {
             let faces = machine_faces(machine);
@@ -13265,13 +13289,17 @@ pub const COLUMN_SLOT_ROLES: [SlotRole; COLUMN_SLOTS] = [
 ];
 
 /// Установки мода. Новая установка — строка здесь и машина в `MACHINES`.
-pub const MULTIBLOCKS: [Multiblock; 1] = [Multiblock {
-    controller: COLUMN,
-    title: "Ректификационная колонна",
-    needs: &COLUMN_NEEDS,
-    check: Check::Shape(COLUMN_SHAPE),
-    slots: &COLUMN_SLOT_ROLES,
-}];
+pub const MULTIBLOCKS: [Multiblock; 2] = [
+    Multiblock {
+        controller: COLUMN,
+        title: "Ректификационная колонна",
+        needs: &COLUMN_NEEDS,
+        check: Check::Shape(COLUMN_SHAPE),
+        slots: &COLUMN_SLOT_ROLES,
+    },
+    // Карантинная камера (GDD 4.18 п. 4): своя проверка — заливкой.
+    QUARANTINE_MULTIBLOCK,
+];
 
 /// Установка, чей это контроллер.
 pub fn multiblock(controller: &str) -> Option<&'static Multiblock> {
@@ -13736,18 +13764,1197 @@ mod multiblock_tests {
     }
 }
 
+// ---- M8: карантинная камера (GDD 4.18, п. 4) ----
+//
+// Чистая комната любой формы до 9×9×5 внутри (по X, по Z, в высоту): стены,
+// пол и потолок — из чистых панелей (`biolab:clean_panel`) и стекла
+// установки, в стене — фильтр (контроллер `biolab:quarantine`) и хотя бы
+// один шлюз. Проверка — заливка изнутри (`check_room`, через
+// `Check::Custom`), ответ — тот же `Verdict`, что у схем.
+//
+// *Что такое комната.* Заливка идёт от клетки перед лицом фильтра (если там
+// оболочка — от клетки за ним: фильтр можно поставить лицом наружу) по
+// шести сторонам через всё, кроме оболочки (панели, стекло установки,
+// фильтры) и дверей. Машины, сундуки, факелы внутри комнаты заливке не
+// мешают, а земля вместо пола — дыра: комната только из панелей. Заливка
+// ограничена коробкой «старт ± 9 по X и Z, ± 5 в высоту» — в неё влезает
+// любая допустимая комната и ещё клетка, — заливка останавливается на первом
+// же выходе за коробку, поэтому у фильтра посреди поля читается несколько
+// сотен блоков, у закрытой комнаты 9×9×5 — около 750; каждый блок
+// читается один раз (`Survey`), проверка — раз в секунду (`check_due`).
+//
+// *Где дыра.* Заливка дошла до края коробки — комната не закрыта. Путь
+// заливки от старта до края идёт через дыру; каждая клетка пути пробуется:
+// «заткни её — закроется ли комната?». Закрывают и сама дыра, и клетка
+// сразу за ней, и узкий проход внутри комнаты; дыра из них — та, у которой
+// больше всего соседей-стен (она сидит в оболочке), при равенстве — дальше
+// от старта. Дыра шире одной клетки (нет пола целиком)
+// одной пробкой не закрывается — тогда это первая клетка пути на краю или
+// за краем коробки всей увиденной оболочки.
+//
+// *Шлюз.* Двери ванильные (любой `…_door`), для заливки — стена. У каждой
+// двери в стене комнаты смотрим, что за ней (по ходу из комнаты):
+// - снова дверь — «две двери подряд», шлюз, если за второй не оболочка;
+// - пустое место — тамбур: заливка от него не больше 3×3×3; тамбур со своей
+//   второй дверью наружу — шлюз; тамбур без второй двери — чулан, не беда;
+//   «тамбур» больше 3×3×3 — это улица: дверь прямо наружу, камера не
+//   закрыта («Дверь без шлюза: x y z»);
+// - оболочка или сама комната — не выход.
+// Нет ни одного шлюза — «Нет шлюза».
+//
+// *Реестр* собранных камер (`in_quarantine`, контракт волны 2): фильтр с
+// живым фильтрующим патроном раз в секунду кладёт сюда внутренние клетки
+// своей комнаты, между проверками только отмечается. Разобрали, вынули
+// патрон, сломали фильтр — запись снимается; фильтр перестал тикать (чанк
+// выгружен, взрыв) — через `ROOM_STALE_MS` запись не в счёт. После
+// перезахода реестр пуст и восстанавливается первой же проверкой (она идёт
+// сразу после загрузки). Реестр — в копии `runtime.rs` игрового крейта
+// (`crate::game::biolab_core`): звать из хуков игры, не из lib-копии.
+//
+// *Утечка.* Машина, которая работает (лампа горит) с культурой тяжёлого
+// штамма (тяжесть 4–5) во входе вне камеры, раз в `LEAK_EVERY` тиков
+// заражает скот рядом и отмечает утечку; игрок в радиусе получает штамм на
+// своём шаге болезни (`leak_near`).
+
+/// Фильтр карантинной камеры — её контроллер.
+pub const QUARANTINE: &str = "biolab:quarantine";
+/// Чистая панель: стены, пол и потолок камеры.
+pub const CLEAN_PANEL: &str = "biolab:clean_panel";
+/// Фильтрующий патрон — сменный расходник фильтра.
+pub const FILTER_CARTRIDGE: &str = "biolab:filter_cartridge";
+
+/// Наибольшая комната внутри: по X, в высоту, по Z.
+pub const ROOM_MAX: [i32; 3] = [9, 5, 9];
+/// Наибольший тамбур шлюза.
+pub const VESTIBULE_MAX: [i32; 3] = [3, 3, 3];
+
+/// Чем блок служит комнате.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomBlock {
+    /// Оболочка: панель, стекло установки, фильтр.
+    Shell,
+    /// Дверь: для заливки — стена, для шлюза — проход.
+    Door,
+    /// Всё остальное: воздух, машины, земля.
+    Open,
+}
+
+/// Ванильная дверь любого дерева или металла (люк — не дверь).
+pub fn is_door(block: &str) -> bool {
+    block.ends_with("_door")
+}
+
+pub fn room_block(block: &str) -> RoomBlock {
+    if block == CLEAN_PANEL || block == CASING_GLASS || block == QUARANTINE {
+        RoomBlock::Shell
+    } else if is_door(block) {
+        RoomBlock::Door
+    } else {
+        RoomBlock::Open
+    }
+}
+
+/// Закрытая камера: внутренние клетки (по порядку), их коробка и сколько
+/// дверей ведут в шлюзы.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Room {
+    pub cells: Vec<[i32; 3]>,
+    pub min: [i32; 3],
+    pub max: [i32; 3],
+    pub airlocks: u32,
+}
+
+impl Room {
+    /// Размер по X, в высоту, по Z.
+    pub fn size(&self) -> [i32; 3] {
+        span(self.min, self.max)
+    }
+}
+
+/// Почему камера не закрыта.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomFault {
+    /// Перед фильтром и за ним — оболочка: комнаты нет.
+    NoRoom,
+    /// Дыра наружу: в этой точке.
+    Hole([i32; 3]),
+    /// Комната закрыта, но больше 9×9×5: её размер.
+    TooBig([i32; 3]),
+    /// Дверь ведёт прямо наружу, без второй.
+    OpenDoor([i32; 3]),
+    /// Ни одного шлюза.
+    NoAirlock,
+}
+
+impl RoomFault {
+    /// Номер нужды в `QUARANTINE_NEEDS`.
+    pub fn need(self) -> usize {
+        match self {
+            RoomFault::Hole(_) => 0,
+            RoomFault::NoAirlock => 1,
+            RoomFault::TooBig(_) => 2,
+            RoomFault::OpenDoor(_) => 3,
+            RoomFault::NoRoom => 4,
+        }
+    }
+
+    /// Точка, о которой речь (дыра, дверь), или размер комнаты.
+    pub fn spot(self) -> [i32; 3] {
+        match self {
+            RoomFault::Hole(p) | RoomFault::TooBig(p) | RoomFault::OpenDoor(p) => p,
+            RoomFault::NoRoom | RoomFault::NoAirlock => [0; 3],
+        }
+    }
+}
+
+/// Нужды камеры для каркаса: номер — `RoomFault::need`. Слова — для общего
+/// текста нехватки («Нет шлюза»); экран камеры пишет свои
+/// (`quarantine_fault_text`), с точкой дыры.
+pub const QUARANTINE_NEEDS: [Need; 5] = [
+    Need { parts: &[], one: "стены без дыр", many: "стен без дыр" },
+    Need { parts: &[], one: "шлюза", many: "шлюзов" },
+    Need { parts: &[], one: "комнаты до 9×9×5", many: "комнат до 9×9×5" },
+    Need { parts: &[], one: "второй двери шлюза", many: "вторых дверей шлюза" },
+    Need { parts: &[], one: "комнаты перед фильтром", many: "комнат перед фильтром" },
+];
+
+const ROOM_DIRS: [[i32; 3]; 6] = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
+const ROOM_SIDES: [[i32; 3]; 4] = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+
+fn add3(a: [i32; 3], b: [i32; 3]) -> [i32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+fn span(min: [i32; 3], max: [i32; 3]) -> [i32; 3] {
+    [max[0] - min[0] + 1, max[1] - min[1] + 1, max[2] - min[2] + 1]
+}
+
+/// Блоки, прочитанные проверкой: каждая точка читается один раз.
+struct Survey<'a> {
+    at: BlockAt<'a>,
+    seen: std::collections::HashMap<[i32; 3], RoomBlock>,
+}
+
+impl Survey<'_> {
+    fn get(&mut self, p: [i32; 3]) -> RoomBlock {
+        if let Some(b) = self.seen.get(&p) {
+            return *b;
+        }
+        let b = room_block(&(self.at)(p));
+        self.seen.insert(p, b);
+        b
+    }
+}
+
+/// Предел заливки: коробка (комната) или размах (тамбур).
+#[derive(Clone, Copy)]
+enum Bound {
+    Box([i32; 3], [i32; 3]),
+    Span([i32; 3]),
+}
+
+/// Итог заливки: клетки по порядку обхода, откуда в каждую пришли, их
+/// коробка и коробка увиденной оболочки; `breach` — клетка, из которой
+/// заливка упёрлась в предел (тогда она не закрыта).
+struct Flood {
+    cells: Vec<[i32; 3]>,
+    set: std::collections::HashSet<[i32; 3]>,
+    parent: std::collections::HashMap<[i32; 3], [i32; 3]>,
+    min: [i32; 3],
+    max: [i32; 3],
+    shell: Option<([i32; 3], [i32; 3])>,
+    breach: Option<[i32; 3]>,
+}
+
+/// Заливка от `start` через всё, кроме оболочки, дверей и `walls`.
+fn flood(survey: &mut Survey, start: [i32; 3], bound: Bound, walls: &std::collections::HashSet<[i32; 3]>) -> Flood {
+    let mut f = Flood {
+        cells: vec![start],
+        set: std::collections::HashSet::from([start]),
+        parent: std::collections::HashMap::new(),
+        min: start,
+        max: start,
+        shell: None,
+        breach: None,
+    };
+    let mut next = 0;
+    while next < f.cells.len() {
+        let c = f.cells[next];
+        next += 1;
+        for d in ROOM_DIRS {
+            let n = add3(c, d);
+            if f.set.contains(&n) || walls.contains(&n) {
+                continue;
+            }
+            let fits = match bound {
+                Bound::Box(lo, hi) => (0..3).all(|i| lo[i] <= n[i] && n[i] <= hi[i]),
+                Bound::Span(limit) => (0..3).all(|i| n[i].max(f.max[i]) - n[i].min(f.min[i]) < limit[i]),
+            };
+            if survey.get(n) != RoomBlock::Open {
+                let (lo, hi) = f.shell.unwrap_or((n, n));
+                f.shell = Some((
+                    [lo[0].min(n[0]), lo[1].min(n[1]), lo[2].min(n[2])],
+                    [hi[0].max(n[0]), hi[1].max(n[1]), hi[2].max(n[2])],
+                ));
+                continue;
+            }
+            if !fits {
+                f.breach = Some(c);
+                return f;
+            }
+            for i in 0..3 {
+                f.min[i] = f.min[i].min(n[i]);
+                f.max[i] = f.max[i].max(n[i]);
+            }
+            f.set.insert(n);
+            f.parent.insert(n, c);
+            f.cells.push(n);
+        }
+    }
+    f
+}
+
+/// Коробка заливки комнаты: старт ± предел комнаты. В неё влезает любая
+/// допустимая комната со стартом внутри и ещё клетка — чтобы комнату на
+/// клетку больше предела назвать большой, а не дырявой.
+fn room_box(start: [i32; 3]) -> Bound {
+    Bound::Box([start[0] - ROOM_MAX[0], start[1] - ROOM_MAX[1], start[2] - ROOM_MAX[2]], add3(start, ROOM_MAX))
+}
+
+/// Дыра в незакрытой заливке: (нашлась ли пробкой точно, где).
+fn locate_hole(survey: &mut Survey, start: [i32; 3], f: &Flood) -> (bool, [i32; 3]) {
+    let Some(end) = f.breach else {
+        return (false, start);
+    };
+    let mut path = vec![end];
+    while let Some(p) = f.parent.get(path.last().unwrap_or(&start)) {
+        path.push(*p);
+    }
+    // `path` — от края к старту. Сам старт не пробуем: заткнуть его — это
+    // убрать комнату, а не дыру. Закрывают комнату и дыра, и клетка сразу за
+    // ней (если за дырой одна свободная клетка), и узкий проход внутри
+    // комнаты; дыра из них — та, что глубже всех сидит в оболочке (больше
+    // соседей-стен), при равенстве — дальше от старта.
+    let mut best: Option<(usize, [i32; 3])> = None;
+    for p in path.iter().filter(|p| **p != start) {
+        let plug = std::collections::HashSet::from([*p]);
+        if flood(survey, start, room_box(start), &plug).breach.is_some() {
+            continue;
+        }
+        let walls = ROOM_DIRS.iter().filter(|d| survey.get(add3(*p, **d)) != RoomBlock::Open).count();
+        if best.is_none_or(|(w, _)| walls > w) {
+            best = Some((walls, *p));
+        }
+    }
+    if let Some((_, p)) = best {
+        return (true, p);
+    }
+    path.reverse();
+    let outside = |p: &[i32; 3]| match f.shell {
+        Some((lo, hi)) => (0..3).any(|i| p[i] <= lo[i] || p[i] >= hi[i]),
+        None => true,
+    };
+    let at = path.iter().skip(1).find(|p| outside(p)).copied().unwrap_or(end);
+    (false, at)
+}
+
+/// Нижняя клетка двери (дверь в две клетки высотой).
+fn door_base(survey: &mut Survey, mut p: [i32; 3]) -> [i32; 3] {
+    for _ in 0..2 {
+        let below = [p[0], p[1] - 1, p[2]];
+        if survey.get(below) != RoomBlock::Door {
+            break;
+        }
+        p = below;
+    }
+    p
+}
+
+/// Шлюзы закрытой комнаты: сколько дверей ведут в шлюз, или дверь прямо
+/// наружу.
+fn room_airlocks(survey: &mut Survey, cells: &[[i32; 3]], room: &std::collections::HashSet<[i32; 3]>) -> Result<u32, [i32; 3]> {
+    let mut doors: Vec<([i32; 3], [i32; 3])> = Vec::new();
+    for &c in cells {
+        for d in ROOM_SIDES {
+            let n = add3(c, d);
+            if survey.get(n) == RoomBlock::Door && !doors.iter().any(|(p, _)| *p == n) {
+                doors.push((n, d));
+            }
+        }
+    }
+    let mut locks: Vec<[i32; 3]> = Vec::new();
+    for (door, d) in doors {
+        let beyond = add3(door, d);
+        if room.contains(&beyond) {
+            continue;
+        }
+        let lock = match survey.get(beyond) {
+            RoomBlock::Shell => false,
+            // Две двери подряд: за второй — не стена и не та же комната.
+            RoomBlock::Door => {
+                let out = add3(beyond, d);
+                !room.contains(&out) && survey.get(out) != RoomBlock::Shell
+            }
+            // Тамбур: закрытый и со своей второй дверью наружу.
+            RoomBlock::Open => {
+                let hall = flood(survey, beyond, Bound::Span(VESTIBULE_MAX), room);
+                if hall.breach.is_some() {
+                    return Err(door_base(survey, door));
+                }
+                let own = door_base(survey, door);
+                let mut exit = false;
+                for &v in &hall.cells {
+                    for e in ROOM_SIDES {
+                        let m = add3(v, e);
+                        if survey.get(m) != RoomBlock::Door || door_base(survey, m) == own {
+                            continue;
+                        }
+                        let out = add3(m, e);
+                        if !room.contains(&out) && !hall.set.contains(&out) && survey.get(out) != RoomBlock::Shell {
+                            exit = true;
+                        }
+                    }
+                }
+                exit
+            }
+        };
+        let base = door_base(survey, door);
+        if lock && !locks.contains(&base) {
+            locks.push(base);
+        }
+    }
+    Ok(locks.len() as u32)
+}
+
+/// Заливка закрылась: размер и шлюзы.
+fn finish_room(survey: &mut Survey, f: Flood) -> Result<Room, RoomFault> {
+    let size = span(f.min, f.max);
+    if (0..3).any(|i| size[i] > ROOM_MAX[i]) {
+        return Err(RoomFault::TooBig(size));
+    }
+    let mut cells = f.cells;
+    cells.sort();
+    let airlocks = room_airlocks(survey, &cells, &f.set).map_err(RoomFault::OpenDoor)?;
+    if airlocks == 0 {
+        return Err(RoomFault::NoAirlock);
+    }
+    Ok(Room { cells, min: f.min, max: f.max, airlocks })
+}
+
+/// Проверка камеры с фильтром в `site`: заливка изнутри. Пробуется клетка
+/// перед лицом фильтра, потом за ним; закрылась одна — это комната. Не
+/// закрылась ни одна — дыра той, где её нашла пробка (иначе — перед лицом).
+pub fn check_room(site: Site, at: BlockAt) -> Result<Room, RoomFault> {
+    let mut survey = Survey { at, seen: std::collections::HashMap::new() };
+    let front = place(site.origin, site.facing, [0, 0, -1]);
+    let back = place(site.origin, site.facing, [0, 0, 1]);
+    let mut holes: Vec<(bool, [i32; 3])> = Vec::new();
+    for start in [front, back] {
+        if survey.get(start) != RoomBlock::Open {
+            continue;
+        }
+        let f = flood(&mut survey, start, room_box(start), &std::collections::HashSet::new());
+        if f.breach.is_none() {
+            return finish_room(&mut survey, f);
+        }
+        holes.push(locate_hole(&mut survey, start, &f));
+    }
+    let hole = holes.iter().find(|(exact, _)| *exact).or(holes.first());
+    match hole {
+        Some((_, p)) => Err(RoomFault::Hole(*p)),
+        None => Err(RoomFault::NoRoom),
+    }
+}
+
+/// Итог проверки камеры для каркаса: собрана (секции — число клеток
+/// комнаты; частей для склейки нет: панели не склеиваются) или одна строка
+/// нехватки.
+pub fn room_verdict(result: &Result<Room, RoomFault>) -> Verdict {
+    match result {
+        Ok(room) => Verdict::Formed(Assembly { sections: room.cells.len() as u32, ..Default::default() }),
+        Err(fault) => {
+            Verdict::Broken(vec![Shortage { need: fault.need(), count: 1, tier: Tier::None, side: Side::None }])
+        }
+    }
+}
+
+/// Последние проверки камер по месту фильтра: их подробности (клетки,
+/// точка дыры) в `Verdict` не помещаются. Кладёт `quarantine_check`, сразу
+/// забирает работа фильтра в том же тике (`take_room_check`).
+type RoomChecks = std::collections::HashMap<[i32; 3], Result<Room, RoomFault>>;
+
+fn room_checks() -> &'static std::sync::Mutex<RoomChecks> {
+    static CHECKS: std::sync::OnceLock<std::sync::Mutex<RoomChecks>> = std::sync::OnceLock::new();
+    CHECKS.get_or_init(Default::default)
+}
+
+/// Проверка камеры для `Check::Custom`.
+pub fn quarantine_check(_mb: &Multiblock, site: Site, at: BlockAt) -> Verdict {
+    let result = check_room(site, at);
+    let verdict = room_verdict(&result);
+    if let Ok(mut checks) = room_checks().lock() {
+        checks.insert(site.origin, result);
+    }
+    verdict
+}
+
+/// Подробности проверки камеры, сделанной в этом тике; None — проверки не
+/// было.
+pub fn take_room_check(origin: [i32; 3]) -> Option<Result<Room, RoomFault>> {
+    room_checks().lock().ok()?.remove(&origin)
+}
+
+/// Слоты фильтра: один — патрон.
+pub const QUARANTINE_SLOTS: usize = 1;
+pub const QUARANTINE_SLOT_ROLES: [SlotRole; QUARANTINE_SLOTS] = [SlotRole::Input];
+
+/// Строка установки для `MULTIBLOCKS`.
+pub const QUARANTINE_MULTIBLOCK: Multiblock = Multiblock {
+    controller: QUARANTINE,
+    title: "Карантинная камера",
+    needs: &QUARANTINE_NEEDS,
+    check: Check::Custom(quarantine_check),
+    slots: &QUARANTINE_SLOT_ROLES,
+};
+
+// Фильтрующий патрон: прочность — ванильный износ предмета
+// (`minecraft:max_damage` в его файле, тест сверяет). Держит камера — патрон
+// изнашивается на единицу раз в `FILTER_WEAR_EVERY` тиков: 120 × 10 с — 20
+// минут, игровые сутки. Износился — пропадает; без патрона камера собрана,
+// но не держит.
+
+/// Прочность патрона.
+pub const FILTER_DURABILITY: i64 = 120;
+/// Раз в сколько тиков держащая камера изнашивает патрон.
+pub const FILTER_WEAR_EVERY: i64 = 200;
+
+/// Сколько прочности осталось у патрона в слоте; None — патрона нет (или
+/// в слоте не патрон, или он износился).
+pub fn filter_left(item: Option<(&str, i64)>) -> Option<i64> {
+    let (id, damage) = item?;
+    (id == FILTER_CARTRIDGE && damage < FILTER_DURABILITY).then(|| FILTER_DURABILITY - damage.max(0))
+}
+
+/// Пора ли изнашивать патрон: раз в `FILTER_WEAR_EVERY`, разнесено по месту.
+pub fn filter_wear_due(ticks: i64, pos: [i32; 3]) -> bool {
+    let spread = (pos[0] as i64 * 11 + pos[2] as i64 * 5 + pos[1] as i64).rem_euclid(FILTER_WEAR_EVERY);
+    (ticks + spread).rem_euclid(FILTER_WEAR_EVERY) == 0
+}
+
+/// Остаток патрона в процентах, вверх: живой патрон — хотя бы 1 %.
+pub fn filter_percent(left: i64) -> i32 {
+    ((left.clamp(0, FILTER_DURABILITY) * 100 + FILTER_DURABILITY - 1) / FILTER_DURABILITY) as i32
+}
+
+// Свои числа экрана фильтра (после общих `DATA_MB_*`). Точка дыры или двери
+// — мировые координаты, а слот данных 16-битный: каждая — двумя числами.
+
+/// Точка нехватки: x, y, z — по два числа (старшие и младшие 16 бит).
+pub const DATA_QR_SPOT: usize = DATA_MB_END;
+/// Размер комнаты по X, в высоту, по Z (собранной или слишком большой).
+pub const DATA_QR_SIZE: usize = DATA_QR_SPOT + 6;
+/// Остаток патрона, %; −1 — патрона нет.
+pub const DATA_QR_FILTER: usize = DATA_QR_SIZE + 3;
+/// Держит ли камера сейчас: 1 — да.
+pub const DATA_QR_HOLDS: usize = DATA_QR_FILTER + 1;
+pub const DATA_QR_END: usize = DATA_QR_HOLDS + 1;
+
+/// Координата двумя 16-битными числами — какими их увидит экран.
+pub fn split_coord(v: i32) -> [i32; 2] {
+    [(v >> 16) as i16 as i32, v as i16 as i32]
+}
+
+pub fn join_coord(hi: i32, lo: i32) -> i32 {
+    (hi << 16) | (lo as u16 as i32)
+}
+
+/// Записать подробности проверки в числа экрана (`data` длиной не меньше
+/// `DATA_QR_END`).
+pub fn write_room(data: &mut [i32], result: &Result<Room, RoomFault>) {
+    if data.len() < DATA_QR_END {
+        return;
+    }
+    let (spot, size) = match result {
+        Ok(room) => ([0; 3], room.size()),
+        Err(RoomFault::TooBig(size)) => ([0; 3], *size),
+        Err(fault) => (fault.spot(), [0; 3]),
+    };
+    for i in 0..3 {
+        let [hi, lo] = split_coord(spot[i]);
+        data[DATA_QR_SPOT + 2 * i] = hi;
+        data[DATA_QR_SPOT + 2 * i + 1] = lo;
+        data[DATA_QR_SIZE + i] = size[i];
+    }
+}
+
+/// Записать патрон и «держит ли» в числа экрана.
+pub fn write_filter(data: &mut [i32], left: Option<i64>, holds: bool) {
+    if data.len() < DATA_QR_END {
+        return;
+    }
+    data[DATA_QR_FILTER] = left.map_or(-1, filter_percent);
+    data[DATA_QR_HOLDS] = i32::from(holds);
+}
+
+/// Точка нехватки с экрана.
+pub fn room_spot(data: &[i32]) -> [i32; 3] {
+    std::array::from_fn(|i| {
+        join_coord(screen_datum(data, DATA_QR_SPOT + 2 * i, 0), screen_datum(data, DATA_QR_SPOT + 2 * i + 1, 0))
+    })
+}
+
+/// Размер комнаты с экрана.
+pub fn room_size(data: &[i32]) -> [i32; 3] {
+    std::array::from_fn(|i| screen_datum(data, DATA_QR_SIZE + i, 0))
+}
+
+/// «9×5×9» — по X, в высоту, по Z, как ширина × высота × глубина.
+pub fn size_text(size: [i32; 3]) -> String {
+    format!("{}×{}×{}", size[0], size[1], size[2])
+}
+
+/// Строка нехватки камеры: с точкой, где она.
+pub fn quarantine_fault_text(need: usize, spot: [i32; 3]) -> String {
+    let [x, y, z] = spot;
+    match need {
+        0 => format!("Дыра в стене: {x} {y} {z}"),
+        1 => "Нет шлюза".to_string(),
+        2 => "Комната больше 9×9×5".to_string(),
+        3 => format!("Дверь без шлюза: {x} {y} {z}"),
+        _ => "Фильтр не выходит в комнату".to_string(),
+    }
+}
+
+/// Подсказка к нехватке: что с ней делать.
+pub fn quarantine_fault_hint(need: usize) -> &'static str {
+    match need {
+        0 => "Закройте её чистой панелью или стеклом установки",
+        1 => "Нужны две двери подряд или дверь, тамбур и дверь",
+        2 => "Внутри не больше 9 в ширину и глубину и 5 в высоту",
+        3 => "За дверью — вторая дверь или тамбур со второй",
+        _ => "Поставьте фильтр в стену комнаты",
+    }
+}
+
+/// Строка о патроне.
+pub fn filter_line(data: &[i32]) -> String {
+    match screen_datum(data, DATA_QR_FILTER, -1) {
+        p if p < 0 => "Нет патрона: камера не держит".to_string(),
+        p => format!("Патрон: {p}%"),
+    }
+}
+
+/// Табло фильтра: заголовок, его цвет и строки.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuarantineBoard {
+    pub head: &'static str,
+    pub ink: u32,
+    pub lines: Vec<String>,
+}
+
+pub const BOARD_GREEN: u32 = 0x5A_E8B4;
+pub const BOARD_RED: u32 = 0xE8_5A4A;
+pub const BOARD_AMBER: u32 = 0xE0_A040;
+
+pub fn quarantine_board(data: &[i32]) -> QuarantineBoard {
+    match multiblock_shown(data) {
+        MultiblockShown::Unknown => {
+            QuarantineBoard { head: "Проверка комнаты…", ink: SCREEN_TEXT_DIM, lines: Vec::new() }
+        }
+        MultiblockShown::Formed { sections, .. } => {
+            let room = format!("Комната {}, {sections} {}", size_text(room_size(data)), plural(sections, "клетка", "клетки", "клеток"));
+            if screen_datum(data, DATA_QR_HOLDS, 0) > 0 {
+                QuarantineBoard { head: "Камера держит", ink: BOARD_GREEN, lines: vec![room, filter_line(data)] }
+            } else {
+                QuarantineBoard { head: "Не держит", ink: BOARD_AMBER, lines: vec![filter_line(data), room] }
+            }
+        }
+        MultiblockShown::Broken { rows, .. } => QuarantineBoard {
+            head: "Не закрыта",
+            ink: BOARD_RED,
+            lines: rows.first().map(|s| quarantine_fault_text(s.need, room_spot(data))).into_iter().collect(),
+        },
+    }
+}
+
+/// Подсказка над табло фильтра.
+pub fn quarantine_tooltip(data: &[i32]) -> Vec<String> {
+    let board = quarantine_board(data);
+    let mut lines = vec![format!("Карантинная камера: {}", board.head.to_lowercase())];
+    match multiblock_shown(data) {
+        MultiblockShown::Broken { rows, .. } => {
+            if let Some(s) = rows.first() {
+                lines.push(format!("§c{}", quarantine_fault_text(s.need, room_spot(data))));
+                if s.need == 2 {
+                    lines.push(format!("§cСейчас: {}", size_text(room_size(data))));
+                }
+                lines.push(format!("§7{}", quarantine_fault_hint(s.need)));
+            }
+            lines.push("§7Схема — в журнале лаборанта".to_string());
+        }
+        MultiblockShown::Formed { .. } => {
+            lines.extend(board.lines);
+            if screen_datum(data, DATA_QR_HOLDS, 0) > 0 {
+                lines.push("§7Внутри нельзя заразиться".to_string());
+            } else {
+                lines.push("§7Вставьте фильтрующий патрон: уголь и шерсть".to_string());
+            }
+        }
+        MultiblockShown::Unknown => {}
+    }
+    lines
+}
+
+/// Держит ли камера: собрана и патрон живой.
+pub fn room_holds(formed: bool, left: Option<i64>) -> bool {
+    formed && left.is_some_and(|l| l > 0)
+}
+
+/// Через сколько миллисекунд без отметки фильтра запись реестра не в счёт:
+/// фильтр отмечается каждый тик, проверяет комнату раз в секунду.
+pub const ROOM_STALE_MS: u64 = 5_000;
+
+/// Камера в реестре.
+struct HeldRoom {
+    dimension: String,
+    filter: [i32; 3],
+    min: [i32; 3],
+    max: [i32; 3],
+    cells: std::collections::HashSet<[i32; 3]>,
+    seen: u64,
+}
+
+/// Реестр держащих камер. Время — миллисекунды монотонных часов (`now`),
+/// чтобы правило проверялось тестами.
+#[derive(Default)]
+pub struct QuarantineRooms {
+    rooms: Vec<HeldRoom>,
+}
+
+impl QuarantineRooms {
+    /// Камера фильтра `filter` держит комнату `room` (после проверки).
+    pub fn hold(&mut self, dimension: &str, filter: [i32; 3], room: &Room, now: u64) {
+        self.rooms.retain(|r| !(r.dimension == dimension && r.filter == filter) && now.saturating_sub(r.seen) < 12 * ROOM_STALE_MS);
+        self.rooms.push(HeldRoom {
+            dimension: dimension.to_string(),
+            filter,
+            min: room.min,
+            max: room.max,
+            cells: room.cells.iter().copied().collect(),
+            seen: now,
+        });
+    }
+
+    /// Фильтр держит дальше (между проверками). false — записи нет: её надо
+    /// положить проверкой.
+    pub fn touch(&mut self, dimension: &str, filter: [i32; 3], now: u64) -> bool {
+        match self.rooms.iter_mut().find(|r| r.dimension == dimension && r.filter == filter) {
+            Some(r) => {
+                r.seen = now;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Камера больше не держит.
+    pub fn forget(&mut self, dimension: &str, filter: [i32; 3]) {
+        self.rooms.retain(|r| !(r.dimension == dimension && r.filter == filter));
+    }
+
+    /// Точка внутри держащей камеры.
+    pub fn contains(&self, dimension: &str, pos: [i32; 3], now: u64) -> bool {
+        self.rooms.iter().any(|r| {
+            r.dimension == dimension
+                && now.saturating_sub(r.seen) < ROOM_STALE_MS
+                && (0..3).all(|i| r.min[i] <= pos[i] && pos[i] <= r.max[i])
+                && r.cells.contains(&pos)
+        })
+    }
+}
+
+fn quarantine_rooms() -> &'static std::sync::Mutex<QuarantineRooms> {
+    static ROOMS: std::sync::OnceLock<std::sync::Mutex<QuarantineRooms>> = std::sync::OnceLock::new();
+    ROOMS.get_or_init(Default::default)
+}
+
+/// Монотонные часы реестров, мс.
+fn quarantine_clock() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64
+}
+
+/// Фильтр в `filter` держит комнату `room` (после проверки).
+pub fn hold_room(dimension: &str, filter: [i32; 3], room: &Room) {
+    if let Ok(mut rooms) = quarantine_rooms().lock() {
+        rooms.hold(dimension, filter, room, quarantine_clock());
+    }
+}
+
+/// Фильтр держит дальше; false — записи нет.
+pub fn touch_room(dimension: &str, filter: [i32; 3]) -> bool {
+    quarantine_rooms().lock().is_ok_and(|mut rooms| rooms.touch(dimension, filter, quarantine_clock()))
+}
+
+/// Камера фильтра больше не держит: разобрана, без патрона, сломан фильтр.
+pub fn forget_room(dimension: &str, filter: [i32; 3]) {
+    if let Ok(mut rooms) = quarantine_rooms().lock() {
+        rooms.forget(dimension, filter);
+    }
+}
+
+/// Точка `at` (позиция сущности) внутри держащей камеры: по клетке ног.
+pub fn in_quarantine_at(dimension: &str, at: [f64; 3]) -> bool {
+    in_quarantine(dimension, [at[0].floor() as i32, at[1].floor() as i32, at[2].floor() as i32])
+}
+
+// Утечка тяжёлого штамма вне карантина (GDD 4.18 п. 4, 4.10 «Утечка»).
+
+/// С какой тяжести штамм утекает.
+pub const LEAK_SEVERITY: i32 = 4;
+/// Раз в сколько тиков работающая машина с тяжёлым штаммом даёт утечку.
+pub const LEAK_EVERY: i64 = 200;
+/// Радиус утечки, блоков.
+pub const LEAK_RADIUS: f64 = 6.0;
+/// Насколько утечка поднимает заражение игрока за шаг болезни: больше, чем
+/// близость к зомби (`CONTACT_STEP`).
+pub const LEAK_STEP: u32 = 4;
+/// Сколько держится отметка утечки: до следующей и ещё секунда.
+pub const LEAK_HOLD_MS: u64 = (LEAK_EVERY as u64) * 50 + 1_000;
+/// Что слышит игрок, заразившийся от утечки.
+pub const LEAK_MESSAGE: &str = "Утечка: тяжёлый штамм вне карантина — вы заражены";
+
+/// Штамм, который утекает из машины: самый тяжёлый с тяжестью от 4 среди
+/// культур во входах, если машина работает и стоит не в камере.
+pub fn leak_strain(cultures: &[Strain], working: bool, quarantined: bool) -> Option<Strain> {
+    if !working || quarantined {
+        return None;
+    }
+    cultures
+        .iter()
+        .filter(|s| s.severity >= LEAK_SEVERITY)
+        .max_by_key(|s| (s.severity, s.infectivity))
+        .copied()
+}
+
+/// Пора ли машине давать утечку: раз в `LEAK_EVERY`, разнесено по месту.
+pub fn leak_due(ticks: i64, pos: [i32; 3]) -> bool {
+    let spread = (pos[0] as i64 * 3 + pos[2] as i64 * 17 + pos[1] as i64 * 7).rem_euclid(LEAK_EVERY);
+    (ticks + spread).rem_euclid(LEAK_EVERY) == 0
+}
+
+/// Заразится ли моб от утечки: шанс 10 % за единицу заразности.
+pub fn leak_catches(strain: &Strain, seed: u64) -> bool {
+    seed % 100 < 10 * strain.infectivity.clamp(0, 5) as u64
+}
+
+/// В радиусе ли точка.
+pub fn within(a: [f64; 3], b: [f64; 3], radius: f64) -> bool {
+    let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= radius * radius
+}
+
+/// Отметки утечек: где, каким штаммом и до какого часа.
+#[derive(Default)]
+pub struct Leaks {
+    list: Vec<(String, [f64; 3], Strain, u64)>,
+}
+
+impl Leaks {
+    pub fn note(&mut self, dimension: &str, at: [f64; 3], strain: Strain, now: u64) {
+        self.list.retain(|(d, p, _, until)| *until > now && !(d == dimension && *p == at));
+        self.list.push((dimension.to_string(), at, strain, now + LEAK_HOLD_MS));
+    }
+
+    /// Самый тяжёлый штамм живых утечек в радиусе от точки.
+    pub fn near(&self, dimension: &str, at: [f64; 3], now: u64) -> Option<Strain> {
+        self.list
+            .iter()
+            .filter(|(d, p, _, until)| d == dimension && *until > now && within(*p, at, LEAK_RADIUS))
+            .map(|(_, _, s, _)| *s)
+            .max_by_key(|s| (s.severity, s.infectivity))
+    }
+}
+
+fn leaks() -> &'static std::sync::Mutex<Leaks> {
+    static LEAKS: std::sync::OnceLock<std::sync::Mutex<Leaks>> = std::sync::OnceLock::new();
+    LEAKS.get_or_init(Default::default)
+}
+
+/// Отметить утечку из машины в точке `at`.
+pub fn note_leak(dimension: &str, at: [f64; 3], strain: Strain) {
+    if let Ok(mut list) = leaks().lock() {
+        list.note(dimension, at, strain, quarantine_clock());
+    }
+}
+
+/// Штамм утечки рядом с точкой `at`, если она не в камере.
+pub fn leak_near(dimension: &str, at: [f64; 3]) -> Option<Strain> {
+    if in_quarantine_at(dimension, at) {
+        return None;
+    }
+    leaks().lock().ok()?.near(dimension, at, quarantine_clock())
+}
+
+#[cfg(test)]
+mod quarantine_tests {
+    use super::*;
+
+    type World = std::collections::HashMap<[i32; 3], &'static str>;
+
+    /// Комната: внутри `lo..=hi`, оболочка из панелей на клетку вокруг
+    /// (рёбра и углы тоже).
+    fn shell(lo: [i32; 3], hi: [i32; 3]) -> World {
+        let mut w = World::new();
+        for x in lo[0] - 1..=hi[0] + 1 {
+            for y in lo[1] - 1..=hi[1] + 1 {
+                for z in lo[2] - 1..=hi[2] + 1 {
+                    let inside = (0..3).all(|i| lo[i] <= [x, y, z][i] && [x, y, z][i] <= hi[i]);
+                    if !inside {
+                        w.insert([x, y, z], CLEAN_PANEL);
+                    }
+                }
+            }
+        }
+        w
+    }
+
+    /// Дверь в две клетки.
+    fn door(w: &mut World, at: [i32; 3]) {
+        w.insert(at, "minecraft:oak_door");
+        w.insert([at[0], at[1] + 1, at[2]], "minecraft:oak_door");
+    }
+
+    /// Комната 5×3×5 (x 0..4, y 64..66, z 0..4), фильтр в южной стене
+    /// (z = 5) лицом внутрь (на север), шлюз — две двери подряд в западной
+    /// стене (x = −1 и −2) у z = 2.
+    fn lab() -> World {
+        let mut w = shell([0, 64, 0], [4, 66, 4]);
+        w.insert([2, 64, 5], QUARANTINE);
+        door(&mut w, [-1, 64, 2]);
+        door(&mut w, [-2, 64, 2]);
+        w
+    }
+
+    const FILTER: Site = Site { origin: [2, 64, 5], facing: Facing::North };
+
+    fn reader(w: &World) -> impl Fn([i32; 3]) -> String + '_ {
+        move |p| w.get(&p).copied().unwrap_or("minecraft:air").to_string()
+    }
+
+    fn check(w: &World, site: Site) -> Result<Room, RoomFault> {
+        check_room(site, &reader(w))
+    }
+
+    #[test]
+    fn a_closed_room_with_an_airlock_is_formed() {
+        let room = check(&lab(), FILTER).expect("камера собрана");
+        assert_eq!(room.cells.len(), 75);
+        assert_eq!(room.size(), [5, 3, 5]);
+        assert_eq!(room.airlocks, 1, "одна дверь в две клетки — один шлюз");
+        assert!(room.cells.contains(&[0, 64, 0]) && !room.cells.contains(&[-1, 64, 2]));
+        // Машины, сундук и земля внутри заливке не мешают.
+        let mut w = lab();
+        w.insert([1, 64, 1], "biolab:incubator");
+        w.insert([2, 64, 2], "minecraft:dirt");
+        w.insert([3, 65, 3], "minecraft:chest");
+        assert_eq!(check(&w, FILTER).map(|r| r.cells.len()), Ok(75));
+    }
+
+    #[test]
+    fn the_filter_may_face_outwards() {
+        // Фильтр лицом на юг — перед лицом улица, комната за ним.
+        let outward = Site { facing: Facing::South, ..FILTER };
+        assert_eq!(check(&lab(), outward).map(|r| r.cells.len()), Ok(75));
+        // В стене меж двух панелей (лицом в стену) комнаты нет.
+        let sideways = Site { facing: Facing::East, ..FILTER };
+        assert_eq!(check(&lab(), sideways), Err(RoomFault::NoRoom));
+    }
+
+    #[test]
+    fn a_hole_is_found_where_it_is() {
+        for hole in [[4, 65, -1], [5, 64, 3], [0, 63, 0], [2, 67, 2], [-1, 66, 4]] {
+            let mut w = lab();
+            w.remove(&hole);
+            assert_eq!(check(&w, FILTER), Err(RoomFault::Hole(hole)), "дыра {hole:?}");
+            // И у фильтра лицом наружу — та же дыра.
+            let outward = Site { facing: Facing::South, ..FILTER };
+            assert_eq!(check(&w, outward), Err(RoomFault::Hole(hole)), "наружу, дыра {hole:?}");
+        }
+        // Пол из земли — дыра в полу, где-то под комнатой.
+        let mut w = lab();
+        for x in 0..=4 {
+            for z in 0..=4 {
+                w.insert([x, 63, z], "minecraft:dirt");
+            }
+        }
+        let Err(RoomFault::Hole(p)) = check(&w, FILTER) else { panic!("пол из земли — не комната") };
+        assert_eq!(p[1], 63, "дыра — в полу: {p:?}");
+    }
+
+    #[test]
+    fn a_narrow_room_is_not_mistaken_for_a_hole() {
+        // Г-образная комната: узкий проход в клетку между двумя частями;
+        // дыра — в дальней части. Пробка в проходе тоже «закрыла» бы
+        // комнату, но дыра ищется снаружи внутрь.
+        let mut w = shell([0, 64, 0], [2, 65, 2]);
+        for (p, b) in shell([6, 64, 0], [8, 65, 2]) {
+            w.insert(p, b);
+        }
+        // Проход x 3..5 на z = 1, y 64..65.
+        for x in 3..=5 {
+            for y in 64..=65 {
+                w.insert([x, y, 1], "minecraft:air");
+                w.insert([x, y, 0], CLEAN_PANEL);
+                w.insert([x, y, 2], CLEAN_PANEL);
+            }
+            w.insert([x, 63, 1], CLEAN_PANEL);
+            w.insert([x, 66, 1], CLEAN_PANEL);
+        }
+        w.insert([1, 64, 3], QUARANTINE);
+        door(&mut w, [-1, 64, 1]);
+        door(&mut w, [-2, 64, 1]);
+        let site = Site { origin: [1, 64, 3], facing: Facing::North };
+        assert_eq!(check(&w, site).map(|r| r.cells.len()), Ok(9 * 2 + 3 * 2 + 9 * 2));
+        w.remove(&[9, 64, 2]);
+        assert_eq!(check(&w, site), Err(RoomFault::Hole([9, 64, 2])));
+    }
+
+    #[test]
+    fn a_room_bigger_than_nine_by_nine_by_five_is_refused() {
+        // 10 в ширину.
+        let mut w = shell([0, 64, 0], [9, 66, 4]);
+        w.insert([2, 64, 5], QUARANTINE);
+        door(&mut w, [-1, 64, 2]);
+        door(&mut w, [-2, 64, 2]);
+        assert_eq!(check(&w, FILTER), Err(RoomFault::TooBig([10, 3, 5])));
+        // Шесть в высоту.
+        let mut w = shell([0, 64, 0], [4, 69, 4]);
+        w.insert([2, 64, 5], QUARANTINE);
+        door(&mut w, [-1, 64, 2]);
+        door(&mut w, [-2, 64, 2]);
+        assert_eq!(check(&w, FILTER), Err(RoomFault::TooBig([5, 6, 5])));
+        // 9×5×9 — ровно предел.
+        let mut w = shell([0, 64, 0], [8, 68, 8]);
+        w.insert([2, 64, 9], QUARANTINE);
+        door(&mut w, [-1, 64, 2]);
+        door(&mut w, [-2, 64, 2]);
+        let site = Site { origin: [2, 64, 9], facing: Facing::North };
+        assert_eq!(check(&w, site).map(|r| r.cells.len()), Ok(405));
+    }
+
+    #[test]
+    fn an_airlock_is_two_doors_in_a_row_or_a_hall_between() {
+        // Без дверей — нет шлюза.
+        let mut w = shell([0, 64, 0], [4, 66, 4]);
+        w.insert([2, 64, 5], QUARANTINE);
+        assert_eq!(check(&w, FILTER), Err(RoomFault::NoAirlock));
+        // Одна дверь прямо на улицу.
+        let mut one = w.clone();
+        door(&mut one, [-1, 64, 2]);
+        assert_eq!(check(&one, FILTER), Err(RoomFault::OpenDoor([-1, 64, 2])));
+        // Дверь, тамбур 1×2×2 из панелей, вторая дверь.
+        let mut hall = one.clone();
+        for p in shell([-3, 64, 2], [-2, 65, 2]) {
+            hall.entry(p.0).or_insert(p.1);
+        }
+        assert_eq!(check(&hall, FILTER), Err(RoomFault::NoAirlock), "чулан без второй двери — не шлюз");
+        door(&mut hall, [-4, 64, 2]);
+        assert_eq!(check(&hall, FILTER).map(|r| r.airlocks), Ok(1));
+        // Вторая дверь из тамбура — в бок, тоже выход.
+        hall.insert([-4, 64, 2], CLEAN_PANEL);
+        hall.insert([-4, 65, 2], CLEAN_PANEL);
+        door(&mut hall, [-2, 64, 3]);
+        assert_eq!(check(&hall, FILTER).map(|r| r.airlocks), Ok(1));
+        // Дверь за дверью, но за второй — панель: не выход.
+        let mut dead = w.clone();
+        door(&mut dead, [-1, 64, 2]);
+        door(&mut dead, [-2, 64, 2]);
+        dead.insert([-3, 64, 2], CLEAN_PANEL);
+        dead.insert([-3, 65, 2], CLEAN_PANEL);
+        assert_eq!(check(&dead, FILTER), Err(RoomFault::NoAirlock));
+        // Шлюз есть, но вторая дверь — прямо наружу: камера не закрыта.
+        let mut both = lab();
+        door(&mut both, [5, 64, 2]);
+        assert_eq!(check(&both, FILTER), Err(RoomFault::OpenDoor([5, 64, 2])));
+        // Железная и медная двери — тоже двери, люк — нет.
+        assert!(is_door("minecraft:iron_door") && is_door("minecraft:waxed_copper_door"));
+        assert!(!is_door("minecraft:oak_trapdoor"));
+    }
+
+    #[test]
+    fn the_check_reads_each_block_once_and_not_too_many() {
+        let count = std::cell::Cell::new(0usize);
+        let w = lab();
+        let at = |p: [i32; 3]| {
+            count.set(count.get() + 1);
+            w.get(&p).copied().unwrap_or("minecraft:air").to_string()
+        };
+        assert!(check_room(FILTER, &at).is_ok());
+        // Комната 75 клеток, оболочка вокруг (без рёбер) 110, шлюз.
+        assert!(count.get() < 200, "закрытая 5×3×5: прочитано {}", count.get());
+        // Фильтр посреди поля и в дырявой большой комнате — потолок.
+        count.set(0);
+        let field = World::from([([2, 64, 5], QUARANTINE)]);
+        let at = |p: [i32; 3]| {
+            count.set(count.get() + 1);
+            field.get(&p).copied().unwrap_or("minecraft:air").to_string()
+        };
+        assert!(matches!(check_room(FILTER, &at), Err(RoomFault::Hole(_))));
+        assert!(count.get() < 4_000, "в поле прочитано {}", count.get());
+        count.set(0);
+        let mut big = shell([0, 64, 0], [8, 68, 8]);
+        big.insert([2, 64, 9], QUARANTINE);
+        big.remove(&[9, 66, 4]);
+        let at = |p: [i32; 3]| {
+            count.set(count.get() + 1);
+            big.get(&p).copied().unwrap_or("minecraft:air").to_string()
+        };
+        let site = Site { origin: [2, 64, 9], facing: Facing::North };
+        assert_eq!(check_room(site, &at), Err(RoomFault::Hole([9, 66, 4])));
+        assert!(count.get() < 4_000, "в дырявой 9×5×9 прочитано {}", count.get());
+    }
+
+    #[test]
+    fn the_framework_gets_the_verdict_and_the_screen_the_details() {
+        let mb = multiblock(QUARANTINE).expect("камера — установка");
+        assert!(matches!(mb.check, Check::Custom(_)));
+        let w = lab();
+        let verdict = check_multiblock(mb, FILTER, &reader(&w));
+        let Verdict::Formed(a) = &verdict else { panic!("не собрана") };
+        assert_eq!(a.sections, 75);
+        assert!(a.parts.is_empty() && a.ports.is_empty(), "панели не склеиваются, портов нет");
+        let detail = take_room_check(FILTER.origin).expect("подробности");
+        assert!(take_room_check(FILTER.origin).is_none(), "забираются один раз");
+        let mut data = vec![0; machine_data_slots(QUARANTINE)];
+        assert_eq!(data.len(), DATA_QR_END);
+        write_verdict(&mut data, &verdict);
+        write_room(&mut data, &detail);
+        write_filter(&mut data, Some(96), true);
+        let board = quarantine_board(&data);
+        assert_eq!(board.head, "Камера держит");
+        assert_eq!(board.lines, vec!["Комната 5×3×5, 75 клеток", "Патрон: 80%"]);
+        write_filter(&mut data, None, false);
+        assert_eq!(quarantine_board(&data).lines[0], "Нет патрона: камера не держит");
+
+        // Дыра далеко от нуля — координаты доходят до экрана целыми.
+        let far = [-1_234_567, 70, 2_000_001];
+        let mut w = shell(add3(far, [-2, 0, -2]), add3(far, [2, 2, 2]));
+        let site = Site { origin: add3(far, [0, 0, 3]), facing: Facing::North };
+        w.insert(site.origin, QUARANTINE);
+        let hole = add3(far, [3, 1, 0]);
+        w.remove(&hole);
+        let verdict = check_multiblock(mb, site, &reader(&w));
+        write_verdict(&mut data, &verdict);
+        write_room(&mut data, &take_room_check(site.origin).unwrap());
+        // Экран получает числа 16-битными.
+        let wire: Vec<i32> = data.iter().map(|v| *v as i16 as i32).collect();
+        let board = quarantine_board(&wire);
+        assert_eq!(board.head, "Не закрыта");
+        assert_eq!(board.lines, vec![format!("Дыра в стене: {} {} {}", hole[0], hole[1], hole[2])]);
+        let tip = quarantine_tooltip(&wire);
+        assert!(tip.iter().any(|l| l.contains("чистой панелью")), "{tip:?}");
+        for v in [0, 1, -1, 65_535, 65_536, -65_536, 29_999_999, -29_999_999] {
+            let [hi, lo] = split_coord(v);
+            assert_eq!(join_coord(hi as i16 as i32, lo as i16 as i32), v, "{v}");
+        }
+        // Общий текст нехватки тоже читается.
+        let no_lock = Shortage { need: RoomFault::NoAirlock.need(), count: 1, tier: Tier::None, side: Side::None };
+        assert_eq!(shortage_text(mb, &no_lock), "Нет шлюза");
+        assert_eq!(quarantine_fault_text(2, [0; 3]), "Комната больше 9×9×5");
+    }
+
+    #[test]
+    fn the_filter_wears_out() {
+        assert_eq!(filter_left(Some((FILTER_CARTRIDGE, 0))), Some(FILTER_DURABILITY));
+        assert_eq!(filter_left(Some((FILTER_CARTRIDGE, FILTER_DURABILITY - 1))), Some(1));
+        assert_eq!(filter_left(Some((FILTER_CARTRIDGE, FILTER_DURABILITY))), None, "износился");
+        assert_eq!(filter_left(Some(("minecraft:coal", 0))), None);
+        assert_eq!(filter_left(None), None);
+        assert!(room_holds(true, Some(1)) && !room_holds(false, Some(50)) && !room_holds(true, None));
+        assert_eq!((filter_percent(FILTER_DURABILITY), filter_percent(1), filter_percent(0)), (100, 1, 0));
+        let pos = [10, 64, -3];
+        let due: Vec<i64> = (0..2 * FILTER_WEAR_EVERY).filter(|t| filter_wear_due(*t, pos)).collect();
+        assert_eq!(due.len(), 2);
+        assert_eq!(due[1] - due[0], FILTER_WEAR_EVERY);
+        // Патрон живёт игровые сутки.
+        assert_eq!(FILTER_DURABILITY * FILTER_WEAR_EVERY, 24_000);
+    }
+
+    /// Патрон в `content/`: прочность — та же, что считает фильтр, стопка 1.
+    #[test]
+    fn the_cartridge_in_content_wears_like_the_filter_counts() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/horizon");
+        let text = std::fs::read_to_string(root.join("item/filter_cartridge.json")).expect("нет патрона");
+        let json = Json::parse(&text).unwrap();
+        let max = json.get("components").and_then(|c| c.get("minecraft:max_damage")).and_then(Json::num);
+        assert_eq!(max, Some(FILTER_DURABILITY as f64));
+        assert_eq!(json.get("max_stack_size").and_then(Json::num), Some(1.0));
+        // Фильтр — на шаблоне печи (меню), панель — без своего свойства.
+        let filter = Json::parse(&std::fs::read_to_string(root.join("block/quarantine.json")).unwrap()).unwrap();
+        assert_eq!(filter.get("template").and_then(Json::str), Some("minecraft:furnace"));
+        let panel = Json::parse(&std::fs::read_to_string(root.join("block/clean_panel.json")).unwrap()).unwrap();
+        assert!(panel.get("state_properties").is_none() && !is_formable(CLEAN_PANEL));
+    }
+
+    #[test]
+    fn the_registry_answers_where_it_is_clean() {
+        let room = check(&lab(), FILTER).unwrap();
+        let mut rooms = QuarantineRooms::default();
+        let ow = "minecraft:overworld";
+        assert!(!rooms.contains(ow, [2, 64, 2], 0));
+        rooms.hold(ow, FILTER.origin, &room, 1_000);
+        assert!(rooms.contains(ow, [2, 64, 2], 1_500));
+        assert!(!rooms.contains("minecraft:the_nether", [2, 64, 2], 1_500), "другое измерение");
+        assert!(!rooms.contains(ow, [-1, 64, 2], 1_500), "дверь — не комната");
+        assert!(!rooms.contains(ow, [2, 63, 2], 1_500), "пол — не комната");
+        // Фильтр перестал отмечаться — запись не в счёт.
+        assert!(!rooms.contains(ow, [2, 64, 2], 1_000 + ROOM_STALE_MS));
+        assert!(rooms.touch(ow, FILTER.origin, 1_000 + ROOM_STALE_MS));
+        assert!(rooms.contains(ow, [2, 64, 2], 1_000 + ROOM_STALE_MS));
+        // Разобрали — снято.
+        rooms.forget(ow, FILTER.origin);
+        assert!(!rooms.contains(ow, [2, 64, 2], 1_000 + ROOM_STALE_MS));
+        assert!(!rooms.touch(ow, FILTER.origin, 2_000), "нечего отмечать — нужна проверка");
+        assert!(!in_quarantine(ow, [123_456, 64, 2]), "живой реестр пуст");
+    }
+
+    #[test]
+    fn heavy_strains_leak_outside_the_room() {
+        let heavy = Strain::of([3, 2, 4, 1]);
+        let worse = Strain::of([1, 2, 5, 1]);
+        assert_eq!(leak_strain(&[WILD, heavy], true, false), Some(heavy));
+        assert_eq!(leak_strain(&[heavy, worse], true, false), Some(worse), "самый тяжёлый");
+        assert_eq!(leak_strain(&[heavy], true, true), None, "в карантине");
+        assert_eq!(leak_strain(&[heavy], false, false), None, "машина стоит");
+        assert_eq!(leak_strain(&[WILD, Strain::of([5, 5, 3, 5])], true, false), None, "тяжесть 3 не утекает");
+        let pos = [4, 70, 9];
+        let due = (0..2 * LEAK_EVERY).filter(|t| leak_due(*t, pos)).count();
+        assert_eq!(due, 2);
+        let mut leaks = Leaks::default();
+        let ow = "minecraft:overworld";
+        leaks.note(ow, [0.5, 64.5, 0.5], heavy, 0);
+        assert_eq!(leaks.near(ow, [3.0, 64.0, 3.0], 100), Some(heavy));
+        assert_eq!(leaks.near(ow, [9.0, 64.0, 0.0], 100), None, "далеко");
+        assert_eq!(leaks.near("minecraft:the_end", [0.5, 64.0, 0.5], 100), None);
+        assert_eq!(leaks.near(ow, [0.5, 64.0, 0.5], LEAK_HOLD_MS), None, "отметка истекла");
+        assert!(leak_catches(&heavy, 29) && !leak_catches(&heavy, 30));
+    }
+}
+
 // ---- M8: связь установок между собой (контракт волны 2) ----
 //
 // Карантинная камера (GDD 4.18 п. 4) отвечает на вопрос «эта точка внутри
 // собранной чистой комнаты?». Ею пользуются биореактор (партия не скисает в
 // карантине), болезнь (внутри нельзя заразиться) и утечка тяжёлых штаммов.
 // Сигнатуру не менять: тело заполняет агент карантина, остальные только
-// вызывают. Пока камеры нет — нигде не карантин.
+// вызывают. Пока ни одна камера не держит — нигде не карантин.
 
 /// Точка `pos` уровня `dimension` — внутри собранной карантинной камеры.
 pub fn in_quarantine(dimension: &str, pos: [i32; 3]) -> bool {
-    let _ = (dimension, pos);
-    false
+    // Реестр держащих камер (раздел «M8: карантинная камера»): фильтр с
+    // живым патроном кладёт туда клетки своей закрытой комнаты.
+    quarantine_rooms().lock().is_ok_and(|rooms| rooms.contains(dimension, pos, quarantine_clock()))
 }
 
 // ---- Экраны машин ----
@@ -13788,7 +14995,7 @@ pub const SCREEN_HEADER: f32 = 16.0;
 
 /// Название машины на экране, если сервер не прислал своё, и что она делает —
 /// для подсказки над шкалой.
-pub const SCREEN_NAMES: [(&str, &str, &str); 14] = [
+pub const SCREEN_NAMES: [(&str, &str, &str); 15] = [
     ("biolab:still", "Перегонный куб", "Перегонка"),
     ("biolab:incubator", "Инкубатор", "Рост культуры"),
     ("biolab:fermenter", "Ферментер", "Брожение"),
@@ -13801,6 +15008,7 @@ pub const SCREEN_NAMES: [(&str, &str, &str); 14] = [
     ("biolab:spectrometer", "Спектрометр", "Анализ"),
     ("biolab:lab_bench", "Лабораторный стол", "Сборка"),
     (COLUMN, "Ректификационная колонна", "Перегонка"),
+    (QUARANTINE, "Фильтр карантинной камеры", "Фильтрация"),
     // Порты установок (GDD 4.18): не машины, но экран у них свой.
     (INPUT_PORT, "Входной порт", "Подача"),
     (OUTPUT_PORT, "Выходной порт", "Выдача"),
@@ -13961,6 +15169,16 @@ pub fn machine_screen(id: &str) -> Option<MachineScreen> {
             inventory: [8.0, SCREEN_INVENTORY_Y],
             gauge: [52.0, 38.0, 118.0, 34.0],
             progress: [6.0, 17.0, 22.0, 55.0],
+        },
+        // Фильтр карантинной камеры: слева патрон и под ним его остаток,
+        // справа табло: держит ли камера, чего не хватает.
+        QUARANTINE => MachineScreen {
+            width: SCREEN_WIDTH,
+            height: SCREEN_HEIGHT,
+            slots: vec![Some([20.0, 26.0])],
+            inventory: [8.0, SCREEN_INVENTORY_Y],
+            gauge: [48.0, 18.0, 122.0, 54.0],
+            progress: [8.0, 50.0, 40.0, 20.0],
         },
         _ => return None,
     };
@@ -14474,6 +15692,10 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
         return if over { port_tooltip(id) } else { Vec::new() };
     }
     if inside(screen.progress, at) {
+        // Шкала фильтра — остаток патрона, а не ход работы.
+        if id == QUARANTINE {
+            return vec![filter_line(data), "§7Патрон изнашивается, пока камера держит".to_string()];
+        }
         let mut lines = Vec::new();
         if let MultiblockShown::Formed { sections, .. } = multiblock_shown(data)
             && id == COLUMN
@@ -14496,6 +15718,7 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
     let working = screen_working(data);
     let percent = (screen_progress(data) * 100.0) as i32;
     match id {
+        QUARANTINE => quarantine_tooltip(data),
         id if multiblock(id).is_some() => multiblock_tooltip(id, data),
         REACTOR => reactor_tooltip(data),
         SYNTHESIZER => synth_tooltip(data),
@@ -14895,7 +16118,7 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 29, "блоков стало больше — решите, выпадают ли новые");
+        assert_eq!(blocks.len(), 31, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,
@@ -14941,7 +16164,7 @@ mod drop_tests {
             assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
         }
         // Части многоблочных установок (GDD 4.18) — тоже.
-        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN_TRAY, COLUMN_CONDENSER] {
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN_TRAY, COLUMN_CONDENSER, CLEAN_PANEL] {
             assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
         }
         for fluid in &FLUIDS {
@@ -14979,7 +16202,7 @@ mod drop_tests {
         assert!(pickaxe.contains(&LAB_BENCH.to_string()));
         assert!(pickaxe.contains(&OPERATING_TABLE.to_string()));
         // Части установок — металл и стекло в раме: киркой.
-        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER] {
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER, QUARANTINE, CLEAN_PANEL] {
             assert!(pickaxe.contains(&id.to_string()), "{id}");
         }
     }

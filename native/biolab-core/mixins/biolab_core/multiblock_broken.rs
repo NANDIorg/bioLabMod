@@ -26,5 +26,7 @@ fn biolab_core_multiblock_broken(
         .is_some_and(|s| m::multiblock(&s.name).is_some());
     if controller {
         crate::game::biolab_multiblock::broken(game, pos);
+        // Фильтр карантинной камеры: камера больше не держит.
+        crate::game::biolab_quarantine::broken(game, pos);
     }
 }

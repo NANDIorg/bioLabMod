@@ -652,6 +652,48 @@ fn biolab_core_screen_draw(
                 }
             }
         }
+        // Фильтр карантинной камеры (GDD 4.18 п. 4): слева патрон и под ним
+        // его остаток полосой, справа табло — держит ли камера, а если не
+        // закрыта — что мешает и где («Дыра в стене: x y z»).
+        m::QUARANTINE => {
+            let board = m::quarantine_board(data);
+            // Остаток патрона.
+            pen.glass(p);
+            let percent = m::screen_datum(data, m::DATA_QR_FILTER, -1);
+            let (label, ink) = if percent < 0 {
+                ("нет", m::SCREEN_TEXT_DIM)
+            } else {
+                ("", if percent > 25 { m::BOARD_GREEN } else { m::BOARD_AMBER })
+            };
+            if percent < 0 {
+                let lw = pen.width(label);
+                pen.text(label, [p[0] + ((p[2] - lw) / 2.0).floor(), p[1] + 3.0], ink, false);
+            } else {
+                let text = format!("{percent}%");
+                let lw = pen.width(&text);
+                pen.text(&text, [p[0] + ((p[2] - lw) / 2.0).floor(), p[1] + 3.0], ink, false);
+                pen.bar([p[0] + 3.0, p[1] + p[3] - 7.0, p[2] - 6.0, 5.0], percent as f32 / 100.0, 0xFF00_0000 | ink);
+            }
+            // Табло.
+            pen.glass(g);
+            let inner = g[2] - 6.0;
+            // Лампа «держит» в углу табло.
+            let lamp = if board.ink == m::BOARD_GREEN && working { board.ink } else { 0x2A_3A34 };
+            pen.fill([g[0] + g[2] - 9.0, g[1] + 3.0, 6.0, 6.0], m::SCREEN_EDGE);
+            pen.fill([g[0] + g[2] - 8.0, g[1] + 4.0, 4.0, 4.0], 0xFF00_0000 | lamp);
+            pen.text(board.head, [g[0] + 3.0, g[1] + 3.0], board.ink, true);
+            let mut line_y = g[1] + 14.0;
+            for text in &board.lines {
+                for line in pen.wrap(text, inner) {
+                    if line_y + 8.0 > g[1] + g[3] - 1.0 {
+                        break;
+                    }
+                    let line = pen.fit(&line, inner);
+                    pen.text(&line, [g[0] + 3.0, line_y], m::SCREEN_TEXT, false);
+                    line_y += 10.0;
+                }
+            }
+        }
         // Порт установки: стрелка подачи — бирюзовая к слотам у входного,
         // янтарная от слотов у выходного; справа табличка.
         m::INPUT_PORT | m::OUTPUT_PORT => {

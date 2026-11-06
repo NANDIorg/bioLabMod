@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {"all": "biolab:block/clean_panel", "particle": "biolab:block/clean_panel"}
+}

@@ -186,7 +186,12 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
 
     // Лужи жгут не только игрока: моб, стоящий в луже, получает своё.
     // Раньше лужи действовали лишь на того, кто в них встал ногами игрока.
+    // В держащей карантинной камере (GDD 4.18 п. 4) лужи не действуют.
+    let here = game.dim.id();
     for (id, at, _, _, _) in &mobs {
+        if m::in_quarantine_at(here, *at) {
+            continue;
+        }
         let under = [
             at[0].floor() as i32,
             at[1].floor() as i32,
@@ -331,8 +336,11 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
-    // Ауры на игрока: кислота жжёт, холод сковывает.
-    if let Some(spot) = player {
+    // Ауры на игрока: кислота жжёт, холод сковывает. В держащей карантинной
+    // камере (GDD 4.18 п. 4) аура мутанта не действует.
+    if let Some(spot) = player
+        && !m::in_quarantine_at(game.dim.id(), spot)
+    {
         let mut acid = false;
         let mut chill = false;
         for (_, at, _, _, genes) in &mobs {
