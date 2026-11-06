@@ -67,6 +67,59 @@ pub fn carry_over(game: &mut crate::game::Game<'_>, old: u32, new: u32) {
     }
 }
 
+/// Моб `old` вот-вот станет видом `outcome` (`native_living_conversion_pre`):
+/// запомнить, что достанется новому. Нужно молнии — там пин не зовёт `post`.
+pub fn expect_conversion(game: &mut crate::game::Game<'_>, old: u32, outcome: &str) {
+    let Some(at) = game
+        .mobs
+        .iter()
+        .find(|m| m.id == old)
+        .map(|m| [m.position.x, m.position.y, m.position.z])
+    else {
+        return;
+    };
+    let (genome, checked, surgery) = left_behind(game, old);
+    let conversion = d::Conversion {
+        dimension: game.dim.id().to_owned(),
+        at,
+        tick: game.ticks,
+        outcome: outcome.to_owned(),
+        genome: d::converted_genome(genome.as_deref(), checked),
+        surgery: d::converted_surgery(surgery),
+    };
+    if let Ok(mut list) = d::conversions().lock() {
+        list.expect(conversion);
+    }
+}
+
+/// Новый моб `id` вида `kind` — результат ожидаемого превращения? Тогда
+/// записать ему геном и срезы старого и ответить `true`.
+pub fn converted_here(game: &mut crate::game::Game<'_>, id: u32, kind: &str) -> bool {
+    let Some(at) = game
+        .mobs
+        .iter()
+        .find(|m| m.id == id)
+        .map(|m| [m.position.x, m.position.y, m.position.z])
+    else {
+        return false;
+    };
+    let Some(conversion) = d::conversions()
+        .lock()
+        .ok()
+        .and_then(|mut list| list.claim(game.dim.id(), kind, at, game.ticks))
+    else {
+        return false;
+    };
+    data::set_checked(game, id);
+    if let Some(text) = conversion.genome {
+        data::set_genome(game, id, &text);
+    }
+    if conversion.surgery != 0 {
+        data::set_surgery(game, id, conversion.surgery);
+    }
+    true
+}
+
 /// Данные моба, которого уже сняли с уровня: геном, был ли бросок, биты
 /// операционной. `Host` их не отдаёт — носителя нет (`attachment_entity_exists`
 /// пропускает снятых, `game/mod_api_host.rs` пина), — но сами данные лежат в

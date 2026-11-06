@@ -371,6 +371,19 @@ bindings = [
   { name = "converted", ty = "u32", value = "converted" },
 ]
 
+# Превращение от молнии (свинья в пиглина, житель в ведьму): пин зовёт только
+# `pre`, без `post`, — запоминаем геном старого, `joined.rs` отдаёт его новому.
+[[injection]]
+id = "conversion-pre"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_living_conversion_pre"
+helper = "conversion_pre.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "entity", ty = "u32", value = "entity" },
+  { name = "outcome", ty = "&str", value = "outcome" },
+]
+
 # ---- M11-А: Заражённый (GDD 4.26 А) ----
 # Оттенок тела своего вида мода (`biolab:infected` — зеленовато-бледный
 # зомби): таблица в lib-крейте, рядом с отрисовкой; читает её `color.rs`

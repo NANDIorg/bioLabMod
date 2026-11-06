@@ -883,6 +883,135 @@ pub fn converted_surgery(bits: u8) -> u8 {
     bits & FLAYED_BITS
 }
 
+/// Сколько тиков превращение ждёт нового моба. Молния (`lightning.rs` пина)
+/// снимает старого и ставит нового отложенным событием уровня — в тот же
+/// тик или следующий; запас — на очередь событий.
+pub const CONVERSION_TICKS: u64 = 5;
+
+/// Ожидаемое превращение (`native_living_conversion_pre`): кем станет моб,
+/// где и что ему достанется. Нужно для молнии — свинья в зомбифицированного
+/// пиглина, житель в ведьму: там пин зовёт только `pre`, а `post` — нет
+/// (новый моб ставится событием, без `convert_to`). Для обычного
+/// `convert_to` запись тоже появляется; `post` (`converted.rs`) потом пишет
+/// то же самое ещё раз — это безвредно.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Conversion {
+    pub dimension: String,
+    /// Точка старого моба: новый появляется в ней.
+    pub at: [f64; 3],
+    pub tick: u64,
+    /// Вид, которым моб станет (`minecraft:zombified_piglin`).
+    pub outcome: String,
+    /// Что записать новому (`converted_genome`); `None` — оставить его бросок.
+    pub genome: Option<String>,
+    /// Срезы операционной (`converted_surgery`).
+    pub surgery: u8,
+}
+
+/// Превращения, ждущие нового моба. Только сервер.
+#[derive(Debug, Default)]
+pub struct Conversions {
+    list: Vec<Conversion>,
+}
+
+impl Conversions {
+    /// Запомнить превращение; устаревшие уходят. Обычному мобу без броска и
+    /// срезов передавать нечего — не запоминаем.
+    pub fn expect(&mut self, conversion: Conversion) {
+        let now = conversion.tick;
+        self.list
+            .retain(|c| now >= c.tick && now - c.tick <= CONVERSION_TICKS);
+        if conversion.genome.is_none() && conversion.surgery == 0 {
+            return;
+        }
+        if self.list.len() >= MAX_BIRTHS {
+            self.list.remove(0);
+        }
+        self.list.push(conversion);
+    }
+
+    /// Новый моб вида `kind` в точке `at` — чьё-то превращение? Ближайшее
+    /// подходящее забирается целиком.
+    pub fn claim(&mut self, dimension: &str, kind: &str, at: [f64; 3], tick: u64) -> Option<Conversion> {
+        let near = |c: &Conversion| {
+            let d = [c.at[0] - at[0], c.at[1] - at[1], c.at[2] - at[2]];
+            d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+        };
+        let index = self
+            .list
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                c.dimension == dimension
+                    && c.outcome == kind
+                    && tick >= c.tick
+                    && tick - c.tick <= CONVERSION_TICKS
+                    && near(c) <= BIRTH_REACH * BIRTH_REACH
+            })
+            .min_by(|(_, a), (_, b)| near(a).total_cmp(&near(b)))?
+            .0;
+        Some(self.list.remove(index))
+    }
+
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+}
+
+/// Общий список превращений: запоминает `conversion_pre.rs`, забирает
+/// `joined.rs`.
+pub fn conversions() -> &'static std::sync::Mutex<Conversions> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Conversions>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::*;
+
+    fn pig(tick: u64, genome: Option<&str>) -> Conversion {
+        Conversion {
+            dimension: "minecraft:overworld".into(),
+            at: [10.5, 64.0, 10.5],
+            tick,
+            outcome: "minecraft:zombified_piglin".into(),
+            genome: genome.map(str::to_owned),
+            surgery: 0,
+        }
+    }
+
+    #[test]
+    fn lightning_conversion_is_claimed_by_its_outcome_in_place() {
+        let mut list = Conversions::default();
+        list.expect(pig(100, Some("horns:2")));
+        // Другой вид в той же точке — не наш.
+        assert!(list.claim("minecraft:overworld", "minecraft:zombie", [10.5, 64.0, 10.5], 101).is_none());
+        // Далеко — тоже.
+        assert!(list.claim("minecraft:overworld", "minecraft:zombified_piglin", [14.5, 64.0, 10.5], 101).is_none());
+        let got = list
+            .claim("minecraft:overworld", "minecraft:zombified_piglin", [10.6, 64.0, 10.4], 101)
+            .expect("пиглин на месте свиньи");
+        assert_eq!(got.genome.as_deref(), Some("horns:2"));
+        assert!(list.is_empty(), "забирается один раз");
+    }
+
+    #[test]
+    fn stale_or_empty_conversions_are_not_kept() {
+        let mut list = Conversions::default();
+        list.expect(pig(100, None));
+        assert!(list.is_empty(), "обычной свинье передавать нечего");
+        list.expect(pig(100, Some("")));
+        assert_eq!(list.len(), 1, "бросок был — пустой геном тоже передаётся");
+        assert!(list
+            .claim("minecraft:overworld", "minecraft:zombified_piglin", [10.5, 64.0, 10.5], 100 + CONVERSION_TICKS + 1)
+            .is_none());
+    }
+}
+
 #[cfg(test)]
 mod heredity_tests {
     use super::*;

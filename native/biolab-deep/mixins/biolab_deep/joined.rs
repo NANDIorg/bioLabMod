@@ -43,6 +43,11 @@ fn biolab_deep_mobs_joined(game: &mut crate::game::Game<'_>, from: usize) {
         if data::checked(game, id) || !data::genome(game, id).is_empty() {
             continue;
         }
+        // Превращение (молния: свинья в пиглина, житель в ведьму): геном
+        // старого моба, а не новый бросок (GDD 4.26, В; `heredity.rs`).
+        if crate::game::biolab_heredity::converted_here(game, id, &kind) {
+            continue;
+        }
         // Детёныш мутантов: геном по наследству вместо броска, и бросок его
         // уже не перепишет (GDD 4.26, В; `heredity.rs`).
         if let Some(heir) = crate::game::biolab_heredity::inherited(game, id) {
