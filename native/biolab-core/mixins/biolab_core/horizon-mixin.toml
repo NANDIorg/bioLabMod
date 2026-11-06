@@ -834,3 +834,17 @@ bindings = [
   { name = "at", ty = "[f64; 3]", value = "at" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
+
+# ---- M11-Б/В: урон и наследование (GDD 4.26) ----
+
+# Свои типы урона (M11-17): кислота, яд, болезнь, мутация. Таблица «эффект →
+# тип» — в `effects.rs` (`EFFECT_DAMAGE`); здесь — сборка `Damage` моба из
+# неё (`NamedDamage` с флагами по нашим тегам) и урон игроку по id типа.
+# Типы — `content/data/biolab/damage_type/`, теги —
+# `content/data/minecraft/tags/damage_type/`. Без номера API: `NamedDamage` —
+# скомпилированный тип пина, хук-поинтов он не добавляет.
+[[module]]
+id = "damage"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_damage"
+source = "damage.rs"

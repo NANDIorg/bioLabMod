@@ -43,6 +43,13 @@ fn biolab_deep_mobs_joined(game: &mut crate::game::Game<'_>, from: usize) {
         if data::checked(game, id) || !data::genome(game, id).is_empty() {
             continue;
         }
+        // Детёныш мутантов: геном по наследству вместо броска, и бросок его
+        // уже не перепишет (GDD 4.26, В; `heredity.rs`).
+        if let Some(heir) = crate::game::biolab_heredity::inherited(game, id) {
+            data::set_checked(game, id);
+            data::set_genome(game, id, &heir);
+            continue;
+        }
         data::set_checked(game, id);
         let genome = d::roll_for(&kind, id.wrapping_mul(2_654_435_761));
         if !genome.is_empty() {

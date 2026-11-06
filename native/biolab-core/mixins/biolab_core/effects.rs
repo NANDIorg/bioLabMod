@@ -28,9 +28,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-/// Тип урона наших эффектов (как у ванильного яда).
-pub const DAMAGE_TYPE: &str = "minecraft:magic";
-
 /// Эффекты контентного мода (`data/biolab/horizon/mob_effect/*.json`). Те же
 /// имена, что в `runtime.rs`; совпадение сверяет `tests/effects.rs`.
 pub const ACID_BURN: &str = "biolab:acid_burn";
@@ -49,6 +46,77 @@ const PARALYSIS_CHOKE: &str = "biolab:paralysis/choke";
 /// бьёт только по ритму, а паралич ещё и каждый тик держит моба без цели.
 pub const CHOKE_PERIOD: u64 = 100;
 pub const CHOKE_DAMAGE: f32 = 1.0;
+
+// ---- Типы урона (GDD 4.26, Б; M11-17) ----
+//
+// Раньше все наши эффекты били ванильной магией: в чате «убит магией», и ни
+// броня, ни лут, ни будущая спецодежда не отличали кислоту от яда. Теперь у
+// мода свои типы урона — файлы `content/data/biolab/damage_type/*.json`, теги
+// в `content/data/minecraft/tags/damage_type/` и сообщения о смерти
+// `death.attack.<message_id>` в языках. Игрок берёт тип из реестра мира
+// (`EffectAction::Hurt(id, сила)` → `health_resources.damage.id(id)`,
+// `game/potions.rs` пина; нет такого id — удара нет вовсе), моб — из флагов
+// `NamedDamage` (`docs/native-mods.md` пина, «Named mob damage»): флаги
+// обязаны совпадать с тегами, это сверяет `tests/effects.rs`.
+
+/// Тип урона: id в реестре и то, что моб узнаёт по тегам. Модуль чистый,
+/// поэтому флаги — булевы, а `Damage` моба из них собирает
+/// `crate::game::biolab_damage` (`damage.rs`).
+#[derive(Debug, PartialEq, Eq)]
+pub struct DamageType {
+    pub id: &'static str,
+    /// `#minecraft:bypasses_armor`: броня не режет урон.
+    pub bypasses_armor: bool,
+    /// `#minecraft:no_knockback`: удар не отбрасывает.
+    pub no_knockback: bool,
+    /// `#minecraft:panic_causes`: мирный моб от удара пускается бежать.
+    pub panic_causes: bool,
+}
+
+/// Ванильная магия — там, где урон не наш, и у кровотечения (своего типа у
+/// него нет). Флаги — ванильные: мимо брони, без отброса, пугает. Моб
+/// получает её как `DamageKind::Magic`, а не как именованный урон.
+pub const DAMAGE_MAGIC: DamageType =
+    DamageType { id: "minecraft:magic", bypasses_armor: true, no_knockback: true, panic_causes: true };
+/// Кислотный ожог: броня держит (кислота её и так портит), без отброса.
+pub const DAMAGE_ACID: DamageType =
+    DamageType { id: "biolab:acid", bypasses_armor: false, no_knockback: true, panic_causes: true };
+/// Яды: токсикоз, удушье кураре, смертельная доза газа. Мимо брони.
+pub const DAMAGE_TOXIN: DamageType =
+    DamageType { id: "biolab:toxin", bypasses_armor: true, no_knockback: true, panic_causes: true };
+/// Болезнь и её симптомы. Мимо брони.
+pub const DAMAGE_INFECTION: DamageType =
+    DamageType { id: "biolab:infection", bypasses_armor: true, no_knockback: true, panic_causes: true };
+/// Нестабильный геном, мутаген: тело рвёт само себя — мимо брони.
+pub const DAMAGE_MUTATION: DamageType =
+    DamageType { id: "biolab:mutation", bypasses_armor: true, no_knockback: true, panic_causes: true };
+
+/// Типы урона мода: у каждого свой JSON, теги и сообщения о смерти.
+pub const OUR_DAMAGE: [&DamageType; 4] = [&DAMAGE_ACID, &DAMAGE_TOXIN, &DAMAGE_INFECTION, &DAMAGE_MUTATION];
+
+/// Эффект болезни (`runtime.rs`, `INFECTION_EFFECT`).
+pub const INFECTION: &str = "biolab:infection";
+
+/// Какой эффект каким уроном бьёт — одна таблица на игрока и моба. Болезнь и
+/// мутаген сами сейчас не бьют (симптомы болезни — ванильные эффекты, мутаген
+/// копит нагрузку), но их тип записан здесь же: ударят — бить будут своим.
+/// Смертельная доза газа (`sleep.rs`) — это токсикоз и бьёт его типом.
+pub const EFFECT_DAMAGE: [(&str, &DamageType); 6] = [
+    (ACID_BURN, &DAMAGE_ACID),
+    (TOXICOSIS, &DAMAGE_TOXIN),
+    (PARALYSIS, &DAMAGE_TOXIN),
+    (BLEEDING, &DAMAGE_MAGIC),
+    (INFECTION, &DAMAGE_INFECTION),
+    (MUTAGENESIS, &DAMAGE_MUTATION),
+];
+
+/// Тип урона эффекта; незнакомый эффект — ванильная магия.
+pub fn damage_of(effect: &str) -> &'static DamageType {
+    EFFECT_DAMAGE
+        .iter()
+        .find(|(id, _)| *id == effect)
+        .map_or(&DAMAGE_MAGIC, |(_, damage)| *damage)
+}
 
 /// Эффект, который бьёт по здоровью: как часто и насколько сильно.
 #[derive(Debug)]
@@ -131,8 +199,8 @@ pub enum Who {
 /// Что сделать с носителем, когда дойдёт ход.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Act {
-    /// Урон магией.
-    Hurt(f32),
+    /// Урон: сила и тип (`damage_of` эффекта).
+    Hurt(f32, &'static DamageType),
     /// Моб забывает, кого преследовал (седация). Ванильного эффекта с таким
     /// поведением нет, а дротик для отлова мутантов без него не работает.
     Calm,
@@ -164,8 +232,8 @@ struct Pending {
 /// Действия, которые дождались своего тика игрока.
 #[derive(Debug, Default, PartialEq)]
 pub struct Due {
-    /// Урон игроку, который тикает сейчас.
-    pub hurts: Vec<f32>,
+    /// Урон игроку, который тикает сейчас: сила и тип.
+    pub hurts: Vec<(f32, &'static DamageType)>,
     /// Мобы уровня, на котором он стоит: id и что с ним сделать.
     pub mobs: Vec<(u32, Act)>,
 }
@@ -188,7 +256,7 @@ impl Effects {
     /// (GDD 3.7), и лишний удар всё равно погасили бы кадры неуязвимости.
     pub fn apply(&mut self, clock: u64, who: Who, effect: &str, amplifier: i32) -> bool {
         if let Some(h) = hurting(effect) {
-            self.push(clock, who, h.id, Act::Hurt(effect_amount(h, amplifier)));
+            self.push(clock, who, h.id, Act::Hurt(effect_amount(h, amplifier), damage_of(h.id)));
             return true;
         }
         match effect {
@@ -201,7 +269,7 @@ impl Effects {
             // задыхаются раз в `CHOKE_PERIOD` по часам игры.
             PARALYSIS => {
                 if clock % CHOKE_PERIOD == 0 {
-                    self.push(clock, who.clone(), PARALYSIS_CHOKE, Act::Hurt(CHOKE_DAMAGE));
+                    self.push(clock, who.clone(), PARALYSIS_CHOKE, Act::Hurt(CHOKE_DAMAGE, damage_of(PARALYSIS)));
                 }
                 if matches!(who, Who::Mob { .. }) {
                     self.push(clock, who, PARALYSIS, Act::Calm);
@@ -271,8 +339,8 @@ impl Effects {
         self.pending
             .retain(|p| p.at <= clock && clock - p.at <= STALE);
         self.pending.retain(|p| match (&p.who, p.act) {
-            (Who::Player(uuid), Act::Hurt(amount)) if *uuid == player => {
-                due.hurts.push(amount);
+            (Who::Player(uuid), Act::Hurt(amount, damage)) if *uuid == player => {
+                due.hurts.push((amount, damage));
                 false
             }
             (Who::Mob { dimension: d, id }, act) if d == dimension => {
@@ -343,6 +411,32 @@ mod tests {
         assert!(hurting("minecraft:poison").is_none());
     }
 
+    /// Таблица урона: каждый бьющий эффект записан явно, каждый наш тип
+    /// кому-то принадлежит, эффект назван один раз, чужое — магия.
+    #[test]
+    fn each_effect_names_its_damage_type() {
+        for effect in HURTING.iter().map(|h| h.id).chain([PARALYSIS]) {
+            assert!(EFFECT_DAMAGE.iter().any(|(id, _)| *id == effect), "{effect}: тип не записан");
+        }
+        for (i, (id, _)) in EFFECT_DAMAGE.iter().enumerate() {
+            assert!(EFFECT_DAMAGE[i + 1..].iter().all(|(other, _)| other != id), "{id} дважды");
+        }
+        for ours in OUR_DAMAGE {
+            assert!(ours.id.starts_with("biolab:"), "{}", ours.id);
+            assert!(EFFECT_DAMAGE.iter().any(|(_, d)| *d == ours), "{}: никому не принадлежит", ours.id);
+        }
+        assert_eq!(damage_of(ACID_BURN), &DAMAGE_ACID);
+        assert_eq!(damage_of(TOXICOSIS), &DAMAGE_TOXIN);
+        assert_eq!(damage_of(PARALYSIS), &DAMAGE_TOXIN);
+        assert_eq!(damage_of(BLEEDING), &DAMAGE_MAGIC);
+        assert_eq!(damage_of("minecraft:poison"), &DAMAGE_MAGIC);
+        // Спецификация (GDD 4.26, Б): яд и болезнь — мимо брони, кислота — нет.
+        assert!(DAMAGE_TOXIN.bypasses_armor && DAMAGE_INFECTION.bypasses_armor);
+        assert!(!DAMAGE_ACID.bypasses_armor);
+        // Наши эффекты бьют без отброса, как магия: иначе кислота толкала бы.
+        assert!(OUR_DAMAGE.iter().all(|d| d.no_knockback));
+    }
+
     #[test]
     fn no_period_beats_invulnerability() {
         for effect in &HURTING {
@@ -386,8 +480,9 @@ mod tests {
             fx.apply(clock, mob(4), PARALYSIS, 0);
             for (_, act) in fx.take(clock, None, "minecraft:overworld").mobs {
                 match act {
-                    Act::Hurt(amount) => {
+                    Act::Hurt(amount, damage) => {
                         assert_eq!(amount, CHOKE_DAMAGE);
+                        assert_eq!(damage, &DAMAGE_TOXIN, "кураре душит ядом");
                         hurts += 1;
                     }
                     Act::Calm => calms_seen += 1,
@@ -401,7 +496,7 @@ mod tests {
         let mut fx = Effects::default();
         fx.apply(CHOKE_PERIOD, Who::Player(Some(1)), PARALYSIS, 0);
         let due = fx.take(CHOKE_PERIOD, Some(1), "minecraft:overworld");
-        assert_eq!(due.hurts, vec![CHOKE_DAMAGE]);
+        assert_eq!(due.hurts, vec![(CHOKE_DAMAGE, &DAMAGE_TOXIN)]);
         assert!(due.mobs.is_empty());
     }
 
@@ -447,12 +542,12 @@ mod tests {
         fx.apply(40, Who::Mob { dimension: "minecraft:the_nether".into(), id: 5 }, TOXICOSIS, 0);
         fx.apply(40, mob(6), ACID_BURN, 2);
         let due = fx.take(40, Some(2), "minecraft:overworld");
-        assert_eq!(due.hurts, vec![1.5]);
-        assert_eq!(due.mobs, vec![(6, Act::Hurt(3.0))]);
+        assert_eq!(due.hurts, vec![(1.5, &DAMAGE_TOXIN)]);
+        assert_eq!(due.mobs, vec![(6, Act::Hurt(3.0, &DAMAGE_ACID))]);
         assert_eq!(fx.pending(), 2, "чужой игрок и моб другого уровня ждут");
         let due = fx.take(41, Some(1), "minecraft:the_nether");
-        assert_eq!(due.hurts, vec![1.0]);
-        assert_eq!(due.mobs, vec![(5, Act::Hurt(1.0))]);
+        assert_eq!(due.hurts, vec![(1.0, &DAMAGE_TOXIN)]);
+        assert_eq!(due.mobs, vec![(5, Act::Hurt(1.0, &DAMAGE_TOXIN))]);
         assert_eq!(fx.pending(), 0);
     }
 

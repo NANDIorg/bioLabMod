@@ -153,5 +153,13 @@
  "entity.biolab.dart_tranquilizer": "Tranquilizer Dart",
  "entity.biolab.grenade_ether": "Ether Grenade",
  "entity.biolab.grenade_chloroform": "Chloroform Grenade",
- "effect.biolab.paralysis": "Paralysis"
+ "effect.biolab.paralysis": "Paralysis",
+ "death.attack.biolab.acid": "%1$s was dissolved by acid",
+ "death.attack.biolab.acid.player": "%1$s was dissolved by acid while fighting %2$s",
+ "death.attack.biolab.toxin": "%1$s was poisoned to death",
+ "death.attack.biolab.toxin.player": "%1$s was poisoned to death while fighting %2$s",
+ "death.attack.biolab.infection": "%1$s succumbed to infection",
+ "death.attack.biolab.infection.player": "%1$s succumbed to infection while fighting %2$s",
+ "death.attack.biolab.mutation": "%1$s was torn apart by their own mutation",
+ "death.attack.biolab.mutation.player": "%1$s was torn apart by their own mutation while fighting %2$s"
 }
