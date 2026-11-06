@@ -577,6 +577,100 @@ fn biolab_core_screen_draw(
             }
             pen.bar([p[0] + 3.0, p[1] + p[3] - 10.0, p[2] - 6.0, 7.0], progress, 0xFF00_0000 | colour);
         }
+        // Ректификационная колонна (GDD 4.18): слева башня снизу вверх —
+        // огонь, кипятильник, пять мест под тарелки (стоящие светлые), сверху
+        // конденсатор; пар поднимается по тарелкам по ходу перегонки. Справа
+        // табло: собрана ли и чего не хватает. Слоты фракций сверх числа
+        // тарелок закрыты тёмной заглушкой: туда колонна не кладёт.
+        m::COLUMN => {
+            let shown = m::multiblock_shown(data);
+            let (formed, sections) = match &shown {
+                m::MultiblockShown::Formed { sections, .. } => (true, *sections),
+                _ => (false, 0),
+            };
+            pen.glass(p);
+            let (x, w) = (p[0] + 4.0, p[2] - 8.0);
+            let mut row = p[1] + p[3] - 2.0;
+            let flame = [x, row - 4.0, w, 4.0];
+            pen.fill(flame, if working { 0xFF_FF8A30 } else { 0xFF_5A3A2A });
+            if working && m::anim_frame(true, millis, 150, 2) == 1 {
+                pen.fill([x + 2.0, row - 6.0, w - 4.0, 2.0], 0xFF_FFD070);
+            }
+            row -= 5.0;
+            pen.fill([x - 1.0, row - 9.0, w + 2.0, 9.0], if formed { 0xFF_C06C40 } else { 0xFF_7A4A30 });
+            pen.fill([x - 1.0, row - 9.0, w + 2.0, 1.0], 0xFF_E89864);
+            row -= 10.0;
+            // Пар: сколько тарелок уже прогрелось, снизу вверх.
+            let hot = (progress * sections as f32).ceil() as u32;
+            for k in 0..m::COLUMN_TRAYS.1 {
+                let tray = [x, row - 5.0, w, 5.0];
+                let present = formed && k < sections;
+                pen.fill(tray, if present { m::SCREEN_STEEL_LIGHT } else { m::SCREEN_STEEL_DARK });
+                if present && working && k < hot {
+                    pen.fill([x + 2.0, tray[1] + 2.0, w - 4.0, 1.0], m::SCREEN_TEAL);
+                }
+                row -= 6.0;
+            }
+            pen.fill([x - 1.0, row - 4.0, w + 2.0, 4.0], if formed { 0xFF_D88A45 } else { m::SCREEN_STEEL_DARK });
+
+            // Заглушки на слотах фракций, которых при этой высоте нет.
+            for (i, at) in layout.slots.iter().enumerate().skip(1) {
+                if let Some([sx, sy]) = at
+                    && formed
+                    && (i as u32) > sections
+                {
+                    pen.fill([*sx, *sy, 16.0, 16.0], m::SCREEN_STEEL_DARK);
+                    pen.fill([*sx + 4.0, *sy + 7.0, 8.0, 2.0], m::SCREEN_EDGE);
+                }
+            }
+
+            // Табло сборки.
+            pen.glass(g);
+            let inner = g[2] - 6.0;
+            let (head, head_ink, rest): (&str, u32, Vec<String>) = match &shown {
+                m::MultiblockShown::Unknown => ("Проверка схемы…", m::SCREEN_TEXT_DIM, Vec::new()),
+                m::MultiblockShown::Formed { sections, .. } => {
+                    ("Собрана", 0x5A_E8B4, vec![m::column_status(*sections)])
+                }
+                m::MultiblockShown::Broken { rows, total } => {
+                    let lines = m::multiblock(block)
+                        .map(|mb| m::shortage_lines(mb, rows, *total))
+                        .unwrap_or_default();
+                    ("Не собрана", 0xE8_5A4A, lines.into_iter().take(1).collect())
+                }
+            };
+            pen.text(head, [g[0] + 3.0, g[1] + 3.0], head_ink, true);
+            let mut line_y = g[1] + 13.0;
+            for text in &rest {
+                for line in pen.wrap(text, inner) {
+                    if line_y + 8.0 > g[1] + g[3] - 1.0 {
+                        break;
+                    }
+                    let line = pen.fit(&line, inner);
+                    pen.text(&line, [g[0] + 3.0, line_y], m::SCREEN_TEXT, false);
+                    line_y += 10.0;
+                }
+            }
+        }
+        // Порт установки: стрелка подачи — бирюзовая к слотам у входного,
+        // янтарная от слотов у выходного; справа табличка.
+        m::INPUT_PORT | m::OUTPUT_PORT => {
+            let input = block == m::INPUT_PORT;
+            let colour = if input { m::SCREEN_TEAL } else { m::SCREEN_AMBER };
+            pen.glass(g);
+            let cy = (g[1] + g[3] / 2.0).floor();
+            pen.fill([g[0] + 4.0, cy - 1.0, g[2] - 8.0, 2.0], colour);
+            for k in 0..4 {
+                let k = k as f32;
+                let ax = if input { g[0] + g[2] - 5.0 - k } else { g[0] + 4.0 + k };
+                pen.fill([ax, cy - 1.0 - k, 1.0, 2.0 + 2.0 * k], colour);
+            }
+            pen.glass(p);
+            let label = if input { "вход" } else { "выход" };
+            let lw = pen.width(label);
+            let ink = if input { 0x3F_D8C4 } else { 0xE0_A040 };
+            pen.text(label, [p[0] + ((p[2] - lw) / 2.0).floor(), p[1] + 6.0], ink, false);
+        }
         _ => {}
     }
 }

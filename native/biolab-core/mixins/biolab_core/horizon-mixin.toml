@@ -950,3 +950,36 @@ bindings = [
   { name = "stack", ty = "Option<&horizon_client::items::ItemStack>", value = "stack" },
   { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
 ]
+
+# ---- M8: многоблочные установки (GDD 4.18) ----
+# Каркас установок — модуль игры: зовут тик контроллера (`machine.rs`) и
+# ломание контроллера (`multiblock_broken.rs`), а установок будет четыре.
+# Решения — раздел «M8» в `runtime.rs`. Новых хуков для тика нет: контроллер —
+# машина из `MACHINES`, его тикает `machine-tick`, слоты портов отдаёт
+# `block-entity-container`, блок-сущность портам — `block-entity`.
+[[module]]
+id = "multiblock"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_multiblock"
+source = "multiblock.rs"
+
+# Ректификационная колонна: работа кипятильника (рецепт, фракции по слотам).
+# Каждая следующая установка — свой модуль рядом.
+[[module]]
+id = "column"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_column"
+source = "column.rs"
+
+# Контроллер сломал игрок — расклеить части (`formed=false`). Второй перехват
+# ломания блока рядом с `mandrake.rs`; стабильный хук API 14, на сервере.
+[[injection]]
+id = "multiblock-broken"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_destroy_block"
+helper = "multiblock_broken.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+]

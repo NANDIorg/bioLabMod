@@ -373,6 +373,18 @@ fn biolab_core_machine_tick(
     let Some(machine) = m::machine(&entity.id) else {
         return;
     };
+    // Контроллер многоблочной установки (GDD 4.18, M8): каркас сверяет схему,
+    // склеивает вид и носит предметы через порты (`biolab_multiblock`), потом
+    // работает сама установка — своим модулем. Новая установка — строка здесь.
+    if m::multiblock(&entity.id).is_some() {
+        let assembly = crate::game::biolab_multiblock::tick(game, pos, entity);
+        let step = match entity.id.as_str() {
+            m::COLUMN => crate::game::biolab_column::work(game, entity, assembly.as_ref()),
+            _ => m::Step::Idle,
+        };
+        machine_sound(game, pos, entity, step);
+        return;
+    }
     let output_slot = machine.slots - 1;
     if entity.id == m::SYNTHESIZER {
         // Смесь по рецепту (транквилизатор зверолова, GDD 4.20, M5): входы
