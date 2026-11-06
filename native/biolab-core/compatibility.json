@@ -2,7 +2,7 @@
   "game": "26.3",
   "hooks": 334,
   "horizon_repository": "https://github.com/horizon-rust/horizon",
-  "horizon_revision": "31f83499b6c2cff7a8e7bf45f8173a7a95c2767c",
+  "horizon_revision": "66f3981f522b24c250b21523a70080965b940424",
   "horizon_mixins_repository": "https://github.com/horizon-rust/horizon-mixins",
-  "horizon_mixins_revision": "ddd9700b21997c95d95ac6ee5ecafe3830cf622a"
+  "horizon_mixins_revision": "5a64af938ec86b00d53d16a408aabc0038fb3e57"
 }

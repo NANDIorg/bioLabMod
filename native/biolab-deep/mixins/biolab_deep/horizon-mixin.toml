@@ -7,7 +7,7 @@ priority = 100
 # хук-поинтам, поэтому он привязан к коммиту и после обновления Horizon
 # его цели нужно перепроверять.
 [compatibility]
-horizon_revision = "31f83499b6c2cff7a8e7bf45f8173a7a95c2767c"
+horizon_revision = "66f3981f522b24c250b21523a70080965b940424"
 
 [[module]]
 id = "runtime"
