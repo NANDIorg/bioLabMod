@@ -18,7 +18,8 @@
   `cullface` только у грани, лежащей на этой границе блока, `light_emission` 0…15;
 - машины (блоки на шаблонах-кубах `furnace`, `iron_block`, у которых своя
   модель из элементов): у граней есть `uv`; детали по X и Z внутри 0…16 с учётом
-  поворота; не выше 20 по Y; низ закрыт целиком (грани `down` на y = 0 покрывают
+  поворота (кроме блоков из `OVERSIZE`: их модель рисует вид всей
+  установки и выходит за блок — только в −16…32); не выше 20 по Y; низ закрыт целиком (грани `down` на y = 0 покрывают
   16×16); есть `display` для gui/ground/fixed/рук; 6–20 элементов (предупреждение);
 - предметы: ссылки на модели в items/*.json существуют, у каждого блока с
   `"item": true` есть items/<id>.json;
@@ -52,6 +53,10 @@ DIRS = ("down", "up", "north", "south", "west", "east")
 DISPLAY = ("gui", "ground", "fixed", "thirdperson_righthand", "firstperson_righthand")
 CUBE_TEMPLATES = ("minecraft:furnace", "minecraft:iron_block")
 MAX_Y = 20
+# Блоки, чья модель может выйти за свой блок (до −16…32, как разрешает
+# движок): контроллер биореактора в собранном виде рисует общий вид всей
+# передней грани куба 3×3×3 (GDD 4.18). Остальные правила машин — в силе.
+OVERSIZE = {"biolab:bioreactor"}
 # Свойства шаблонов, если ванильных ресурсов под рукой нет.
 KNOWN_STATES = {
     "minecraft:furnace": {"facing": ["east", "north", "south", "west"], "lit": ["false", "true"]},
@@ -235,7 +240,7 @@ def rotate(p, rot):
     return x + o[0], y + o[1], z + o[2]
 
 
-def check_element(e, where, machine):
+def check_element(e, where, machine, oversize=False):
     if not isinstance(e, dict):
         err(where, "элемент не объект")
         return None
@@ -286,7 +291,7 @@ def check_element(e, where, machine):
                 err(w, f"cullface {cull} у грани не на границе блока")
         if face.get("rotation", 0) % 90:
             err(w, "поворот текстуры не кратен 90")
-    if machine:
+    if machine and not oversize:
         corners = [(x, y, z) for x in (f[0], t[0]) for y in (f[1], t[1]) for z in (f[2], t[2])]
         if rot is not None:
             corners = [rotate(p, rot) for p in corners]
@@ -309,7 +314,7 @@ def auto_uv(face, f, t):
             "west": [z1, 16 - y2, z2, 16 - y1], "east": [16 - z2, 16 - y2, 16 - z1, 16 - y1]}[face]
 
 
-def check_model(assets, ref, where, machine, checked_tex, checked_models):
+def check_model(assets, ref, where, machine, checked_tex, checked_models, oversize=False):
     # Модель машины уже проверена строго — предмет с ней же не проверяем повторно.
     if (ref, machine) in checked_models or (ref, True) in checked_models:
         return
@@ -336,7 +341,7 @@ def check_model(assets, ref, where, machine, checked_tex, checked_models):
         warn(w, f"{len(elements)} элементов, советуется 6–20")
     bottom = set()
     for i, e in enumerate(elements):
-        res = check_element(e, f"{w} элемент {i}", machine)
+        res = check_element(e, f"{w} элемент {i}", machine, oversize)
         if res is None:
             continue
         f, t, faces, rot = res
@@ -514,7 +519,8 @@ def check_blockstate(assets, ns, block, path, template, checked_tex, checked_mod
     # Своя модель из элементов у кубического шаблона — это машина: строгие правила.
     for key, ref in models:
         strict = machine and own_elements(assets, ref)
-        check_model(assets, ref, f"{where} «{key}»", strict, checked_tex, checked_models)
+        check_model(assets, ref, f"{where} «{key}»", strict, checked_tex, checked_models,
+                    f"{ns}:{block}" in OVERSIZE)
     return [ref for _, ref in models]
 
 

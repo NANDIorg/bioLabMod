@@ -4,6 +4,7 @@
   "items": [
     "biolab:lab_bench",
     "biolab:lab_manual",
+    "biolab:bioreactor",
     "biolab:casing",
     "biolab:casing_glass",
     "biolab:centrifuge",

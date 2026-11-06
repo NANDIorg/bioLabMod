@@ -169,5 +169,6 @@
  "block.biolab.output_port": "Output Port",
  "block.biolab.column": "Column Reboiler",
  "block.biolab.column_tray": "Column Tray",
- "block.biolab.column_condenser": "Column Condenser"
+ "block.biolab.column_condenser": "Column Condenser",
+ "block.biolab.bioreactor": "Bioreactor"
 }

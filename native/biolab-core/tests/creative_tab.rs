@@ -75,6 +75,8 @@ fn group(item: &str) -> usize {
         // Многоблочные установки (GDD 4.18): общие части и колонна — к машинам.
         "casing" | "casing_glass" | "input_port" | "output_port" | "column" | "column_tray"
         | "column_condenser" => 1,
+        // Биореактор (GDD 4.18, п. 2).
+        "bioreactor" => 1,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
         // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.
