@@ -1114,10 +1114,9 @@ fn biolab_core_machine_tick(
                     }
                 });
                 let seed = (pos[0] as i64 * 13 + pos[2] as i64 * 7 + game.ticks as i64) as u64;
-                let strain = match before {
-                    Some(strain) => m::select(&strain, seed),
-                    None => m::WILD,
-                };
+                // Палочка с мазком с моба (M11-А) даёт его штамм как есть.
+                let strain =
+                    m::incubated_strain(input.as_ref().map(|stack| &*stack.item), before, seed);
                 let text = m::strain_to_text(&strain);
                 let data = result.extra.get_or_insert_with(Default::default);
                 data.other.retain(|(key, _)| key != "minecraft:custom_data");

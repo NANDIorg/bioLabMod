@@ -1838,8 +1838,13 @@ pub const HUMANOIDS: [&str; 23] = [
     "creaking", "mannequin",
 ];
 
-/// Вид без пространства имён: `minecraft:zombie` → `zombie`.
+/// Вид без пространства имён: `minecraft:zombie` → `zombie`. Свой вид мода
+/// (`biolab:infected`) — это тело его шаблона: конечности, рост, масса и
+/// носилки у него зомби (`mod_template`, раздел «M11-А: Заражённый»).
 fn short_kind(kind: &str) -> &str {
+    if let Some(template) = mod_template(kind) {
+        return template;
+    }
     kind.strip_prefix("minecraft:").unwrap_or(kind)
 }
 
@@ -2003,6 +2008,9 @@ pub const MOB_TITLES: [(&str, &str); 66] = [
 
 /// Имя вида по-русски.
 pub fn mob_title(kind: &str) -> String {
+    if let Some(title) = mod_title(kind) {
+        return title.to_string();
+    }
     let short = short_kind(kind);
     MOB_TITLES
         .iter()
@@ -6814,7 +6822,7 @@ pub fn trial_record(item: &str, mob: &str) -> String {
             CULTURE_ID => "Культура",
             _ => "Препарат",
         });
-    let target = mob.strip_prefix("minecraft:").unwrap_or(mob);
+    let target = kind_label(mob);
     format!("{target} ← {what}")
 }
 
@@ -6828,7 +6836,7 @@ pub fn console_lines(
         lines.push("Вольеры пусты".to_string());
     }
     for (kind, health, max_health, genes, sick) in subjects {
-        let name = kind.strip_prefix("minecraft:").unwrap_or(kind);
+        let name = kind_label(kind);
         lines.push(format!(
             "{name}: {:.0}/{:.0} HP{}",
             health,
@@ -8345,7 +8353,12 @@ mod tests {
             let path = entry.unwrap().path();
             let id = format!("biolab:{}", path.file_stem().unwrap().to_string_lossy());
             let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-            // Движок пина копирует только снежок (`ENTITY_TEMPLATES`).
+            // Свой живой вид (заражённый, шаблон — зомби) — не снаряд: его
+            // проверяет `infected_tests`.
+            if mod_template(&id).is_some() {
+                continue;
+            }
+            // Снаряд копирует снежок (`ENTITY_TEMPLATES`).
             assert_eq!(json.get("template").and_then(Json::str), Some("minecraft:snowball"), "{id}");
             assert_eq!(json.get("item").and_then(Json::str), Some(id.as_str()), "{id}: бросает не свой предмет");
             // Газовая граната — тоже снаряд-снежок (GDD 4.20), но не дротик.
@@ -11609,6 +11622,437 @@ mod research_tests {
         assert_eq!(Json::parse(r#"{"a":"Ж\n","b":[1,-2.5e1,true,null]}"#).unwrap().get("a").and_then(Json::str), Some("Ж\n"));
         assert_eq!(Json::parse("{\"a\":1,}"), None);
         assert_eq!(recipe_view("{\"type\":\"minecraft:smelting\",\"result\":\"x\"}"), None);
+    }
+}
+
+// ---- M11-А: Заражённый (GDD 4.26 А) ----
+//
+// Первый свой вид моба: `biolab:infected` — живой тип на шаблоне зомби
+// (`data/biolab/horizon/entity_type/infected.json`). Тело, модель, звуки и
+// цели — зомби; поверх — охота на скот (`infected_goals.rs`, хук
+// `register_goals` lib-крейта) и болезнь в ударе. Здесь — чистая часть:
+// таблица своих видов, штамм заражённого, очередь ударов и правила мазка.
+//
+// Кто ударил, хук урона (`native_living_incoming_damage`, API 50) знает только
+// по номеру сущности и без доступа к игре, а удар моба по игроку приходит в
+// пине вовсе без атакующего (`hurt_player_from` угадывает его, но хуку отдаёт
+// 0). Поэтому хук урона только записывает удар в очередь
+// (`infected_hurt.rs`), а разбирает её тик игрока (`infected_tick.rs`): там
+// видны мобы, их виды и состояние игрока.
+
+/// Вид «Заражённый».
+pub const INFECTED_ID: &str = "biolab:infected";
+/// Ватная палочка: ею берут мазок.
+pub const SWAB_ID: &str = "biolab:swab";
+
+/// Свои виды мода: id, шаблон (чьё у вида тело — без пространства имён) и
+/// имя для чата. Таблицы операционной, носилок и массы (`short_kind`) видят
+/// свой вид телом шаблона.
+pub const MOD_MOBS: [(&str, &str, &str); 1] = [(INFECTED_ID, "zombie", "Заражённый")];
+
+/// Шаблон своего вида мода; None — вид не наш.
+pub fn mod_template(kind: &str) -> Option<&'static str> {
+    MOD_MOBS.iter().find(|(id, _, _)| *id == kind).map(|(_, template, _)| *template)
+}
+
+/// Имя своего вида мода; None — вид не наш.
+pub fn mod_title(kind: &str) -> Option<&'static str> {
+    MOD_MOBS.iter().find(|(id, _, _)| *id == kind).map(|(_, _, title)| *title)
+}
+
+/// Подпись вида в журнале опытов и на пульте: ванильный — без
+/// пространства имён (`cow`), свой — по имени («Заражённый»), а не
+/// `biolab:infected`.
+pub fn kind_label(kind: &str) -> &str {
+    mod_title(kind).unwrap_or_else(|| kind.strip_prefix("minecraft:").unwrap_or(kind))
+}
+
+/// Заражённый ли это. Игра зовёт ванильные виды и с пространством имён, и
+/// без; свой — всегда с ним.
+pub fn is_infected(kind: &str) -> bool {
+    kind == INFECTED_ID
+}
+
+/// Штамм заражённого: заразнее дикого (3 против 2), инкубация короче, курс
+/// чуть длиннее. Его получает тот, кого заражённый ранил, и культура с
+/// него — мазком или из добычи.
+pub const INFECTED_STRAIN: Strain = Strain {
+    infectivity: 3,
+    incubation: 2,
+    severity: 2,
+    resistance: 2,
+};
+
+/// Насколько поднимает заражение игрока удар заражённого: втрое больше
+/// близкого контакта с зомби (`CONTACT_STEP`).
+pub const INFECTED_HIT_STEP: u32 = 10;
+
+/// Сколько держится болезнь на мобе, которого ранил заражённый или заразил
+/// сосед по стаду: десять минут. Болезнь моба — эффект `biolab:infection`
+/// (его и видит пульт: «болен»).
+pub const INFECTED_MOB_TICKS: i32 = 12_000;
+
+/// На кого заражённый охотится, кроме игрока и жителей (цели зомби): скот.
+/// Те же виды — в цели `infected_goals.rs` (там — `Species` игры).
+pub const INFECTED_PREY: [&str; 4] =
+    ["minecraft:cow", "minecraft:pig", "minecraft:sheep", "minecraft:chicken"];
+
+/// Кто из мобов болеет от удара заражённого и передаёт болезнь соседям по
+/// стаду: домашняя живность.
+pub const CATCHES_INFECTION: [&str; 12] = [
+    "minecraft:cow",
+    "minecraft:pig",
+    "minecraft:sheep",
+    "minecraft:chicken",
+    "minecraft:mooshroom",
+    "minecraft:goat",
+    "minecraft:rabbit",
+    "minecraft:horse",
+    "minecraft:donkey",
+    "minecraft:mule",
+    "minecraft:llama",
+    "minecraft:camel",
+];
+
+/// Болеет ли моб этого вида от удара заражённого.
+pub fn catches_infection(kind: &str) -> bool {
+    CATCHES_INFECTION.contains(&full_kind(kind).as_str())
+}
+
+/// Тип урона ближнего удара моба (`DamageSource.mobAttack`).
+pub const MOB_ATTACK: &str = "minecraft:mob_attack";
+/// Как хук урона называет игрока.
+pub const PLAYER_KIND: &str = "minecraft:player";
+
+/// Удар моба, отложенный до тика игрока.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobHit {
+    /// Номер сущности того, кого ударили.
+    pub victim: i32,
+    /// Ударили игрока.
+    pub player: bool,
+    /// Номер ударившего; 0 — хук его не знает (удар по игроку).
+    pub causing: i32,
+    /// Сколько раз удар уже переложили: он ждал тика своего игрока.
+    pub age: u8,
+}
+
+/// Сколько ударов держит очередь: если её никто не разбирает (на сервере
+/// нет игроков), она не растёт бесконечно.
+pub const MOB_HITS_CAP: usize = 256;
+/// Сколько раз удар по игроку перекладывают, пока не дойдёт тик того, кого
+/// ударили (по гостю LAN — тик гостя). Дальше — забываем.
+pub const MOB_HIT_MAX_AGE: u8 = 4;
+
+/// Удар, который стоит запомнить; None — не ближний удар моба или вид,
+/// которому болезнь от удара не страшна.
+pub fn hit_worth_noting(victim: i32, kind: &str, damage_type: &str, causing: i32) -> Option<MobHit> {
+    if damage_type != MOB_ATTACK {
+        return None;
+    }
+    if kind == PLAYER_KIND {
+        return Some(MobHit { victim, player: true, causing, age: 0 });
+    }
+    (causing > 0 && catches_infection(kind)).then_some(MobHit { victim, player: false, causing, age: 0 })
+}
+
+fn mob_hits() -> &'static std::sync::Mutex<Vec<MobHit>> {
+    static HITS: std::sync::OnceLock<std::sync::Mutex<Vec<MobHit>>> = std::sync::OnceLock::new();
+    HITS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// Хук урона: запомнить удар (`infected_hurt.rs`). Зовётся на потоке
+/// сервера посреди удара, поэтому — только запись.
+pub fn note_mob_hit(victim: i32, kind: &str, damage_type: &str, causing: i32) {
+    let Some(hit) = hit_worth_noting(victim, kind, damage_type, causing) else {
+        return;
+    };
+    if let Ok(mut hits) = mob_hits().lock()
+        && hits.len() < MOB_HITS_CAP
+    {
+        hits.push(hit);
+    }
+}
+
+/// Тик игрока: забрать накопленные удары.
+pub fn take_mob_hits() -> Vec<MobHit> {
+    mob_hits().lock().map(|mut hits| std::mem::take(&mut *hits)).unwrap_or_default()
+}
+
+/// Удары по другим игрокам — обратно в очередь, на их тик; постаревшие
+/// забываются.
+pub fn requeue_mob_hits(rest: Vec<MobHit>) {
+    let keep: Vec<MobHit> = rest
+        .into_iter()
+        .filter(|hit| hit.age < MOB_HIT_MAX_AGE)
+        .map(|hit| MobHit { age: hit.age + 1, ..hit })
+        .collect();
+    if keep.is_empty() {
+        return;
+    }
+    if let Ok(mut hits) = mob_hits().lock() {
+        let room = MOB_HITS_CAP.saturating_sub(hits.len());
+        hits.extend(keep.into_iter().take(room));
+    }
+}
+
+/// Насколько далеко ищем ударившего игрока, если хук его не назвал: удар
+/// рукой достаёт на 2–3 блока.
+pub const MELEE_GUESS_RANGE: f64 = 3.0;
+
+/// Кто ударил игрока: названный хуком, иначе ближайший из тех, кто охотится
+/// на игрока, в пределах удара (так же гадает сама игра,
+/// `hurt_player_from`). `near` — номер моба и квадрат расстояния до игрока.
+pub fn guess_attacker(causing: i32, near: &[(u32, f64)]) -> Option<u32> {
+    if causing > 0 {
+        return Some(causing as u32);
+    }
+    near.iter()
+        .filter(|(_, d2)| d2.is_finite() && *d2 <= MELEE_GUESS_RANGE * MELEE_GUESS_RANGE)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| *id)
+}
+
+/// Сообщение игроку, которого заражённый ранил впервые (до этого был здоров).
+pub const INFECTED_HIT_MESSAGE: &str = "Заражённый поцарапал вас: в крови чужой штамм";
+
+/// Штамм, которым заражает близкий контакт: рядом заражённый — его, иначе
+/// дикий (зомби). `kinds` — виды мобов вплотную к игроку.
+pub fn contact_strain<'a>(kinds: impl IntoIterator<Item = &'a str>) -> Strain {
+    if kinds.into_iter().any(is_infected) {
+        INFECTED_STRAIN
+    } else {
+        WILD
+    }
+}
+
+/// Шанс за проверку, что больной моб заразит соседа по стаду: 5 % за
+/// единицу заразности штамма.
+pub const SPREAD_PERCENT_PER_INFECTIVITY: u64 = 5;
+
+/// Заразит ли больной сосед здорового на этой проверке. `seed` — от
+/// номеров обоих и тика: прогон повторяется.
+pub fn spreads(strain: &Strain, seed: u64) -> bool {
+    seed % 100 < SPREAD_PERCENT_PER_INFECTIVITY * strain.infectivity.clamp(0, 5) as u64
+}
+
+/// Пора ли проверять стадо: раз в шаг болезни (`INFECTION_EVERY`) и один
+/// раз за тик сервера, сколько бы игроков ни было в мире.
+pub fn herd_check_due(ticks: u64) -> bool {
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+    ticks % INFECTION_EVERY == 0 && LAST.swap(ticks, std::sync::atomic::Ordering::Relaxed) != ticks
+}
+
+/// Зерно броска заражения соседа.
+pub fn herd_seed(sick: u32, healthy: u32, ticks: u64) -> u64 {
+    (u64::from(sick).wrapping_mul(2_654_435_761) ^ u64::from(healthy).wrapping_mul(40_503) ^ ticks)
+        .wrapping_mul(6_364_136_223_846_793_005)
+        >> 33
+}
+
+/// Зомби разных видов — носители дикого штамма.
+pub const WILD_CARRIERS: [&str; 4] =
+    ["minecraft:zombie", "minecraft:husk", "minecraft:drowned", "minecraft:zombie_villager"];
+
+/// Штамм, который даёт мазок с моба: заражённый и больной моб (заболеть он
+/// может только от заражённого) — штамм заражённого, зомби — дикий, со
+/// здорового — ничего.
+pub fn swab_strain(kind: &str, sick: bool) -> Option<Strain> {
+    if is_infected(kind) || sick {
+        return Some(INFECTED_STRAIN);
+    }
+    WILD_CARRIERS.contains(&full_kind(kind).as_str()).then_some(WILD)
+}
+
+/// Подпись палочки с мазком: «Мазок: З3 И2 Т2 С2».
+pub fn swab_label(strain: &Strain) -> String {
+    culture_label(strain).replacen("Культура", "Мазок", 1)
+}
+
+/// Что сказать, когда мазок взят.
+pub fn swab_message(kind: &str, strain: &Strain) -> String {
+    format!("Мазок взят: {} ({})", mob_title(kind), swab_label(strain))
+}
+
+/// Что сказать, когда мазок брать не с чего.
+pub const SWAB_CLEAN: &str = "Мазок чистый: этот моб ничем не болен";
+/// Палочка в руке уже с мазком.
+pub const SWAB_USED: &str = "На палочке уже есть мазок: возьмите чистую";
+/// Положить палочку с мазком некуда.
+pub const SWAB_NO_ROOM: &str = "Некуда положить мазок: освободите место в инвентаре";
+
+/// Штамм культуры, которую вырастил инкубатор. Мазок с моба даёт штамм
+/// этого моба как есть; прогон готовой культуры — следующее поколение со
+/// сдвигом (`select`); чистая палочка — дикую линию.
+pub fn incubated_strain(input: Option<&str>, before: Option<Strain>, seed: u64) -> Strain {
+    match (input, before) {
+        (Some(SWAB_ID), Some(strain)) => strain,
+        (_, Some(strain)) => select(&strain, seed),
+        (_, None) => WILD,
+    }
+}
+
+#[cfg(test)]
+mod infected_tests {
+    use super::*;
+
+    #[test]
+    fn infected_has_a_zombie_body_and_its_own_name() {
+        assert_eq!(mod_template(INFECTED_ID), Some("zombie"));
+        assert_eq!(mod_template("minecraft:zombie"), None);
+        assert_eq!(mob_title(INFECTED_ID), "Заражённый");
+        // Тело — зомби: четыре конечности по-человечьи, носилки, масса и
+        // длина на столе как у зомби.
+        assert_eq!(limbs_of(INFECTED_ID), limbs_of("minecraft:zombie"));
+        assert_eq!(limb_name(INFECTED_ID, 0), "правая рука");
+        assert!(can_carry(INFECTED_ID));
+        assert_eq!(species_mass(INFECTED_ID, 0.6, 1.95), species_mass("minecraft:zombie", 0.6, 1.95));
+        assert_eq!(table_sections(INFECTED_ID, 0.6, 1.95, &[]), table_sections("minecraft:zombie", 0.6, 1.95, &[]));
+        // Носилки пишут вид полностью: `native_spawn_mob` вернёт его на стол
+        // своим видом, а не зомби.
+        assert_eq!(full_kind(INFECTED_ID), INFECTED_ID);
+        let patient = Patient {
+            kind: INFECTED_ID.to_string(),
+            genes: vec![],
+            health: 24.0,
+            flayed: 0,
+            name: None,
+            sleeper: None,
+            paralysed: false,
+        };
+        assert_eq!(patient_from_text(&patient_to_text(&patient)).map(|p| p.kind), Some(INFECTED_ID.to_string()));
+        // Журнал и пульт подписывают его по имени, ванильных — как прежде.
+        assert_eq!(kind_label(INFECTED_ID), "Заражённый");
+        assert_eq!(kind_label("minecraft:cow"), "cow");
+        assert_eq!(trial_record(CULTURE_ID, INFECTED_ID), "Заражённый ← Культура");
+        let lines = console_lines(&[(INFECTED_ID.to_string(), 20.0, 24.0, vec![], true)], &[]);
+        assert!(lines.iter().any(|l| l.starts_with("Заражённый: 20/24 HP, болен")), "{lines:?}");
+    }
+
+    #[test]
+    fn only_mob_melee_on_players_and_livestock_is_queued() {
+        let player = hit_worth_noting(7, PLAYER_KIND, MOB_ATTACK, 0);
+        assert_eq!(player, Some(MobHit { victim: 7, player: true, causing: 0, age: 0 }));
+        assert!(hit_worth_noting(9, "minecraft:cow", MOB_ATTACK, 3).is_some());
+        assert!(hit_worth_noting(9, "cow", MOB_ATTACK, 3).is_some(), "вид без пространства имён");
+        assert!(hit_worth_noting(9, "minecraft:cow", MOB_ATTACK, 0).is_none(), "без атакующего мобу не узнать, кто бил");
+        assert!(hit_worth_noting(9, "minecraft:cow", "minecraft:arrow", 3).is_none());
+        assert!(hit_worth_noting(7, PLAYER_KIND, "minecraft:fall", 0).is_none());
+        assert!(hit_worth_noting(9, "minecraft:skeleton", MOB_ATTACK, 3).is_none(), "нежить не болеет");
+        for prey in INFECTED_PREY {
+            assert!(catches_infection(prey), "{prey}: добыча заражённого болеет от его удара");
+        }
+    }
+
+    #[test]
+    fn queue_is_capped_and_requeued_hits_age_out() {
+        // Очередь общая для процесса: тест держит её сам от начала до конца.
+        let _ = take_mob_hits();
+        for i in 0..(MOB_HITS_CAP as i32 + 10) {
+            note_mob_hit(i, PLAYER_KIND, MOB_ATTACK, 0);
+        }
+        let hits = take_mob_hits();
+        assert_eq!(hits.len(), MOB_HITS_CAP);
+        assert!(take_mob_hits().is_empty(), "забранные удары уходят из очереди");
+        let mut hit = vec![hits[0]];
+        for age in 1..=MOB_HIT_MAX_AGE {
+            requeue_mob_hits(hit);
+            hit = take_mob_hits();
+            assert_eq!(hit.len(), 1);
+            assert_eq!(hit[0].age, age);
+        }
+        requeue_mob_hits(hit);
+        assert!(take_mob_hits().is_empty(), "удар, не дождавшийся своего игрока, забыт");
+    }
+
+    #[test]
+    fn attacker_is_the_named_one_or_the_nearest_in_reach() {
+        assert_eq!(guess_attacker(12, &[(3, 1.0)]), Some(12));
+        assert_eq!(guess_attacker(0, &[(3, 4.0), (4, 1.0), (5, 0.5 + 100.0)]), Some(4));
+        assert_eq!(guess_attacker(0, &[(3, 9.5)]), None, "дальше удара");
+        assert_eq!(guess_attacker(0, &[(3, f64::NAN)]), None);
+        assert_eq!(guess_attacker(0, &[]), None);
+    }
+
+    #[test]
+    fn infected_strain_is_its_own_and_moderately_contagious() {
+        assert_ne!(INFECTED_STRAIN, WILD);
+        assert_eq!(Strain::of(INFECTED_STRAIN.values()), INFECTED_STRAIN, "в пределах 1–5");
+        assert!(INFECTED_STRAIN.infectivity > WILD.infectivity && INFECTED_STRAIN.infectivity <= 3);
+        assert!(INFECTED_HIT_STEP > CONTACT_STEP);
+        assert_eq!(contact_strain(["minecraft:zombie", INFECTED_ID]), INFECTED_STRAIN);
+        assert_eq!(contact_strain(["minecraft:zombie"]), WILD);
+        assert_eq!(contact_strain([]), WILD);
+    }
+
+    #[test]
+    fn herd_spread_follows_infectivity() {
+        let share = |strain: &Strain| (0..10_000u64).filter(|s| spreads(strain, herd_seed(*s as u32, 77, *s))).count();
+        let wild = share(&WILD);
+        let infected = share(&INFECTED_STRAIN);
+        assert!((800..1200).contains(&wild), "дикий — около 10 %: {wild}");
+        assert!((1300..1700).contains(&infected), "заражённого — около 15 %: {infected}");
+        assert!(!spreads(&Strain { infectivity: 0, ..WILD }, 0));
+        // Один раз за тик, только на шаге болезни.
+        assert!(herd_check_due(INFECTION_EVERY * 1_000_003));
+        assert!(!herd_check_due(INFECTION_EVERY * 1_000_003), "второй игрок того же тика стадо не проверяет");
+        assert!(!herd_check_due(INFECTION_EVERY * 1_000_003 + 1));
+    }
+
+    /// Данные вида: живой тип на шаблоне зомби с атрибутами, которые у зомби
+    /// есть (иначе сборка корня контента остановится), своя таблица добычи,
+    /// спавн в болотах и имя на обоих языках.
+    #[test]
+    fn infected_content_is_complete() {
+        let content = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let read = |path: &str| {
+            let text = std::fs::read_to_string(content.join(path)).unwrap_or_else(|_| panic!("нет {path}"));
+            Json::parse(&text).unwrap_or_else(|| panic!("битый {path}"))
+        };
+        let short = INFECTED_ID.trim_start_matches("biolab:");
+        let kind = read(&format!("data/biolab/horizon/entity_type/{short}.json"));
+        assert_eq!(kind.get("template").and_then(Json::str), Some("minecraft:zombie"));
+        assert_eq!(kind.get("item"), None, "у живого типа нет предмета");
+        let attrs = kind.get("attributes").expect("свои атрибуты");
+        assert_eq!(attrs.get("minecraft:max_health").and_then(Json::num), Some(24.0));
+        let speed = attrs.get("minecraft:movement_speed").and_then(Json::num).unwrap();
+        assert!(speed < 0.23 && speed > 0.15, "чуть медленнее зомби: {speed}");
+        let loot = read(&format!("data/biolab/loot_table/entities/{short}.json"));
+        assert_eq!(loot.get("type").and_then(Json::str), Some("minecraft:entity"));
+        assert_eq!(loot.get("random_sequence").and_then(Json::str), Some("biolab:entities/infected"), "без неё моб ничего не роняет");
+        let text = std::fs::read_to_string(content.join(format!("data/biolab/loot_table/entities/{short}.json"))).unwrap();
+        assert!(text.contains(CULTURE_ID) && text.contains("minecraft:rotten_flesh"));
+        assert!(!text.contains("\"functions\"") && !text.contains("\"conditions\""), "формат 26.3: modifier и condition");
+        let spawns = read("data/biolab/neoforge/biome_modifier/infected_spawns.json");
+        assert_eq!(spawns.get("type").and_then(Json::str), Some("neoforge:add_spawns"));
+        let spawner = spawns.get("spawners").unwrap();
+        assert_eq!(spawner.get("type").and_then(Json::str), Some(INFECTED_ID));
+        let biomes: Vec<&str> = spawns.get("biomes").and_then(Json::arr).unwrap().iter().filter_map(Json::str).collect();
+        assert_eq!(biomes, ["minecraft:swamp", "minecraft:mangrove_swamp"]);
+        for (name, title) in [("ru_ru", "Заражённый"), ("en_us", "Infected")] {
+            let lang = read(&format!("assets/biolab/lang/{name}.json"));
+            assert_eq!(lang.get(&format!("entity.biolab.{short}")).and_then(Json::str), Some(title), "{name}");
+        }
+        assert_eq!(mob_title(INFECTED_ID), "Заражённый", "имя в чате — как в языке");
+    }
+
+    #[test]
+    fn swab_takes_the_strain_of_the_mob() {
+        assert_eq!(swab_strain(INFECTED_ID, false), Some(INFECTED_STRAIN));
+        assert_eq!(swab_strain("minecraft:cow", true), Some(INFECTED_STRAIN), "заболевший скот");
+        assert_eq!(swab_strain("minecraft:zombie", false), Some(WILD));
+        assert_eq!(swab_strain("husk", false), Some(WILD));
+        assert_eq!(swab_strain("minecraft:cow", false), None);
+        assert_eq!(swab_label(&INFECTED_STRAIN), "Мазок: З3 И2 Т2 С2");
+        assert!(swab_message(INFECTED_ID, &INFECTED_STRAIN).contains("Заражённый"));
+        // Инкубатор: мазок — штамм как есть, культура — следующее поколение,
+        // чистая палочка — дикая линия.
+        assert_eq!(incubated_strain(Some(SWAB_ID), Some(INFECTED_STRAIN), 5), INFECTED_STRAIN);
+        assert_eq!(incubated_strain(Some(CULTURE_ID), Some(INFECTED_STRAIN), 5), select(&INFECTED_STRAIN, 5));
+        assert_eq!(incubated_strain(Some(SWAB_ID), None, 5), WILD);
+        assert_eq!(incubated_strain(None, None, 5), WILD);
+        // Штамм в данных палочки читается тем же разбором, что у культуры.
+        assert_eq!(strain_from_text(&strain_to_text(&INFECTED_STRAIN)), Some(INFECTED_STRAIN));
     }
 }
 

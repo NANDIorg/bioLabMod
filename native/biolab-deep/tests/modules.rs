@@ -326,3 +326,23 @@ fn a_lab_genome_beyond_the_natural_limit_is_read_whole() {
         assert_eq!(i32::from(genome.strength_of(name)), 1 + (gene % 3) as i32, "{name}");
     }
 }
+
+// ---- M11-А: Заражённый (GDD 4.26 А) ----
+#[path = "../mixins/biolab_deep/infected_look.rs"]
+mod infected_look;
+
+/// Свой вид мода один и тот же в обоих бандлах: core ставит ему цели, болезнь
+/// и тело зомби на столе, deep — оттенок и бросок мутации.
+#[test]
+fn core_and_deep_know_the_infected() {
+    let id = biolab_core::INFECTED_ID;
+    assert!(biolab_core::MOD_MOBS.iter().any(|(k, _, _)| *k == id));
+    assert!(biolab_deep::MOD_KINDS.iter().any(|(k, _)| *k == id));
+    assert_eq!(biolab_deep::temperament(id), Some(biolab_deep::Temperament::Hostile));
+    assert!(infected_look::species_tint(id).is_some());
+    // Каждый свой вид core, у которого есть тело, знает и deep.
+    for (kind, _, _) in biolab_core::MOD_MOBS {
+        assert!(biolab_deep::mod_temperament(kind).is_some(), "{kind}");
+        assert_eq!(biolab_deep::hook_kind(kind), kind);
+    }
+}

@@ -153,5 +153,6 @@
  "entity.biolab.dart_tranquilizer": "Транквилизатор, дротик",
  "entity.biolab.grenade_ether": "Эфир, граната",
  "entity.biolab.grenade_chloroform": "Хлороформ, граната",
- "effect.biolab.paralysis": "Паралич"
+ "effect.biolab.paralysis": "Паралич",
+ "entity.biolab.infected": "Заражённый"
 }

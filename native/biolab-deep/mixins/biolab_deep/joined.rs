@@ -33,9 +33,9 @@ fn biolab_deep_mobs_joined(game: &mut crate::game::Game<'_>, from: usize) {
         .iter()
         .skip(from)
         .map(|m| {
-            // Вид так, как его называют хук-поинты (`minecraft:zombie`).
-            let kind = ["minecraft:", m.kind.id.trim_start_matches("minecraft:")].concat();
-            (m.id, kind)
+            // Вид так, как его называют хук-поинты (`minecraft:zombie`); свой
+            // вид мода (`biolab:infected`) — со своим пространством имён.
+            (m.id, d::hook_kind(&m.kind.id))
         })
         .collect();
     for (id, kind) in fresh {

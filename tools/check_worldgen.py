@@ -19,7 +19,8 @@ Horizon применяет, когда собирает корень конте�
 
 Что проверяет:
   * каждый JSON в worldgen/ и neoforge/biome_modifier/ читается;
-  * модификатор: вид из читаемых (`add_features`, `remove_features`, `none`),
+  * модификатор: вид из читаемых (`add_features`, `remove_features`,
+    `add_spawns`, `none`),
     шаг — из одиннадцати шагов генерации (`STEPS`), `biomes` и `features` —
     id, `#тег` или список id (без тегов), объекты `any`/`or`/`and`/`not`;
     биомы и теги биомов есть у ванили, фичи — у мода или у ванили;
@@ -30,6 +31,11 @@ Horizon применяет, когда собирает корень конте�
     блок с допустимыми свойствами (у блока мода — свойства его шаблона);
   * `simple_block` с культурой — ошибка: генерация спросит правило выживания
     культуры (пашня под ней) и не поставит ничего; для зарослей — `block_column`;
+  * `add_spawns` (пин `66f3981`, `mod_content_biomes.rs`, `spawner`): у
+    каждого спавнера `type`, целые `weight` ≥ 0 и `minCount` > 0, не больше
+    `maxCount` — иначе сборка всех контентных модов остановится; вид — наш
+    живой тип (`horizon/entity_type`, шаблон зомби, жителя или торговца) или
+    ванильный, иначе модификатор пропустят;
   * размещение мода без модификатора и фича без размещения — предупреждение.
 
 Ванильные биомы, теги, фичи и блоки берутся из кэша версии Horizon
@@ -222,8 +228,11 @@ def check_modifier(path, vanilla, placed_ids):
     short = kind.removeprefix("neoforge:").removeprefix("forge:")
     if short == "none":
         return []
+    if short == "add_spawns":
+        check_spawns(where, doc, vanilla)
+        return []
     if short not in ("add_features", "remove_features"):
-        warn(where, f"вид {kind} Horizon пропускает: читаются только add_features, remove_features, none")
+        warn(where, f"вид {kind} здесь не проверяется: известны add_features, remove_features, add_spawns, none")
         return []
     for key in ("biomes", "features"):
         if key not in doc:
@@ -244,6 +253,48 @@ def check_modifier(path, vanilla, placed_ids):
         check_holders(where, doc["features"], "размещённой фичи", vanilla.placed, None, placed_ids)
     feats = doc.get("features")
     return [feats] if isinstance(feats, str) else [f for f in feats or [] if isinstance(f, str)]
+
+
+# Шаблоны живых типов мода (`horizon-mods/src/content.rs`, LIVING_TEMPLATES).
+LIVING_TEMPLATES = ("minecraft:villager", "minecraft:wandering_trader", "minecraft:zombie")
+
+
+def mod_living_types():
+    """Наши живые типы сущностей: `biolab:<имя>` из horizon/entity_type."""
+    out = set()
+    for path in glob.glob(os.path.join(MOD, "horizon", "entity_type", "*.json")):
+        doc = load(path) or {}
+        if doc.get("template") in LIVING_TEMPLATES:
+            out.add(f"{NS}:{os.path.splitext(os.path.basename(path))[0]}")
+    return out
+
+
+def check_spawns(where, doc, vanilla):
+    if "biomes" not in doc:
+        err(where, "нет \"biomes\": загрузка всех контентных модов остановится")
+    else:
+        check_holders(where, doc["biomes"], "биома", vanilla.biomes, vanilla.biome_tags)
+    raw = doc.get("spawners")
+    spawners = [raw] if isinstance(raw, dict) else raw
+    if not isinstance(spawners, list) or not spawners:
+        err(where, "spawners: не спавнер и не список — загрузка всех контентных модов остановится")
+        return
+    ours = mod_living_types()
+    for i, s in enumerate(spawners):
+        at = f"{where}.spawners[{i}]"
+        if not isinstance(s, dict) or not isinstance(s.get("type"), str):
+            err(at, "спавнер без type: загрузка всех контентных модов остановится")
+            continue
+        ints = {k: s.get(k) for k in ("weight", "minCount", "maxCount")}
+        bad = [k for k, v in ints.items() if not isinstance(v, int) or isinstance(v, bool)]
+        if bad:
+            err(at, f"нет целого {', '.join(bad)}: загрузка всех контентных модов остановится")
+            continue
+        if ints["weight"] < 0 or ints["minCount"] <= 0 or ints["minCount"] > ints["maxCount"]:
+            err(at, "нужно weight ≥ 0 и 0 < minCount ≤ maxCount: загрузка всех контентных модов остановится")
+        kind = full(s["type"])
+        if kind.startswith(f"{NS}:") and kind not in ours:
+            err(at, f"вида {kind} у мода нет (или он не живой) — модификатор пропустят")
 
 
 def check_predicate(where, p, vanilla):

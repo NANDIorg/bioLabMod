@@ -153,5 +153,6 @@
  "entity.biolab.dart_tranquilizer": "Tranquilizer Dart",
  "entity.biolab.grenade_ether": "Ether Grenade",
  "entity.biolab.grenade_chloroform": "Chloroform Grenade",
- "effect.biolab.paralysis": "Paralysis"
+ "effect.biolab.paralysis": "Paralysis",
+ "entity.biolab.infected": "Infected"
 }
