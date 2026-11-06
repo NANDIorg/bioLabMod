@@ -1525,10 +1525,12 @@ def port_front(kind):
     rect(img, 5, 5, 11, 11, (24, 30, 34))
     bevel(img, 3, 3, 13, 13, 20, -30)
     # Стрелка: вход — остриём вниз, в горловину; выход — остриём вверх.
-    rows = [(7, 9), (7, 9), (6, 10), (7, 9)] if kind == "input" else [(7, 9), (6, 10), (7, 9), (7, 9)]
+    rows = [(7, 9), (7, 9), (5, 11), (6, 10), (7, 9)]
+    if kind != "input":
+        rows.reverse()
     for i, (a, b) in enumerate(rows):
         for x in range(a, b):
-            put(img, x, 6 + i, c)
+            put(img, x, 5 + i + (kind != "input"), c)
     for x in range(4, 12, 2):  # полоса-маркировка под люком
         put(img, x, 14, c)
         put(img, x + 1, 14, EDGE)

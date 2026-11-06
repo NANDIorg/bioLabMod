@@ -144,8 +144,12 @@ fn move_ports(game: &mut crate::game::Game<'_>, entity: &mut ModBlockEntity, a: 
 
     // Входные порты → входы контроллера (у биореактора туда же — топливо).
     let inputs = m::machine_inputs(machine);
+    // Порт из сейва мог за секунду до проверки смениться другим блоком —
+    // берём только из того, что сейчас порт нужного вида.
+    let is = |id: &str, kind: m::PortKind| m::port(id).is_some_and(|p| p.kind == kind);
     for port in a.inputs() {
-        let Some(held) = game.native_with_mod_block_entity(port, |p| p.items.clone()) else {
+        let held = game.native_with_mod_block_entity(port, |p| is(&p.id, m::PortKind::Input).then(|| p.items.clone()));
+        let Some(Some(held)) = held else {
             continue;
         };
         for (from, stack) in held.iter().enumerate() {
@@ -212,16 +216,19 @@ fn move_ports(game: &mut crate::game::Game<'_>, entity: &mut ModBlockEntity, a: 
                 break;
             };
             let max = max_of(game, &stack);
-            let Some(held) = game.native_with_mod_block_entity(port, |p| {
-                (0..m::PORT_SLOTS)
-                    .map(|i| {
-                        p.items
-                            .get(i)
-                            .and_then(|s| s.as_ref())
-                            .map(|s| (s.same_item_same_components(&stack), s.count))
-                    })
-                    .collect::<Vec<_>>()
-            }) else {
+            let held = game.native_with_mod_block_entity(port, |p| {
+                is(&p.id, m::PortKind::Output).then(|| {
+                    (0..m::PORT_SLOTS)
+                        .map(|i| {
+                            p.items
+                                .get(i)
+                                .and_then(|s| s.as_ref())
+                                .map(|s| (s.same_item_same_components(&stack), s.count))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            });
+            let Some(Some(held)) = held else {
                 continue;
             };
             let plan = m::port_plan(&held, stack.count, max);
