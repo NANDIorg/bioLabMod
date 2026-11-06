@@ -2044,7 +2044,86 @@ def write_bioreactor():
     print(f"биореактор: люк, общий вид грани 3×3 ({len(bioreactor_formed_elements())} элементов)")
 
 
+# ---------------------------------------------------------------- карантинная камера (GDD 4.18 п. 4)
+#
+# Чистая панель — белая эмаль на стальном листе, без рамки установки: из неё
+# строят комнату, а не машину. Фильтр — та же панель с решёткой вытяжки и
+# лампой «камера держит» (горит при `lit=true`). Патрон фильтра — предмет:
+# стальной стакан, шерсть и полоса угля.
+
+ENAMEL = (222, 230, 230)
+
+
+def panel_tex(seed):
+    img = canvas(ENAMEL)
+    grain(img, 3, seed)
+    bevel(img, 0, 0, 16, 16, 12, -22)
+    outline(img, 0, 0, 16, 16, shade(ENAMEL, -40))
+    for x, y in ((1, 1), (14, 1), (1, 14), (14, 14)):  # винты
+        put(img, x, y, STEEL)
+    for x in range(3, 13):  # бирюзовая полоса «чистой зоны»
+        put(img, x, 12, TEAL_DIM)
+    return img
+
+
+def quarantine_front(lit):
+    img = panel_tex(stable("quarantine_front") & 0xFFF)
+    rect(img, 2, 2, 14, 10, STEEL_DARK)
+    outline(img, 2, 2, 14, 10, EDGE)
+    vents(img, 3, 3, 13, 9)
+    for x in range(4, 12, 3):  # белые волокна фильтра за решёткой
+        put(img, x, 4, (236, 236, 228))
+        put(img, x + 1, 6, (236, 236, 228))
+    lamp = (90, 240, 150) if lit else (40, 80, 64)
+    outline(img, 6, 10, 10, 14, EDGE)
+    rect(img, 7, 11, 9, 13, lamp)
+    return img
+
+
+def cartridge_tex():
+    img = canvas((0, 0, 0), 0)
+    wool = (232, 232, 224)
+    for y in range(3, 14):
+        for x in range(4, 12):
+            put(img, x, y, shade(wool, -12 if x in (4, 11) else 0))
+    rect(img, 4, 7, 12, 10, (40, 40, 44))  # уголь
+    for x in (5, 8, 10):
+        put(img, x, 8, (70, 70, 76))
+    for y in (2, 3, 13, 14):  # стальные крышки
+        for x in range(4, 12):
+            put(img, x, y, STEEL if y in (2, 14) else STEEL_LIGHT)
+    rect(img, 7, 0, 9, 2, STEEL_DARK)  # горловина
+    return img
+
+
+def write_quarantine():
+    write_png("clean_panel", panel_tex(stable("clean_panel") & 0xFFF))
+    write_model("clean_panel", "minecraft:block/cube_all", {"all": "clean_panel", "particle": "clean_panel"})
+    write_states("clean_panel", {"": {"model": "biolab:block/clean_panel"}})
+    write_item("clean_panel")
+
+    write_png("quarantine_front", quarantine_front(False))
+    on = quarantine_front(True)
+    write_png("quarantine_front_on", on)
+    write_e("quarantine_front_on", on, [(x, y) for x in (7, 8) for y in (11, 12)])
+    for model, front in (("quarantine", "quarantine_front"), ("quarantine_on", "quarantine_front_on")):
+        write_model(model, "minecraft:block/orientable",
+                    {"front": front, "side": "clean_panel", "top": "clean_panel", "particle": "clean_panel"})
+    facing_states("quarantine", "quarantine_on")
+    write_item("quarantine")
+
+    write_png("filter_cartridge", cartridge_tex(), os.path.join(ASSETS, "textures", "item"))
+    dump_model(os.path.join(ASSETS, "models", "item", "filter_cartridge.json"), {
+        "parent": "minecraft:item/generated",
+        "textures": {"layer0": "biolab:item/filter_cartridge"},
+    })
+    with open(os.path.join(ASSETS, "items", "filter_cartridge.json"), "w") as f:
+        f.write('{ "model": { "type": "minecraft:model", "model": "biolab:item/filter_cartridge" } }\n')
+    print("карантинная камера: фильтр, чистая панель, патрон")
+
+
 if __name__ == "__main__":
     main()
     write_multiblock()
     write_bioreactor()
+    write_quarantine()

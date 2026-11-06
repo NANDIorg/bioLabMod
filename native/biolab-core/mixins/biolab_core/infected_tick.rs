@@ -48,13 +48,18 @@ fn biolab_core_infected_tick(game: &mut crate::game::Game<'_>) {
             }
         }
         m::requeue_mob_hits(later);
+        // В держащей карантинной камере (GDD 4.18 п. 4) не заражаются.
+        let dimension = game.dim.id();
         for victim in sick {
-            if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id as i32 == victim && mob.alive()) {
+            if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id as i32 == victim && mob.alive())
+                && !m::in_quarantine_at(dimension, [mob.position.x, mob.position.y, mob.position.z])
+            {
                 mob.add_effect(m::INFECTION_EFFECT, m::INFECTED_MOB_TICKS, 0);
             }
         }
         if let Some(causing) = player_hit
             && let Some(player) = game.native_player()
+            && !m::in_quarantine_at(player.dimension, [player.x, player.y, player.z])
         {
             let near: Vec<(u32, f64)> = game
                 .mobs
@@ -101,9 +106,12 @@ fn biolab_core_infected_tick(game: &mut crate::game::Game<'_>) {
         .map(|mob| (mob.id, [mob.position.x, mob.position.y, mob.position.z], has_infection(mob)))
         .collect();
     let ticks = game.ticks;
+    let dimension = game.dim.id();
     let caught: Vec<u32> = herd
         .iter()
         .filter(|(_, _, ill)| !*ill)
+        // Здоровый в держащей карантинной камере не заражается.
+        .filter(|(_, at, _)| !m::in_quarantine_at(dimension, *at))
         .filter(|(id, at, _)| {
             herd.iter().any(|(other, there, ill)| {
                 *ill

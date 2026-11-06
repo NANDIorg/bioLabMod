@@ -79,6 +79,8 @@ fn group(item: &str) -> usize {
         "sequencer" | "sequencer_rack" | "sequencer_monitor" => 1,
         // Биореактор (GDD 4.18, п. 2).
         "bioreactor" => 1,
+        // Карантинная камера: фильтр, панели и патрон фильтра — к машинам.
+        "quarantine" | "clean_panel" | "filter_cartridge" => 1,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
         // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.

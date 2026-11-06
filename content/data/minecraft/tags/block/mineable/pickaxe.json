@@ -24,6 +24,8 @@
     "biolab:synthesizer",
     "biolab:sequencer",
     "biolab:sequencer_monitor",
-    "biolab:sequencer_rack"
+    "biolab:sequencer_rack",
+    "biolab:quarantine",
+    "biolab:clean_panel"
   ]
 }

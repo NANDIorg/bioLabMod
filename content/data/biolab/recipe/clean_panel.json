@@ -1,0 +1,16 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "is",
+  "si"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "s": "minecraft:smooth_stone"
+ },
+ "result": {
+  "id": "biolab:clean_panel",
+  "count": 4
+ }
+}

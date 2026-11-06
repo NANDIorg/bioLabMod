@@ -175,5 +175,8 @@
  "block.biolab.sequencer_monitor": "Sequencer Monitor",
  "item.biolab.gene_vector": "Gene Vector",
  "item.biolab.antisense_vector": "Antisense Vector",
- "block.biolab.bioreactor": "Bioreactor"
+ "block.biolab.bioreactor": "Bioreactor",
+ "block.biolab.quarantine": "Quarantine Filter",
+ "block.biolab.clean_panel": "Clean Panel",
+ "item.biolab.filter_cartridge": "Filter Cartridge"
 }

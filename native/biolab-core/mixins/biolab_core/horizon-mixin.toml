@@ -1029,3 +1029,16 @@ id = "bioreactor"
 file = "crates/horizon-client/src/game.rs"
 name = "biolab_bioreactor"
 source = "bioreactor.rs"
+
+# ---- M8: карантинная камера (GDD 4.18 п. 4) ----
+# Работа фильтра (реестр `in_quarantine`, износ патрона) и утечка тяжёлого
+# штамма из машин вне камеры. Новых хуков нет: фильтр — машина из `MACHINES`
+# (тик — `machine-tick`, ветка контроллера в `machine.rs`), утечку зовёт тот
+# же тик машины, ломание фильтра — `multiblock-broken`. Проверки «внутри
+# камеры» — в существующих хуках болезни: тик игрока (`infection.rs`),
+# `infected_tick.rs`, тик мира (`behaviour.rs`).
+[[module]]
+id = "quarantine"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_quarantine"
+source = "quarantine.rs"

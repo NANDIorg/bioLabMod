@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  " w ",
+  "wcw",
+  " w "
+ ],
+ "key": {
+  "w": "#minecraft:wool",
+  "c": "#minecraft:coals"
+ },
+ "result": {
+  "id": "biolab:filter_cartridge",
+  "count": 1
+ }
+}

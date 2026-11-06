@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ibi",
+  "wcw",
+  "ibi"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "b": "minecraft:iron_bars",
+  "w": "#minecraft:wool",
+  "c": "biolab:casing"
+ },
+ "result": {
+  "id": "biolab:quarantine",
+  "count": 1
+ }
+}
