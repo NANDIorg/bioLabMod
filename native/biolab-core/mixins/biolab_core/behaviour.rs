@@ -151,18 +151,33 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     // Записанный подопытный не уходит: ушедшего возвращает телепорт, потому
     // что скорость ванильный тик моба перезаписывает своей.
     let dimension = game.dim.id().to_string();
+    // Лампа вольера (модель `pen_on`, GDD 4.12) горит, пока в нём подопытный:
+    // свойство `lit` ставим только на смене, чтобы не будить соседей зря.
+    fn pen_lamp(game: &mut crate::game::Game<'_>, pen: [i32; 3], on: bool) {
+        let want = if on { "true" } else { "false" };
+        if game.native_block(pen) == crate::game::biolab_core::PEN
+            && game.native_block_property(pen, "lit").as_deref() != Some(want)
+        {
+            game.native_set_block_property(pen, "lit", want);
+        }
+    }
     for (pen, id) in m::all_subjects() {
         if game.native_block(pen) != m::PEN || patients.contains(&id) {
             m::release_subject(pen);
+            pen_lamp(game, pen, false);
             continue;
         }
         let centre = m::pen_centre(pen);
         match mobs.iter().find(|(other, _, _, _, _)| *other == id) {
             Some((_, at, _, _, _)) if !near(centre, *at, m::PEN_RANGE) => {
                 game.native_teleport_mob(&dimension, id, centre);
+                pen_lamp(game, pen, true);
             }
-            None => m::release_subject(pen),
-            _ => {}
+            None => {
+                m::release_subject(pen);
+                pen_lamp(game, pen, false);
+            }
+            _ => pen_lamp(game, pen, true),
         }
         if let Some(mob) = game.mobs.iter_mut().find(|mob| mob.id == id) {
             mob.ai.target = None;

@@ -295,6 +295,12 @@ fn biolab_core_machine_tick(
         if m::remember_signal(dimension, pos, m::comparator_signal(&entity.data)) {
             game.native_update_output_neighbors(dimension, pos);
         }
+        // Лампа работы (модель `_on`, GDD 4.12): состояние блока `lit` по
+        // числу `DATA_LIT` прошлого тика, той же одной точкой на все ветки.
+        // Помощник сам ничего не пишет, если значение уже такое.
+        if let Some(lit) = m::machine_lit(&entity.id, &entity.data) {
+            game.native_set_block_property(pos, "lit", lit);
+        }
     }
 
     // ГМ-грядка: растёт сама, а на последней стадии подмешивает ген соседа.

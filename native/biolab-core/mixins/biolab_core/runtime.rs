@@ -1088,6 +1088,17 @@ pub fn comparator_signal(data: &[i32]) -> i32 {
     signal.clamp(1, 15) as i32
 }
 
+/// Свойство `lit` блока машины по числам данных: работает — `"true"`.
+/// От него зависит модель `_on` со светящейся лампой работы (GDD 4.12):
+/// число `DATA_LIT` видит только экран, а модель выбирает состояние блока.
+/// `None` — у машины такого свойства нет (стол, грядка), трогать нечего.
+pub fn machine_lit(id: &str, data: &[i32]) -> Option<&'static str> {
+    if !is_machine(id) || id == LAB_BENCH {
+        return None;
+    }
+    Some(if data.get(DATA_LIT).copied().unwrap_or(0) > 0 { "true" } else { "false" })
+}
+
 /// Сигналы машин для компаратора по месту. Компаратор спрашивает уровень,
 /// а тикающая машина в это время вынута из мира — поэтому её сигнал лежит
 /// здесь, а не читается из блок-сущности.
@@ -1340,6 +1351,17 @@ mod automation_tests {
         }
         let files = std::fs::read_dir(&dir).unwrap().count();
         assert_eq!(files, MACHINES.len(), "лишний тип меню");
+    }
+
+    #[test]
+    fn machine_lamp_follows_lit_data() {
+        let mut data = vec![0; 8];
+        assert_eq!(machine_lit("biolab:incubator", &data), Some("false"));
+        data[DATA_LIT] = 1;
+        assert_eq!(machine_lit("biolab:incubator", &data), Some("true"));
+        // Стол без свойства `lit`, не машина — не трогаем.
+        assert_eq!(machine_lit(LAB_BENCH, &data), None);
+        assert_eq!(machine_lit("minecraft:furnace", &data), None);
     }
 
     #[test]
