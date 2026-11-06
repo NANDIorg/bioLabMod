@@ -1,0 +1,20 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "cgc",
+  "fui",
+  "ccc"
+ ],
+ "key": {
+  "c": "biolab:casing",
+  "g": "biolab:casing_glass",
+  "f": "biolab:fermenter",
+  "u": "minecraft:cauldron",
+  "i": "biolab:incubator"
+ },
+ "result": {
+  "id": "biolab:bioreactor",
+  "count": 1
+ }
+}

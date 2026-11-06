@@ -741,6 +741,64 @@ fn biolab_core_screen_draw(
             let ink = if input { 0x3F_D8C4 } else { 0xE0_A040 };
             pen.text(label, [p[0] + ((p[2] - lw) / 2.0).floor(), p[1] + 6.0], ink, false);
         }
+        // Биореактор (GDD 4.18, п. 2): стрелка партии от входов к выходам
+        // (над слотом раствора); внизу табло во всю ширину — слева сборка
+        // или состояние среды, справа градусник 20–50 °C с зелёной полосой
+        // 30–40 и отметкой, до скольки греет огонь.
+        m::BIOREACTOR => {
+            let medium_ink = 0xFF_6EBE46;
+            let fill_x = p[0] + p[2] * progress;
+            let shaft = [p[0], p[1] + 3.0, p[2] - 5.0, 5.0];
+            pen.fill(shaft, m::SCREEN_STEEL_DARK);
+            pen.fill(clip_x(shaft, fill_x), medium_ink);
+            for k in 0..5 {
+                let piece = [p[0] + p[2] - 5.0 + k as f32, p[1] + k as f32, 1.0, p[3] - 2.0 * k as f32];
+                let lit = piece[0] < fill_x;
+                pen.fill(piece, if lit { medium_ink } else { m::SCREEN_STEEL_DARK });
+            }
+
+            pen.glass(g);
+            let r = m::bio_reading(data);
+            let state = m::medium(r.temperature);
+            let tube = [g[0] + g[2] - 46.0, g[1] + 5.0, 42.0, 4.0];
+            pen.fill([tube[0] - 1.0, tube[1] - 1.0, tube[2] + 2.0, tube[3] + 2.0], m::SCREEN_EDGE);
+            pen.fill(tube, m::SCREEN_STEEL_DARK);
+            let (min, max) = m::BIOREACTOR_RANGE;
+            let (a, b) = (m::bio_thermo_x(tube, min), m::bio_thermo_x(tube, max));
+            pen.fill([a, tube[1] + tube[3] + 1.0, (b - a).max(1.0), 2.0], m::SCREEN_GREEN);
+            let mercury = match state {
+                m::Medium::Cold => m::SCREEN_AMBER,
+                m::Medium::Fit => m::SCREEN_GREEN,
+                m::Medium::Hot => 0xFF_FF5A40,
+            };
+            let tx = m::bio_thermo_x(tube, r.temperature);
+            pen.fill([tube[0], tube[1] + 1.0, tx - tube[0], tube[3] - 2.0], mercury);
+            if let Some(t) = r.target {
+                let x = m::bio_thermo_x(tube, t).floor();
+                pen.fill([x, tube[1] - 3.0, 1.0, 2.0], m::SCREEN_AMBER);
+            }
+            let ink = match state {
+                m::Medium::Cold => 0xE0_A040,
+                m::Medium::Fit => 0x5A_E8B4,
+                m::Medium::Hot => 0xFF_6A50,
+            };
+            let reading = format!("{} °C", r.temperature);
+            let rx = tube[0] - 4.0 - pen.width(&reading);
+            pen.text(&reading, [rx, g[1] + 4.0], ink, false);
+
+            let (text, text_ink) = match m::multiblock_shown(data) {
+                m::MultiblockShown::Unknown => ("Проверка схемы…".to_string(), m::SCREEN_TEXT_DIM),
+                m::MultiblockShown::Formed { .. } => (m::bioreactor_status(&r), ink),
+                m::MultiblockShown::Broken { rows, total } => {
+                    let first = m::multiblock(block)
+                        .and_then(|mb| m::shortage_lines(mb, &rows, total).into_iter().next())
+                        .unwrap_or_else(|| "Не собрана".to_string());
+                    (first, 0xE8_5A4A)
+                }
+            };
+            let line = pen.fit(&text, rx - g[0] - 7.0);
+            pen.text(&line, [g[0] + 3.0, g[1] + 4.0], text_ink, false);
+        }
         _ => {}
     }
 }

@@ -174,5 +174,6 @@
  "block.biolab.sequencer_rack": "Стойка секвенатора",
  "block.biolab.sequencer_monitor": "Монитор секвенатора",
  "item.biolab.gene_vector": "Генный вектор",
- "item.biolab.antisense_vector": "Антисмысловой вектор"
+ "item.biolab.antisense_vector": "Антисмысловой вектор",
+ "block.biolab.bioreactor": "Биореактор"
 }

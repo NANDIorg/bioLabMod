@@ -174,5 +174,6 @@
  "block.biolab.sequencer_rack": "Sequencer Rack",
  "block.biolab.sequencer_monitor": "Sequencer Monitor",
  "item.biolab.gene_vector": "Gene Vector",
- "item.biolab.antisense_vector": "Antisense Vector"
+ "item.biolab.antisense_vector": "Antisense Vector",
+ "block.biolab.bioreactor": "Bioreactor"
 }

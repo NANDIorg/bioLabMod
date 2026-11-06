@@ -1,0 +1,17 @@
+{ "variants": {
+  "facing=north,formed=false,lit=false": {"model": "biolab:block/bioreactor"},
+  "facing=north,formed=false,lit=true": {"model": "biolab:block/bioreactor_on"},
+  "facing=north,formed=true,lit=false": {"model": "biolab:block/bioreactor_formed"},
+  "facing=north,formed=true,lit=true": {"model": "biolab:block/bioreactor_formed_on"},
+  "facing=east,formed=false,lit=false": {"model": "biolab:block/bioreactor", "y": 90},
+  "facing=east,formed=false,lit=true": {"model": "biolab:block/bioreactor_on", "y": 90},
+  "facing=east,formed=true,lit=false": {"model": "biolab:block/bioreactor_formed", "y": 90},
+  "facing=east,formed=true,lit=true": {"model": "biolab:block/bioreactor_formed_on", "y": 90},
+  "facing=south,formed=false,lit=false": {"model": "biolab:block/bioreactor", "y": 180},
+  "facing=south,formed=false,lit=true": {"model": "biolab:block/bioreactor_on", "y": 180},
+  "facing=south,formed=true,lit=false": {"model": "biolab:block/bioreactor_formed", "y": 180},
+  "facing=south,formed=true,lit=true": {"model": "biolab:block/bioreactor_formed_on", "y": 180},
+  "facing=west,formed=false,lit=false": {"model": "biolab:block/bioreactor", "y": 270},
+  "facing=west,formed=false,lit=true": {"model": "biolab:block/bioreactor_on", "y": 270},
+  "facing=west,formed=true,lit=false": {"model": "biolab:block/bioreactor_formed", "y": 270},
+  "facing=west,formed=true,lit=true": {"model": "biolab:block/bioreactor_formed_on", "y": 270} } }

@@ -1018,3 +1018,14 @@ bindings = [
   { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
   { name = "id", ty = "i32", value = "id" },
 ]
+
+# ---- M8: биореактор (GDD 4.18, п. 2) ----
+# Работа контроллера биореактора: среда от источника под днищем, партия по
+# рецептам ферментера и инкубатора, раствор, перегрев, скисание вне карантина
+# и общий вид передней стенки (`formed` контроллера). Зовёт тик машины
+# (`machine.rs`, ветка контроллера установки); новых хуков нет.
+[[module]]
+id = "bioreactor"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_bioreactor"
+source = "bioreactor.rs"

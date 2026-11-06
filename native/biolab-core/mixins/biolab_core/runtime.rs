@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 108] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 109] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -223,6 +223,8 @@ pub const ITEM_HINTS: [(&str, &[&str]); 108] = [
     ("biolab:sequencer_monitor", &["Монитор секвенатора: над консолью"]),
     ("biolab:gene_vector", &["ПКМ по мобу — все гены одним уколом", "ПКМ в воздух — себе"]),
     ("biolab:antisense_vector", &["ПКМ по мобу — удалить этот ген", "ПКМ в воздух — удалить у себя"]),
+    // Биореактор (GDD 4.18, п. 2).
+    ("biolab:bioreactor", &["Середина стенки куба 3×3×3, огонь под днищем", "Партия до 8: рецепты ферментера и инкубатора"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -481,7 +483,7 @@ pub struct Machine {
     pub menu: &'static str,
 }
 
-pub const MACHINES: [Machine; 13] = [
+pub const MACHINES: [Machine; 14] = [
     Machine { id: "biolab:still", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:incubator", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:fermenter", slots: 3, menu: "minecraft:furnace" },
@@ -500,6 +502,7 @@ pub const MACHINES: [Machine; 13] = [
     // слотов — из их строки `MULTIBLOCKS`, меню — всегда своё.
     Machine { id: COLUMN, slots: COLUMN_SLOTS, menu: MULTIBLOCK_MENU },
     Machine { id: SEQUENCER, slots: SEQUENCER_SLOTS, menu: MULTIBLOCK_MENU },
+    Machine { id: BIOREACTOR, slots: BIOREACTOR_SLOTS, menu: MULTIBLOCK_MENU },
 ];
 
 /// Машина с таким id, если она наша.
@@ -566,6 +569,7 @@ pub fn machine_data_slots(id: &str) -> usize {
         SEQUENCER => DATA_SEQ_END,
         // Контроллер установки: общие числа сборки (раздел «M8»); свои
         // числа установки — после `DATA_MB_END`.
+        BIOREACTOR => DATA_BIO_END,
         id if multiblock(id).is_some() => DATA_MB_END,
         _ => DATA_SLOTS,
     }
@@ -801,7 +805,7 @@ pub enum SlotRole {
     /// Сырьё: то, что машина перерабатывает.
     Input,
     /// Слот топлива меню печки. Нужен только клонирующему чану — там лежит
-    /// питательный раствор.
+    /// питательный раствор; у биореактора (GDD 4.18) — слот раствора.
     Fuel,
     /// Готовое: игрок и воронки только забирают.
     Output,
@@ -1036,6 +1040,8 @@ pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
             CENTRIFUGE => item == FLASK_ID || machine_ingredients(machine.id).contains(&item),
             // Секвенатор (GDD 4.18): фрагменты, фосфор — каждый в свой слот.
             SEQUENCER => sequencer_accepts(slot, item),
+            // Биореактор варит рецепты ферментера и инкубатора (GDD 4.18).
+            BIOREACTOR => BIOREACTOR_RECIPES.iter().any(|kind| machine_ingredients(kind).contains(&item)),
             id => machine_ingredients(id).contains(&item),
         },
     }
@@ -1182,7 +1188,7 @@ mod automation_tests {
             let roles: Vec<SlotRole> = (0..machine.slots).map(|s| slot_role(machine, s)).collect();
             assert!(roles.contains(&SlotRole::Input), "{}", machine.id);
             assert!(roles.contains(&SlotRole::Output), "{}", machine.id);
-            assert_eq!(roles.contains(&SlotRole::Fuel), machine.id == CLONING_VAT, "{}", machine.id);
+            assert_eq!(roles.contains(&SlotRole::Fuel), [CLONING_VAT, BIOREACTOR].contains(&machine.id), "{}", machine.id);
             assert_eq!(slot_role(machine, machine.slots), SlotRole::Unused, "за пределами");
         }
         assert_eq!(slot_role(m("biolab:still"), SLOT_FUEL), SlotRole::Unused);
@@ -1518,7 +1524,7 @@ pub struct MachineSounds {
 
 /// Машина → её звуки. Каждой — свой характер, чтобы по звуку было ясно, какая
 /// из соседних машин закончила.
-pub const MACHINE_SOUNDS: [MachineSounds; 13] = [
+pub const MACHINE_SOUNDS: [MachineSounds; 14] = [
     // Перегонный куб: закипает, побулькивает, перелив готового в колбу.
     MachineSounds {
         machine: "biolab:still",
@@ -1616,6 +1622,14 @@ pub const MACHINE_SOUNDS: [MachineSounds; 13] = [
         start: block("minecraft:block.comparator.click", 0.5, 1.4),
         work: block("minecraft:block.amethyst_block.chime", 0.3, 1.4),
         done: block("biolab:block.machine.ready", 0.5, 1.5),
+    },
+    // Биореактор: тот же характер, что у ферментера, но бак большой — ниже
+    // и глуше; партия сливается ведром.
+    MachineSounds {
+        machine: BIOREACTOR,
+        start: block("minecraft:block.copper_bulb.turn_on", 0.5, 0.7),
+        work: block("biolab:block.fermenter.bubble", 0.45, 0.7),
+        done: block("minecraft:item.bucket.empty", 0.6, 0.9),
     },
 ];
 
@@ -10137,7 +10151,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 65] = [
+pub const RESEARCH: [Research; 66] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10223,6 +10237,8 @@ pub const RESEARCH: [Research; 65] = [
     // Генный секвенатор (GDD 4.18, п. 3) — генетика, после генотерапии:
     // антисмысл — это она же, только обратная.
     node("sequencer", 4, (4, 3), "biolab:sequencer", "Генный секвенатор", &["therapy"], Unlock::Item(&["biolab:sequencer", "biolab:sequencer_rack", "biolab:sequencer_monitor", "biolab:gene_vector", "biolab:antisense_vector"]), "Сделайте консоль: экстрактор и микроскоп."),
+    // Биореактор — микробиология: партия культур и экстрактов.
+    node("bioreactor", 2, (2, 2), "biolab:bioreactor", "Биореактор", &["culture"], Unlock::Item(&["biolab:bioreactor"]), "Сделайте контроллер: ферментер и инкубатор."),
 ];
 
 /// Номер узла по id.
@@ -12606,7 +12622,7 @@ pub const COLUMN_CONDENSER: &str = "biolab:column_condenser";
 pub const FORMED: &str = "formed";
 /// Блоки со свойством `formed` (данные блоков объявляют его в
 /// `state_properties`, тест сверяет).
-pub const FORMABLE: [&str; 6] = [CASING, CASING_GLASS, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER_RACK, SEQUENCER_MONITOR];
+pub const FORMABLE: [&str; 7] = [CASING, CASING_GLASS, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER_RACK, SEQUENCER_MONITOR, BIOREACTOR];
 
 /// Есть ли у блока «склеенный» вид.
 pub fn is_formable(id: &str) -> bool {
@@ -13293,7 +13309,7 @@ pub const COLUMN_SLOT_ROLES: [SlotRole; COLUMN_SLOTS] = [
 ];
 
 /// Установки мода. Новая установка — строка здесь и машина в `MACHINES`.
-pub const MULTIBLOCKS: [Multiblock; 2] = [
+pub const MULTIBLOCKS: [Multiblock; 3] = [
     Multiblock {
         controller: COLUMN,
         title: "Ректификационная колонна",
@@ -13307,6 +13323,13 @@ pub const MULTIBLOCKS: [Multiblock; 2] = [
         needs: &SEQUENCER_NEEDS,
         check: Check::Shape(SEQUENCER_SHAPE),
         slots: &SEQUENCER_SLOT_ROLES,
+    },
+    Multiblock {
+        controller: BIOREACTOR,
+        title: "Биореактор",
+        needs: &BIOREACTOR_NEEDS,
+        check: Check::Shape(BIOREACTOR_SHAPE),
+        slots: &BIOREACTOR_SLOT_ROLES,
     },
 ];
 
@@ -14792,6 +14815,501 @@ mod sequencer_tests {
     }
 }
 
+// ---- M8: биореактор (GDD 4.18, п. 2) ----
+//
+// Куб 3×3×3: стенки, пол и потолок из корпуса, стекла установки и портов,
+// внутри пусто — там среда. Контроллер (`biolab:bioreactor`) стоит в середине
+// передней стенки, под серединой пола — источник тепла (те же блоки, что у
+// реактора и колонны). Порт бульона отдельно не нужен: входной порт кладёт
+// бульон в слот бульона контроллера (`SlotRole::Fuel`), сырьё — во входы.
+//
+// Варит партией: до `BIOREACTOR_BATCH` предметов за раз по рецептам
+// ферментера и инкубатора (`BIOREACTOR_RECIPES`, своих рецептов нет). Рецепт
+// каждого предмета ищется так же, как у этих машин, — сперва ферментера,
+// потом инкубатора: культура в биореакторе идёт в экстракт, а не в отбор
+// (отбор штамма — тонкая работа инкубатора). Партия — по одному предмету за
+// рецепт, время партии — самый долгий рецепт в ней, сокращённый на четверть
+// (`bioreactor_time`). Одна партия съедает одну порцию питательного раствора.
+//
+// Температура среды — модель реактора (`next_temperature`), но среда — бак
+// воды за стальным днищем: источник греет её не до своего потолка, а до
+// `ROOM_TEMPERATURE + потолок / MEDIUM_HEAT_DIVISOR` (`medium_target`), и шаг
+// в `BIOREACTOR_HEAT_EVERY` тиков, а не каждый тик. Костёр — 35 °C, костёр
+// душ — 37 °C: в диапазоне 30–40. Магма (45), огонь (55), лава (67) —
+// перегрев. Холодная среда (ниже 30) — партия ждёт, прогресс стоит; горячая
+// (выше 40) — начатая партия испорчена: сырьё и порция раствора пропали.
+//
+// Скисание: с шансом `BIOREACTOR_SOUR_PERCENT` готовая партия — слизь
+// (`SOUR_ITEM`, по шарику за предмет), если контроллер не в карантинной
+// камере (`in_quarantine`, контракт волны 2 ниже).
+//
+// Исполнение — модуль `crate::game::biolab_bioreactor` (`bioreactor.rs`).
+
+/// Биореактор: контроллер в середине передней стенки куба.
+pub const BIOREACTOR: &str = "biolab:bioreactor";
+/// Чьи рецепты варит биореактор — по порядку: первый совпавший и варится.
+pub const BIOREACTOR_RECIPES: [&str; 2] = ["biolab:fermenter", INCUBATOR];
+/// Сколько предметов в партии.
+pub const BIOREACTOR_BATCH: u32 = 8;
+/// Слоты контроллера: восемь входов, бульон, восемь выходов (у каждого
+/// предмета партии — свой: культуры не складываются).
+pub const BIOREACTOR_INPUTS: usize = 8;
+pub const BIOREACTOR_BROTH: usize = BIOREACTOR_INPUTS;
+pub const BIOREACTOR_FIRST_OUTPUT: usize = BIOREACTOR_BROTH + 1;
+pub const BIOREACTOR_OUTPUTS: usize = 8;
+pub const BIOREACTOR_SLOTS: usize = BIOREACTOR_FIRST_OUTPUT + BIOREACTOR_OUTPUTS;
+
+pub const BIOREACTOR_SLOT_ROLES: [SlotRole; BIOREACTOR_SLOTS] = {
+    let mut roles = [SlotRole::Input; BIOREACTOR_SLOTS];
+    roles[BIOREACTOR_BROTH] = SlotRole::Fuel;
+    let mut i = BIOREACTOR_FIRST_OUTPUT;
+    while i < BIOREACTOR_SLOTS {
+        roles[i] = SlotRole::Output;
+        i += 1;
+    }
+    roles
+};
+
+/// Нужды схемы: стенка (корпус, стекло или порт), пустота внутри, тепло.
+pub const BIOREACTOR_NEEDS: [Need; 3] = [
+    Need { parts: &[Part::Block(CASING), Part::Block(CASING_GLASS), Part::Port], one: "блока корпуса", many: "блоков корпуса" },
+    Need { parts: &[Part::Air], one: "места для среды", many: "мест для среды" },
+    Need { parts: &[Part::Heat], one: "источника тепла", many: "источников тепла" },
+];
+
+/// Пол и потолок: девять клеток стенки.
+const BIOREACTOR_LID: [Cell; 9] = [
+    cell(-1, 0, 0), cell(0, 0, 0), cell(1, 0, 0),
+    cell(-1, 1, 0), cell(0, 1, 0), cell(1, 1, 0),
+    cell(-1, 2, 0), cell(0, 2, 0), cell(1, 2, 0),
+];
+/// Ярус контроллера: стенки вокруг, в середине пусто.
+const BIOREACTOR_RING: [Cell; 8] = [
+    cell(-1, 0, 0), cell(1, 0, 0),
+    cell(-1, 1, 0), cell(0, 1, 1), cell(1, 1, 0),
+    cell(-1, 2, 0), cell(0, 2, 0), cell(1, 2, 0),
+];
+
+pub const BIOREACTOR_SHAPE: Shape = Shape {
+    layers: &[
+        Layer { cells: &[cell(0, 1, 2)], min: 1, max: 1, name: "под днищем" },
+        Layer { cells: &BIOREACTOR_LID, min: 1, max: 1, name: "" },
+        Layer { cells: &BIOREACTOR_RING, min: 1, max: 1, name: "" },
+        Layer { cells: &BIOREACTOR_LID, min: 1, max: 1, name: "" },
+    ],
+    controller: 2,
+};
+
+/// Где источник тепла от контроллера: `[вправо, вверх, назад]` — под
+/// серединой пола.
+pub const BIOREACTOR_HEAT_AT: [i32; 3] = [0, -2, 1];
+
+/// Диапазон среды, °C: ниже — ждёт, выше — партия портится.
+pub const BIOREACTOR_RANGE: (i32, i32) = (30, 40);
+/// Во сколько раз среда за днищем холоднее потолка источника (над
+/// комнатной).
+pub const MEDIUM_HEAT_DIVISOR: i32 = 20;
+/// Раз в сколько тиков меняется температура среды: бак большой.
+pub const BIOREACTOR_HEAT_EVERY: i64 = 10;
+/// Партия идёт столько от самого долгого рецепта в ней: три четверти.
+pub const BIOREACTOR_SPEED: (i32, i32) = (3, 4);
+/// Шанс скиснуть вне карантина, процентов на партию.
+pub const BIOREACTOR_SOUR_PERCENT: u64 = 5;
+/// Во что скисает партия: по шарику на предмет.
+pub const SOUR_ITEM: &str = "minecraft:slime_ball";
+/// Звук скисшей партии: шлепок слизи (перегрев звучит как у реактора).
+pub const BIOREACTOR_SOUR_SOUND: Sound = block("minecraft:entity.slime.squish", 0.8, 0.7);
+
+/// Сейв контроллера: температура среды и чем кончилась прошлая партия.
+pub const BIO_TEMPERATURE_KEY: &str = "biolab_bio_temperature";
+pub const BIO_LAST_KEY: &str = "biolab_bio_last";
+
+/// Чем кончилась партия (`BIO_LAST_KEY`, `DATA_BIO_LAST`).
+pub const BATCH_NONE: i32 = 0;
+pub const BATCH_DONE: i32 = 1;
+pub const BATCH_SOUR: i32 = 2;
+pub const BATCH_SPOILED: i32 = 3;
+
+// Свои числа экрана биореактора — после общих чисел установки.
+/// Температура среды.
+pub const DATA_BIO_TEMPERATURE: usize = DATA_MB_END;
+/// До скольки греет источник среду; −1 — не греет (нет источника или
+/// установка разобрана).
+pub const DATA_BIO_TARGET: usize = DATA_MB_END + 1;
+/// Сколько предметов в партии сейчас.
+pub const DATA_BIO_BATCH: usize = DATA_MB_END + 2;
+/// Чем кончилась прошлая партия (`BATCH_*`).
+pub const DATA_BIO_LAST: usize = DATA_MB_END + 3;
+/// 1 — контроллер в карантинной камере: партия не скисает.
+pub const DATA_BIO_QUARANTINE: usize = DATA_MB_END + 4;
+pub const DATA_BIO_END: usize = DATA_MB_END + 5;
+
+/// До скольки источник под днищем греет среду; None — блок не греет.
+pub fn medium_target(block: &str) -> Option<i32> {
+    heat_target(block).map(|ceiling| ROOM_TEMPERATURE + ceiling / MEDIUM_HEAT_DIVISOR)
+}
+
+/// Среда по температуре.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Medium {
+    /// Ниже диапазона: партия ждёт.
+    Cold,
+    /// В диапазоне: варит.
+    Fit,
+    /// Выше: начатая партия портится.
+    Hot,
+}
+
+pub fn medium(temperature: i32) -> Medium {
+    let (min, max) = BIOREACTOR_RANGE;
+    if temperature < min {
+        Medium::Cold
+    } else if temperature > max {
+        Medium::Hot
+    } else {
+        Medium::Fit
+    }
+}
+
+/// Пора ли менять температуру среды.
+pub fn medium_due(ticks: i64) -> bool {
+    ticks.rem_euclid(BIOREACTOR_HEAT_EVERY) == 0
+}
+
+/// Что взять в партию: `inputs` — входные слоты по порядку, у каждого
+/// сколько в нём лежит, если для него есть рецепт (None — пусто или
+/// рецепта нет). Берём по порядку слотов, сколько есть, пока не наберётся
+/// `BIOREACTOR_BATCH`. Вернёт (слот, сколько).
+pub fn bioreactor_take(inputs: &[Option<u32>]) -> Vec<(usize, u32)> {
+    let mut left = BIOREACTOR_BATCH;
+    let mut take = Vec::new();
+    for (slot, count) in inputs.iter().enumerate() {
+        if left == 0 {
+            break;
+        }
+        let Some(count) = count else { continue };
+        let n = (*count).min(left);
+        if n > 0 {
+            take.push((slot, n));
+            left -= n;
+        }
+    }
+    take
+}
+
+/// Время партии: самый долгий рецепт в ней, сокращённый (`BIOREACTOR_SPEED`).
+/// Пустая партия — 0: работы нет.
+pub fn bioreactor_time(times: &[i32]) -> i32 {
+    let Some(longest) = times.iter().copied().max() else {
+        return 0;
+    };
+    let (num, den) = BIOREACTOR_SPEED;
+    (longest.max(1) * num / den).max(1)
+}
+
+/// Скисла ли готовая партия. В карантине — никогда; иначе с шансом
+/// `BIOREACTOR_SOUR_PERCENT` от зерна (место и тик, как выдача гена).
+pub fn bioreactor_sours(seed: u64, quarantine: bool) -> bool {
+    if quarantine {
+        return false;
+    }
+    let mixed = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+    mixed % 100 < BIOREACTOR_SOUR_PERCENT
+}
+
+/// Что экран биореактора знает о среде и партии.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BioReading {
+    pub temperature: i32,
+    pub target: Option<i32>,
+    pub batch: u32,
+    pub last: i32,
+    pub quarantine: bool,
+}
+
+pub fn bio_reading(data: &[i32]) -> BioReading {
+    let target = screen_datum(data, DATA_BIO_TARGET, -1);
+    BioReading {
+        temperature: screen_datum(data, DATA_BIO_TEMPERATURE, ROOM_TEMPERATURE),
+        target: (target >= 0).then_some(target),
+        batch: screen_datum(data, DATA_BIO_BATCH, 0).max(0) as u32,
+        last: screen_datum(data, DATA_BIO_LAST, BATCH_NONE),
+        quarantine: screen_datum(data, DATA_BIO_QUARANTINE, 0) == 1,
+    }
+}
+
+/// Короткая строка состояния на табло собранного биореактора.
+pub fn bioreactor_status(r: &BioReading) -> String {
+    match medium(r.temperature) {
+        Medium::Cold => "Среда холодная".to_string(),
+        Medium::Hot => "Перегрев!".to_string(),
+        Medium::Fit if r.batch > 0 => format!("Партия: {}", r.batch),
+        Medium::Fit => "Среда готова".to_string(),
+    }
+}
+
+/// Строки подсказки над табло собранного биореактора: среда, нагрев,
+/// карантин, прошлая партия.
+pub fn bioreactor_lines(data: &[i32]) -> Vec<String> {
+    let r = bio_reading(data);
+    let (min, max) = BIOREACTOR_RANGE;
+    let mut lines = vec![format!("Среда: {} °C, нужно {min}–{max}", r.temperature)];
+    lines.push(match r.target {
+        None => "§cНет нагрева: под днищем нужен огонь".to_string(),
+        Some(t) if t > max => format!("§cНагрев до {t} °C — перегреет партию"),
+        Some(t) if t < min => format!("§eНагрев до {t} °C — мало"),
+        Some(t) => format!("Нагрев до {t} °C"),
+    });
+    if r.batch > 0 {
+        lines.push(format!("В партии {} из {BIOREACTOR_BATCH}", r.batch));
+    }
+    lines.push(if r.quarantine {
+        "В карантине: партия не скиснет".to_string()
+    } else {
+        format!("§7Вне карантина партия может скиснуть ({BIOREACTOR_SOUR_PERCENT}%)")
+    });
+    match r.last {
+        BATCH_DONE => lines.push("§7Прошлая партия готова".to_string()),
+        BATCH_SOUR => lines.push("§eПрошлая партия скисла в слизь".to_string()),
+        BATCH_SPOILED => lines.push("§cПрошлая партия испорчена перегревом".to_string()),
+        _ => {}
+    }
+    lines
+}
+
+/// Подсказка над табло биореактора: сборка (общая) и, если собран, — среда.
+pub fn bioreactor_tooltip(data: &[i32]) -> Vec<String> {
+    let mut lines = multiblock_tooltip(BIOREACTOR, data);
+    if matches!(multiblock_shown(data), MultiblockShown::Formed { .. }) {
+        lines.extend(bioreactor_lines(data));
+    }
+    lines
+}
+
+/// Шкала градусника на табло: от комнатной до 50 °C.
+pub const BIO_SCALE: (i32, i32) = (ROOM_TEMPERATURE, 50);
+
+/// Где на трубке градусника `tube` (x, y, ширина, высота) эта температура.
+pub fn bio_thermo_x(tube: [f32; 4], temperature: i32) -> f32 {
+    let (lo, hi) = BIO_SCALE;
+    let f = (temperature.clamp(lo, hi) - lo) as f32 / (hi - lo) as f32;
+    tube[0] + (tube[2] * f).floor()
+}
+
+#[cfg(test)]
+mod bioreactor_tests {
+    use super::*;
+
+    fn world(blocks: &[([i32; 3], &str)]) -> impl Fn([i32; 3]) -> String + use<> {
+        let map: std::collections::HashMap<[i32; 3], String> =
+            blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+        move |p| map.get(&p).cloned().unwrap_or_else(|| "minecraft:air".to_string())
+    }
+
+    fn reactor() -> &'static Multiblock {
+        multiblock(BIOREACTOR).expect("биореактор — установка")
+    }
+
+    /// Куб у контроллера `site`: всё корпус, середина пусто, под днищем
+    /// `heat`, справа в среднем ярусе — стекло, слева — входной порт, на
+    /// потолке посередине — выходной.
+    fn cube(site: Site, heat: &'static str) -> Vec<([i32; 3], &'static str)> {
+        let mut out = vec![(place(site.origin, site.facing, BIOREACTOR_HEAT_AT), heat)];
+        for y in -1..=1 {
+            for r in -1..=1 {
+                for b in 0..=2 {
+                    let block = match [r, y, b] {
+                        [0, 0, 0] => BIOREACTOR,
+                        [0, 0, 1] => continue,
+                        [-1, 0, 1] => INPUT_PORT,
+                        [0, 1, 1] => OUTPUT_PORT,
+                        [1, 0, _] => CASING_GLASS,
+                        _ => CASING,
+                    };
+                    out.push((place(site.origin, site.facing, [r, y, b]), block));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_full_cube_over_a_fire_is_formed_whatever_the_facing() {
+        for facing in [Facing::North, Facing::South, Facing::West, Facing::East] {
+            let site = Site { origin: [10, 70, -5], facing };
+            let Verdict::Formed(a) = check_multiblock(reactor(), site, &world(&cube(site, "minecraft:campfire"))) else {
+                panic!("{facing:?}: не собрано");
+            };
+            assert_eq!(a.inputs().collect::<Vec<_>>(), vec![place(site.origin, facing, [-1, 0, 1])]);
+            assert_eq!(a.outputs().collect::<Vec<_>>(), vec![place(site.origin, facing, [0, 1, 1])]);
+            // Стенки (26 без контроллера, пустоты и двух портов) и огонь.
+            assert_eq!(a.parts.len(), 27 - 4 + 1);
+            assert!(a.parts.contains(&place(site.origin, facing, BIOREACTOR_HEAT_AT)));
+        }
+    }
+
+    #[test]
+    fn a_broken_cube_says_what_is_missing() {
+        let mb = reactor();
+        let site = Site { origin: [0, 64, 0], facing: Facing::South };
+        // Без огня.
+        let mut blocks = cube(site, "minecraft:stone");
+        let Verdict::Broken(short) = check_multiblock(mb, site, &world(&blocks)) else { panic!() };
+        let texts: Vec<String> = short.iter().map(|s| shortage_text(mb, s)).collect();
+        assert_eq!(texts, vec!["Нет источника тепла: под днищем"]);
+        // Нет задней стенки среднего яруса и угла потолка; внутри земля.
+        blocks = cube(site, "minecraft:lava");
+        for at in [[-1, 0, 2], [0, 0, 2], [1, 0, 2], [1, 0, 1], [1, 1, 2]] {
+            let p = place(site.origin, site.facing, at);
+            blocks.retain(|(q, _)| *q != p);
+        }
+        blocks.push((place(site.origin, site.facing, [0, 0, 1]), "minecraft:dirt"));
+        let Verdict::Broken(short) = check_multiblock(mb, site, &world(&blocks)) else { panic!() };
+        let texts: Vec<String> = short.iter().map(|s| shortage_text(mb, s)).collect();
+        assert_eq!(
+            texts,
+            vec![
+                "Нет места для среды: 2-й ярус, в середине",
+                "Нет 2 блоков корпуса: 2-й ярус, справа",
+                "Нет блока корпуса: 2-й ярус, слева",
+                "Нет блока корпуса: 2-й ярус, сзади",
+                "Нет блока корпуса: 3-й ярус, справа",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_medium_warms_to_range_only_over_a_gentle_fire() {
+        assert_eq!(medium_target("minecraft:campfire"), Some(35));
+        assert_eq!(medium_target("minecraft:soul_campfire"), Some(37));
+        assert_eq!(medium_target("minecraft:stone"), None);
+        for (heat, fits) in [("minecraft:campfire", true), ("minecraft:soul_campfire", true), ("minecraft:magma_block", false), ("minecraft:fire", false), ("minecraft:lava", false)] {
+            let target = medium_target(heat).unwrap();
+            assert_eq!(medium(target) == Medium::Fit, fits, "{heat}: {target}");
+            // Среда доходит до потолка источника и там стоит.
+            let mut t = ROOM_TEMPERATURE;
+            for _ in 0..100 {
+                t = next_temperature(t, Some(target));
+            }
+            assert_eq!(t, target, "{heat}");
+        }
+        assert_eq!(medium(29), Medium::Cold);
+        assert_eq!(medium(30), Medium::Fit);
+        assert_eq!(medium(40), Medium::Fit);
+        assert_eq!(medium(41), Medium::Hot);
+        assert!(medium_due(20) && !medium_due(21));
+    }
+
+    #[test]
+    fn a_batch_takes_up_to_eight_in_slot_order() {
+        assert_eq!(bioreactor_take(&[Some(64)]), vec![(0, 8)]);
+        assert_eq!(bioreactor_take(&[Some(3), None, Some(1), Some(10)]), vec![(0, 3), (2, 1), (3, 4)]);
+        assert_eq!(bioreactor_take(&[None, None]), vec![]);
+        // Культуры по одной в слоте: восемь слотов — восемь культур.
+        let one = [Some(1); BIOREACTOR_INPUTS];
+        assert_eq!(bioreactor_take(&one).len(), 8);
+        assert_eq!(bioreactor_time(&[160, 200, 160]), 150, "самый долгий, на четверть быстрее");
+        assert_eq!(bioreactor_time(&[]), 0);
+        assert_eq!(bioreactor_time(&[1]), 1);
+    }
+
+    #[test]
+    fn a_batch_sours_rarely_and_never_in_quarantine() {
+        let sour = (0..10_000u64).filter(|s| bioreactor_sours(*s, false)).count();
+        assert!((300..=700).contains(&sour), "скисло {sour} из 10000 — шанс 5%");
+        assert!((0..10_000u64).all(|s| !bioreactor_sours(s, true)));
+    }
+
+    #[test]
+    fn the_controller_has_inputs_broth_and_outputs() {
+        let machine = machine(BIOREACTOR).expect("контроллер — машина");
+        assert_eq!(machine.slots, BIOREACTOR_SLOTS);
+        assert_eq!(machine_inputs(machine), (0..=BIOREACTOR_BROTH).collect::<Vec<_>>());
+        assert_eq!(machine_outputs(machine), (BIOREACTOR_FIRST_OUTPUT..BIOREACTOR_SLOTS).collect::<Vec<_>>());
+        // Бульон — только в свой слот, сырьё ферментера и инкубатора — во входы.
+        assert_eq!(quick_move_targets(machine, BROTH_ID), vec![BIOREACTOR_BROTH]);
+        for item in ["minecraft:wheat", "minecraft:sugar", "biolab:swab", "minecraft:bread", "biolab:culture"] {
+            assert_eq!(quick_move_targets(machine, item), (0..BIOREACTOR_INPUTS).collect::<Vec<_>>(), "{item}");
+        }
+        assert!(!hopper_accepts(machine, "minecraft:dirt"));
+        assert!(!hopper_accepts(machine, "minecraft:bone"), "сырьё перегонного куба — не сюда");
+        // Воронки: сверху — сырьё, сбоку — бульон, снизу — готовое.
+        let faces = machine_faces(machine);
+        assert_eq!(faces[1], (0..BIOREACTOR_INPUTS).collect::<Vec<_>>());
+        assert_eq!(faces[2], vec![BIOREACTOR_BROTH]);
+        assert!(machine_data_slots(BIOREACTOR) == DATA_BIO_END && DATA_BIO_END > DATA_MB_END);
+        // Свои числа — после общих чисел установки.
+        assert!(DATA_BIO_TEMPERATURE >= DATA_MB_END);
+    }
+
+    /// Рецепты, которые варит биореактор, есть в `content/`: и ферментера, и
+    /// инкубатора. Раствор, который он ест, ферментер и делает — из пшеницы.
+    #[test]
+    fn it_brews_what_the_fermenter_and_incubator_brew() {
+        for kind in BIOREACTOR_RECIPES {
+            assert!(is_machine(kind), "{kind}");
+            assert!(!machine_ingredients(kind).is_empty(), "{kind}: нет рецептов");
+            for item in machine_ingredients(kind) {
+                assert!(slot_accepts(machine(BIOREACTOR).unwrap(), 0, item), "{kind}: {item}");
+            }
+        }
+        assert!(machine_ingredients("biolab:fermenter").contains(&"minecraft:wheat"));
+        assert!(!machine_ingredients("biolab:fermenter").contains(&BROTH_ID), "раствор — не сырьё");
+    }
+
+    #[test]
+    fn the_screen_reads_the_medium() {
+        let mut data = vec![0; DATA_BIO_END];
+        data[DATA_MB_STATE] = MB_FORMED;
+        data[DATA_BIO_TEMPERATURE] = 35;
+        data[DATA_BIO_TARGET] = 35;
+        data[DATA_BIO_BATCH] = 5;
+        data[DATA_BIO_LAST] = BATCH_SOUR;
+        let r = bio_reading(&data);
+        assert_eq!(r, BioReading { temperature: 35, target: Some(35), batch: 5, last: BATCH_SOUR, quarantine: false });
+        assert_eq!(bioreactor_status(&r), "Партия: 5");
+        let lines = bioreactor_tooltip(&data);
+        assert_eq!(lines[0], "Биореактор: собрана");
+        assert!(lines.contains(&"Среда: 35 °C, нужно 30–40".to_string()));
+        assert!(lines.iter().any(|l| l.contains("скисла в слизь")));
+        assert!(lines.iter().any(|l| l.contains("может скиснуть")));
+        data[DATA_BIO_QUARANTINE] = 1;
+        data[DATA_BIO_TARGET] = 45;
+        let lines = bioreactor_tooltip(&data);
+        assert!(lines.iter().any(|l| l.contains("не скиснет")));
+        assert!(lines.iter().any(|l| l.contains("перегреет")));
+        assert_eq!(bio_reading(&[]).target, None, "до первого пакета");
+        assert_eq!(bioreactor_status(&bio_reading(&[])), "Среда холодная");
+        // Разобран — только нехватка, без среды.
+        data[DATA_MB_STATE] = MB_BROKEN;
+        assert!(!bioreactor_tooltip(&data).iter().any(|l| l.starts_with("Среда")));
+        let tube = [0.0, 0.0, 30.0, 4.0];
+        assert_eq!(bio_thermo_x(tube, 0), 0.0);
+        assert_eq!(bio_thermo_x(tube, 35), 15.0);
+        assert_eq!(bio_thermo_x(tube, 900), 30.0);
+    }
+
+    /// Блок контроллера: шаблон печи (меню), своё свойство `formed` — общий
+    /// вид на всю переднюю стенку; меню, лут, рецепт, кирка.
+    #[test]
+    fn the_controller_is_declared_in_content() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap_or_else(|_| panic!("нет {p}"));
+        let json = Json::parse(&read("data/biolab/horizon/block/bioreactor.json")).unwrap();
+        assert_eq!(json.get("template").and_then(Json::str), Some("minecraft:furnace"));
+        let formed = json.get("state_properties").and_then(|p| p.get(FORMED)).expect("formed");
+        assert_eq!(formed.get("type").and_then(Json::str), Some("boolean"));
+        assert!(is_formable(BIOREACTOR));
+        assert!(read("data/biolab/loot_table/blocks/bioreactor.json").contains(BIOREACTOR));
+        assert!(read("data/minecraft/tags/block/mineable/pickaxe.json").contains(BIOREACTOR));
+        let recipe = Json::parse(&read("data/biolab/recipe/bioreactor.json")).unwrap();
+        assert_eq!(recipe.get("result").and_then(|r| r.get("id")).and_then(Json::str), Some(BIOREACTOR));
+        let research = read(RESEARCH_PATH);
+        assert!(research.contains("= bioreactor"), "запись в журнале");
+        assert!(research_index("bioreactor").is_some());
+    }
+}
+
 // ---- M8: связь установок между собой (контракт волны 2) ----
 //
 // Карантинная камера (GDD 4.18 п. 4) отвечает на вопрос «эта точка внутри
@@ -14844,7 +15362,7 @@ pub const SCREEN_HEADER: f32 = 16.0;
 
 /// Название машины на экране, если сервер не прислал своё, и что она делает —
 /// для подсказки над шкалой.
-pub const SCREEN_NAMES: [(&str, &str, &str); 15] = [
+pub const SCREEN_NAMES: [(&str, &str, &str); 16] = [
     ("biolab:still", "Перегонный куб", "Перегонка"),
     ("biolab:incubator", "Инкубатор", "Рост культуры"),
     ("biolab:fermenter", "Ферментер", "Брожение"),
@@ -14861,6 +15379,7 @@ pub const SCREEN_NAMES: [(&str, &str, &str); 15] = [
     (INPUT_PORT, "Входной порт", "Подача"),
     (OUTPUT_PORT, "Выходной порт", "Выдача"),
     (SEQUENCER, "Генный секвенатор", "Секвенирование"),
+    (BIOREACTOR, "Биореактор", "Партия"),
 ];
 
 /// Название машины для заголовка.
@@ -15036,6 +15555,21 @@ pub fn machine_screen(id: &str) -> Option<MachineScreen> {
             inventory: [8.0, SCREEN_INVENTORY_Y],
             gauge: [84.0, 17.0, 87.0, 54.0],
             progress: [25.0, 38.0, 54.0, 12.0],
+        },
+        // Биореактор: слева восемь входов (4×2), справа восемь выходов,
+        // между ними стрелка партии и слот раствора; внизу во всю ширину
+        // табло — сборка, состояние среды и градусник.
+        BIOREACTOR => MachineScreen {
+            width: SCREEN_WIDTH,
+            height: SCREEN_HEIGHT,
+            slots: (0..BIOREACTOR_INPUTS)
+                .map(|i| Some([8.0 + (i % 4) as f32 * 18.0, 18.0 + (i / 4) as f32 * 18.0]))
+                .chain(std::iter::once(Some([81.0, 36.0])))
+                .chain((0..BIOREACTOR_OUTPUTS).map(|i| Some([100.0 + (i % 4) as f32 * 18.0, 18.0 + (i / 4) as f32 * 18.0])))
+                .collect(),
+            inventory: [8.0, SCREEN_INVENTORY_Y],
+            gauge: [5.0, 55.0, 166.0, 16.0],
+            progress: [81.0, 20.0, 16.0, 11.0],
         },
         _ => return None,
     };
@@ -15588,6 +16122,7 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
             lines.extend(multiblock_tooltip(id, data).into_iter().skip(1));
             lines
         }
+        BIOREACTOR => bioreactor_tooltip(data),
         id if multiblock(id).is_some() => multiblock_tooltip(id, data),
         REACTOR => reactor_tooltip(data),
         SYNTHESIZER => synth_tooltip(data),
@@ -15987,7 +16522,7 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 32, "блоков стало больше — решите, выпадают ли новые");
+        assert_eq!(blocks.len(), 33, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,

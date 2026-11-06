@@ -77,6 +77,8 @@ fn group(item: &str) -> usize {
         | "column_condenser" => 1,
         // Генный секвенатор (GDD 4.18, п. 3): консоль, стойка, монитор.
         "sequencer" | "sequencer_rack" | "sequencer_monitor" => 1,
+        // Биореактор (GDD 4.18, п. 2).
+        "bioreactor" => 1,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
         // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.

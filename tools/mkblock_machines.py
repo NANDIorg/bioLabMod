@@ -18,6 +18,8 @@
 - части многоблочных установок (GDD 4.18, `write_multiblock`): корпус, стекло,
   порты, колонна, секвенатор; у склеиваемых — модель `<блок>_formed` для `formed=true`,
   и ещё items/<блок>.json.
+- биореактор (`write_bioreactor`): люк контроллера и общий вид передней грани
+  куба 3×3×3 у собранного (`bioreactor_formed`, модель за границами блока).
 
 Правила геометрии (блоки по шаблону печки — для игры сплошной куб, соседи не
 рисуют прилегающие грани, поэтому дыры в модели показали бы пустоту):
@@ -1850,6 +1852,199 @@ def write_multiblock():
     print("секвенатор: консоль, стойка, монитор")
 
 
+# ---------------------------------------------------------------- биореактор (GDD 4.18, п. 2)
+#
+# Контроллер биореактора — в середине передней стенки куба 3×3×3. Пока куб
+# не собран, это обычный блок на шаблоне печи (`orientable`): люк со смотровым
+# окном, за которым среда. Собранный (`formed=true`, своё свойство блока,
+# ставит модуль `biolab_bioreactor`) рисует общий вид всей передней стенки:
+# модель выходит за блок на целый блок в каждую сторону (`elements` от −16 до
+# 32) — стальная рама по краю грани 3×3, трубы от рамы к люку и сам люк
+# выступом. Внутренние клетки стенки модель не закрывает: порты и стекло
+# там видны. Рисунок рамы — одна текстура 48×48 на всю грань
+# (`bioreactor_panel`, пиксель текстуры = пиксель модели), каждая часть берёт
+# из неё свой кусок (`panel_uv`). `tools/check_models.py` пускает за
+# границы блока только этот блок (`OVERSIZE`).
+
+MEDIUM = (96, 190, 70)  # среда за стеклом люка
+
+
+def big_canvas(w, h, c):
+    return [[(c[0], c[1], c[2], 255) for _ in range(w)] for _ in range(h)]
+
+
+def big_put(img, x, y, c, a=255):
+    if 0 <= y < len(img) and 0 <= x < len(img[0]):
+        img[y][x] = (c[0], c[1], c[2], a)
+
+
+def porthole(img, cx, cy, r, lit, seed, put_fn=put):
+    """Круглое окно люка: обод, стекло со средой (тёмнее книзу), пузыри.
+    Горящий (`lit`) — среда ярче и бурлит."""
+    rng = random.Random(seed)
+    for y in range(cy - r - 1, cy + r + 2):
+        for x in range(cx - r - 1, cx + r + 2):
+            d = math.hypot(x + 0.5 - cx, y + 0.5 - cy)
+            if d <= r - 0.6:
+                depth = (y - (cy - r)) / (2 * r)
+                c = shade(MEDIUM, 30 if lit else 0)
+                c = mix(c, shade(MEDIUM, -60), depth * 0.6)
+                put_fn(img, x, y, c)
+            elif d <= r + 0.4:
+                put_fn(img, x, y, STEEL_LIGHT if y < cy else STEEL_DARK)
+            elif d <= r + 1.2:
+                put_fn(img, x, y, EDGE)
+    # Блик на стекле и пузыри.
+    put_fn(img, cx - r + 2, cy - r + 2, (220, 250, 220))
+    for _ in range(6 if lit else 2):
+        bx = cx + rng.randint(-r + 2, r - 2)
+        by = cy + rng.randint(-r + 2, r - 2)
+        if math.hypot(bx + 0.5 - cx, by + 0.5 - cy) < r - 1.5:
+            put_fn(img, bx, by, (210, 250, 170) if lit else (150, 220, 120))
+
+
+def bioreactor_textures():
+    """Люк контроллера (несобранный), бока, верх и рисунок всей грани."""
+    for lit in (False, True):
+        front = plate(CASING, stable("bioreactor_front") & 0xFFF)
+        porthole(front, 8, 7, 5, lit, stable("bioreactor_bubbles") + lit)
+        for x in range(3, 13):  # бирюзовая маркировка под люком
+            put(front, x, 14, TEAL if x % 3 else EDGE)
+        write_png("bioreactor_front" + ("_on" if lit else ""), front)
+    side = casing_tex(stable("bioreactor_side") & 0xFFF, False)
+    rect(side, 0, 9, 16, 11, COPPER)  # труба среды вдоль бака
+    rect(side, 0, 10, 16, 11, COPPER_DARK)
+    for x in (3, 12):
+        rect(side, x, 8, x + 1, 12, STEEL_DARK)  # хомуты
+    write_png("bioreactor_side", side)
+    top = plate(CASING, stable("bioreactor_top") & 0xFFF)
+    rect(top, 4, 4, 12, 12, STEEL_DARK)
+    vents(top, 5, 5, 11, 11)
+    outline(top, 4, 4, 12, 12, EDGE)
+    write_png("bioreactor_top", top)
+
+    # Вся передняя грань 48×48: рама 4 пикселя, трубы, люк в середине.
+    for lit in (False, True):
+        img = big_canvas(48, 48, CASING)
+        rng = random.Random(stable("bioreactor_panel"))
+        for y in range(48):
+            for x in range(48):
+                d = rng.randint(-4, 4)
+                r, g, b, a = img[y][x]
+                img[y][x] = (clamp(r + d), clamp(g + d), clamp(b + d), a)
+        # Рама: тёмная сталь с фаской, по низу — предупредительная полоса.
+        for y in range(48):
+            for x in range(48):
+                if min(x, y, 47 - x, 47 - y) < 4:
+                    c = STEEL_DARK
+                    if y < 1 or x < 1:
+                        c = STEEL
+                    elif y > 46 or x > 46:
+                        c = EDGE
+                    elif min(x, y, 47 - x, 47 - y) == 3:
+                        c = EDGE
+                    big_put(img, x, y, c)
+        for x in range(4, 44):
+            big_put(img, x, 45, HAZARD if (x // 2) % 2 else EDGE)
+            big_put(img, x, 46, HAZARD if ((x + 1) // 2) % 2 else EDGE)
+        for x in range(18, 30):  # табличка установки сверху: бирюзовая жила
+            big_put(img, x, 1, TEAL_DIM)
+            big_put(img, x, 2, TEAL if x % 3 else TEAL_DIM)
+        for x, y in ((1, 1), (45, 1), (1, 45), (45, 45), (22, 45), (1, 22), (45, 22)):
+            big_put(img, x, y, STEEL_LIGHT)
+            big_put(img, x + 1, y + 1, EDGE)
+        # Трубы от рамы к люку на высоте модели y 7…9 (строки 23–24).
+        for x in list(range(4, 16)) + list(range(32, 44)):
+            big_put(img, x, 23, COPPER_LIGHT if x % 4 else COPPER)
+            big_put(img, x, 24, COPPER_DARK)
+        # Люк — середина 16×16 (строки и столбцы 16–31).
+        for y in range(16, 32):
+            for x in range(16, 32):
+                big_put(img, x, y, shade(CASING, 6))
+        for x in range(16, 32):
+            big_put(img, x, 16, shade(CASING, 30))
+            big_put(img, x, 31, EDGE)
+        for y in range(16, 32):
+            big_put(img, 16, y, shade(CASING, 18))
+            big_put(img, 31, y, EDGE)
+        porthole(img, 24, 24, 5, lit, stable("bioreactor_bubbles") + lit, big_put)
+        for x, y in ((18, 18), (29, 18), (18, 29), (29, 29)):
+            big_put(img, x, y, STEEL_LIGHT)
+            big_put(img, x + 1, y + 1 if y + 1 < 31 else y, STEEL_DARK)
+        write_png("bioreactor_panel" + ("_on" if lit else ""), img)
+
+
+def panel_uv(x0, x1, y0, y1):
+    """Кусок текстуры грани 48×48 под прямоугольник модели x0…x1, y0…y1 на
+    северной грани: ваниль кладёт u = 16 − x, v = 16 − y, здесь всё сдвинуто
+    на блок (грань от −16 до 32) и сжато втрое (48 пикселей — 16 единиц uv)."""
+    return [round((32 - x1) / 3, 4), round((32 - y1) / 3, 4),
+            round((32 - x0) / 3, 4), round((32 - y0) / 3, 4)]
+
+
+def slab_faces(x0, x1, y0, y1):
+    """Грани выступа перед северной гранью: лицо — свой кусок рисунка, кромки
+    (верх, низ, бока) — тонкие полоски того же куска."""
+    u0, v0, u1, v1 = panel_uv(x0, x1, y0, y1)
+    thin_v = [u0, v0, u1, round(min(v0 + 1 / 3, 16), 4)]
+    thin_u = [u0, v0, round(min(u0 + 1 / 3, 16), 4), v1]
+    return {
+        "down": {"uv": thin_v, "texture": "#panel"},
+        "up": {"uv": thin_v, "texture": "#panel"},
+        "north": {"uv": [u0, v0, u1, v1], "texture": "#panel"},
+        "west": {"uv": thin_u, "texture": "#panel"},
+        "east": {"uv": thin_u, "texture": "#panel"},
+    }
+
+
+def bioreactor_formed_elements():
+    full = [0, 0, 16, 16]
+    core = {"from": [0, 0, 0], "to": [16, 16, 16], "faces": {
+        "down": {"uv": full, "texture": "#casing", "cullface": "down"},
+        "up": {"uv": full, "texture": "#casing", "cullface": "up"},
+        "north": {"uv": panel_uv(0, 16, 0, 16), "texture": "#panel", "cullface": "north"},
+        "south": {"uv": full, "texture": "#casing", "cullface": "south"},
+        "west": {"uv": full, "texture": "#casing", "cullface": "west"},
+        "east": {"uv": full, "texture": "#casing", "cullface": "east"},
+    }}
+    out = [core]
+    # Рама по краю грани 3×3, на полпикселя перед стенкой.
+    for x0, x1, y0, y1 in ((-16, 32, 28, 32), (-16, 32, -16, -12), (-16, -12, -12, 28), (28, 32, -12, 28)):
+        out.append({"from": [x0, y0, -0.5], "to": [x1, y1, 0], "faces": slab_faces(x0, x1, y0, y1)})
+    # Трубы от рамы к люку и выступ люка.
+    for x0, x1, y0, y1, z in ((-12, 0, 7, 9, -1), (16, 28, 7, 9, -1), (2, 14, 2, 14, -0.5)):
+        out.append({"from": [x0, y0, z], "to": [x1, y1, 0], "faces": slab_faces(x0, x1, y0, y1)})
+    return out
+
+
+def write_bioreactor():
+    bioreactor_textures()
+    for lit in (False, True):
+        suffix = "_on" if lit else ""
+        write_model("bioreactor" + suffix, "minecraft:block/orientable",
+                    {"front": "bioreactor_front" + suffix, "side": "bioreactor_side",
+                     "top": "bioreactor_top", "particle": "bioreactor_side"})
+        dump_model(os.path.join(MODELS, f"bioreactor_formed{suffix}.json"), {
+            "parent": "minecraft:block/block",
+            "textures": {"panel": f"biolab:block/bioreactor_panel{suffix}",
+                         "casing": "biolab:block/casing_formed",
+                         "particle": "biolab:block/bioreactor_side"},
+            "elements": bioreactor_formed_elements()})
+    variants = {}
+    for facing, y in (("north", 0), ("east", 90), ("south", 180), ("west", 270)):
+        for formed in ("false", "true"):
+            for lit in ("false", "true"):
+                model = "bioreactor" + ("_formed" if formed == "true" else "") + ("_on" if lit == "true" else "")
+                v = {"model": f"biolab:block/{model}"}
+                if y:
+                    v["y"] = y
+                variants[f"facing={facing},formed={formed},lit={lit}"] = v
+    write_states("bioreactor", variants)
+    write_item("bioreactor")
+    print(f"биореактор: люк, общий вид грани 3×3 ({len(bioreactor_formed_elements())} элементов)")
+
+
 if __name__ == "__main__":
     main()
     write_multiblock()
+    write_bioreactor()
