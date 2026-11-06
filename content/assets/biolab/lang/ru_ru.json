@@ -161,5 +161,6 @@
  "death.attack.biolab.infection": "%1$s сгубила болезнь",
  "death.attack.biolab.infection.player": "%1$s сгубила болезнь в бою с %2$s",
  "death.attack.biolab.mutation": "%1$s разорвала собственная мутация",
- "death.attack.biolab.mutation.player": "%1$s разорвала собственная мутация в бою с %2$s"
+ "death.attack.biolab.mutation.player": "%1$s разорвала собственная мутация в бою с %2$s",
+ "entity.biolab.infected": "Заражённый"
 }

@@ -161,5 +161,6 @@
  "death.attack.biolab.infection": "%1$s succumbed to infection",
  "death.attack.biolab.infection.player": "%1$s succumbed to infection while fighting %2$s",
  "death.attack.biolab.mutation": "%1$s was torn apart by their own mutation",
- "death.attack.biolab.mutation.player": "%1$s was torn apart by their own mutation while fighting %2$s"
+ "death.attack.biolab.mutation.player": "%1$s was torn apart by their own mutation while fighting %2$s",
+ "entity.biolab.infected": "Infected"
 }

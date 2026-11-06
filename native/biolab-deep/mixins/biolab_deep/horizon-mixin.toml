@@ -370,3 +370,14 @@ bindings = [
   { name = "entity", ty = "u32", value = "entity" },
   { name = "converted", ty = "u32", value = "converted" },
 ]
+
+# ---- M11-А: Заражённый (GDD 4.26 А) ----
+# Оттенок тела своего вида мода (`biolab:infected` — зеленовато-бледный
+# зомби): таблица в lib-крейте, рядом с отрисовкой; читает её `color.rs`
+# (инъекция `mutant-tint` выше). Мутация при появлении — `roll_for` по
+# `MOD_KINDS` в `runtime.rs`, как у враждебного.
+[[module]]
+id = "infected-look"
+file = "crates/horizon-client/src/client_lib.rs"
+name = "biolab_infected_look"
+source = "infected_look.rs"

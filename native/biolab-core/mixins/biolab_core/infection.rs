@@ -215,15 +215,23 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
     if state.ticks % m::INFECTION_EVERY == 0
         && let Some(player) = game.native_player()
     {
-        let near = game.mobs.iter().any(|mob| {
-            mob.species() == horizon_client::mobs::species::Species::Zombie
-                && mob.alive()
-                && (mob.position.x - player.x).abs() < m::CONTACT_RANGE
-                && (mob.position.y - player.y).abs() < m::CONTACT_RANGE
-                && (mob.position.z - player.z).abs() < m::CONTACT_RANGE
-        });
-        if near {
-            m::infect_world_player(&world, uuid, &m::WILD, m::CONTACT_STEP);
+        // Заражённый (`biolab:infected`) — тоже зомби по виду шаблона; рядом
+        // с ним контакт несёт его штамм, а не дикий (`contact_strain`).
+        let near: Vec<&str> = game
+            .mobs
+            .iter()
+            .filter(|mob| {
+                mob.species() == horizon_client::mobs::species::Species::Zombie
+                    && mob.alive()
+                    && (mob.position.x - player.x).abs() < m::CONTACT_RANGE
+                    && (mob.position.y - player.y).abs() < m::CONTACT_RANGE
+                    && (mob.position.z - player.z).abs() < m::CONTACT_RANGE
+            })
+            .map(|mob| &*mob.kind.id)
+            .collect();
+        if !near.is_empty() {
+            let strain = m::contact_strain(near);
+            m::infect_world_player(&world, uuid, &strain, m::CONTACT_STEP);
         }
     }
 

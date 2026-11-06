@@ -306,7 +306,8 @@ pub fn temperament(kind: &str) -> Option<Temperament> {
     } else if PASSIVE_KINDS.contains(&kind) {
         Some(Temperament::Passive)
     } else {
-        None
+        // Свои виды мода (раздел «M11-А: Заражённый»).
+        mod_temperament(kind)
     }
 }
 
@@ -1019,6 +1020,55 @@ mod heredity_tests {
         // Срезы — да, стол и сон — нет.
         assert_eq!(converted_surgery(0b0101 | TABLE_BIT | ASLEEP_BIT), 0b0101);
         assert_eq!(converted_surgery(TABLE_BIT), 0);
+    }
+}
+
+// ---- M11-А: Заражённый (GDD 4.26 А) ----
+//
+// Свой вид мода `biolab:infected` (шаблон — зомби) мутирует при появлении
+// как враждебный. Таблицы видов выше — ванильные (их сверяет тест со
+// списком видов Horizon), свой вид — здесь. Вид в хук-поинтах всегда с
+// пространством имён `biolab:`, `bare_kind` его не трогает.
+
+/// Свои виды мода и их нрав.
+pub const MOD_KINDS: [(&str, Temperament); 1] = [("biolab:infected", Temperament::Hostile)];
+
+/// Нрав своего вида мода; None — вид не наш.
+pub fn mod_temperament(kind: &str) -> Option<Temperament> {
+    MOD_KINDS.iter().find(|(k, _)| *k == kind).map(|(_, t)| *t)
+}
+
+/// Вид так, как его называют хук-поинты: ванильный — `minecraft:zombie`
+/// (сама игра пишет и `zombie`), свой — как есть, `biolab:infected`. Раньше
+/// `joined.rs` дописывал `minecraft:` ко всему, и вид мода превращался в
+/// `minecraft:biolab:infected`.
+pub fn hook_kind(id: &str) -> String {
+    if id.contains(':') {
+        id.to_string()
+    } else {
+        format!("minecraft:{id}")
+    }
+}
+
+#[cfg(test)]
+mod infected_tests {
+    use super::*;
+
+    #[test]
+    fn infected_mutates_like_a_hostile() {
+        assert_eq!(temperament("biolab:infected"), Some(Temperament::Hostile));
+        assert_eq!(mutation_percent("biolab:infected"), HOSTILE_PERCENT);
+        assert_eq!(mutation_percent("biolab:other"), 0, "незнакомый вид мода не мутирует");
+        // Доля мутантов на зёрнах `joined.rs` — как у зомби.
+        let share = |kind: &str| (0u32..20_000).filter(|id| !roll_for(kind, id.wrapping_mul(2_654_435_761)).is_empty()).count();
+        assert_eq!(share("biolab:infected"), share("minecraft:zombie"));
+    }
+
+    #[test]
+    fn hook_kind_keeps_mod_namespaces() {
+        assert_eq!(hook_kind("zombie"), "minecraft:zombie");
+        assert_eq!(hook_kind("minecraft:zombie"), "minecraft:zombie");
+        assert_eq!(hook_kind("biolab:infected"), "biolab:infected");
     }
 }
 
