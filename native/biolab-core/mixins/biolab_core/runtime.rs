@@ -767,7 +767,8 @@ pub fn synth_spent_slots(items: &[Option<&str>]) -> Vec<usize> {
 // только решения: роль каждого слота, что слот принимает, куда шифт-клик
 // кладёт стак, какой сигнал видит компаратор. Хуки — `machine_slots.rs`
 // (стороны для воронок), `machine_quick_move.rs`, `menu_slot_rules.rs`,
-// `hopper_filter.rs`, `machine_analog*.rs` и начало тика в `machine.rs`.
+// `container_accepts.rs` (что берёт слот для воронки, раздел «M11-Г»),
+// `machine_analog*.rs` и начало тика в `machine.rs`.
 
 /// Роль слота машины.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -997,10 +998,11 @@ pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
     }
 }
 
-/// Возьмёт ли машина предмет хоть в один слот, куда кладут воронки. Слот
-/// воронке не известен (`native_inventory_move_item` называет только блоки),
-/// поэтому вопрос — про машину целиком: чужой предмет остаётся в воронке,
-/// а не забивает вход.
+/// Возьмёт ли машина предмет хоть в один слот, куда кладут воронки. Был
+/// фильтром воронки «про машину целиком» (`native_inventory_move_item`
+/// слота не называет); с M11 воронку спрашивают по слоту
+/// (`container_slot_accepts`, раздел «M11-Г»), а это осталось сводкой для
+/// тестов: каждый вход рецепта машина примет.
 pub fn hopper_accepts(machine: &Machine, item: &str) -> bool {
     machine_inputs(machine).into_iter().any(|slot| slot_accepts(machine, slot, item))
 }
@@ -11609,6 +11611,366 @@ mod research_tests {
         assert_eq!(Json::parse(r#"{"a":"Ж\n","b":[1,-2.5e1,true,null]}"#).unwrap().get("a").and_then(Json::str), Some("Ж\n"));
         assert_eq!(Json::parse("{\"a\":1,}"), None);
         assert_eq!(recipe_view("{\"type\":\"minecraft:smelting\",\"result\":\"x\"}"), None);
+    }
+}
+
+// ---- M11-Г: машины и анализатор (GDD 4.26) ----
+//
+// Две новые возможности пина `66f3981`; здесь только решения, хуки —
+// `container_accepts.rs`, `analyzer_scan.rs`, `analyzer_marks.rs`.
+//
+// *Вход машины по слоту* (`native_container_accepts`, NeoForge
+// `IItemHandler.isItemValid`). Воронка, выбрасыватель и `native_insert_item`
+// спрашивают его про каждый слот, который им открывает `ModContainer`
+// (`machine_faces`), и ответ тот же, что у правил слотов меню
+// (`slot_accepts`): во вход — только сырьё машины, в топливо чана — только
+// раствор, в выход — ничего. Отказ — воронка пробует следующий слот, а не
+// найдя его — оставляет предмет у себя.
+//
+// Старый фильтр `hopper_filter.rs` (HEAD `native_inventory_move_item`) снят.
+// Он спрашивал «про машину целиком» и в нашей сборке не срабатывал вовсе:
+// игра зовёт `native_inventory_move_item` только при загруженном трейт-моде
+// (`hopper_move_canceled` и ветка компостера в `game/machines.rs` пина
+// выходят при пустом `mod_api::mods()`), а наши бандлы — миксины. Новый
+// вопрос (`mod_container_accepts`, там же) задаётся всегда, и он точнее:
+// старый фильтр пропустил бы фрагмент ДНК, пришедший в чан сбоку, — чан его
+// «берёт», — и тот лёг бы в слот раствора. Забирает из машины воронка как
+// раньше: спрашивают только при вкладывании, источник не проверяется.
+//
+// *Анализатор в мире* (`native_world_primitives`). С анализатором в руке
+// вокруг мутантов и заражённых в 16 блоках — рамка, над ней короткая
+// подпись. Это клиент, и он знает только то, что окну и так приходит:
+// - мутант — геном моба (`biolab:genome`, данные с `sync`, по ним же рисует
+//   наросты `biolab-deep`); спит ли и на столе ли — `biolab:surgery`;
+// - заражённый — носитель болезни по виду: зомби (то же правило, по которому
+//   заражает близость, `infection.rs`) и `biolab:infected` (GDD 4.26 А).
+//   Мобы, больные штаммом (эффект `biolab:infection` от дротика, в вольере),
+//   окну не видны: чужих эффектов клиенту не шлют (`remote_effect` в
+//   `game/remote.rs` пина берёт только свои), а своих данных о болезни моба
+//   у мода нет. Появятся — дописать в `analyzer_carrier`.
+// Данные читаются раз в тик окна (`analyzer_scan.rs`: хуку кадра `Host` не
+// достать — он `&self`) и лежат здесь; положение мобов кадр берёт живое, так
+// что рамка не отстаёт.
+
+/// Радиус, в котором анализатор подсвечивает мобов, в блоках.
+pub const ANALYZER_RANGE: f64 = 16.0;
+
+/// Виды-носители болезни помимо зомби (их узнают по `Species::Zombie`).
+/// `biolab:infected` — свой вид заражённого (GDD 4.26 А).
+pub const ANALYZER_CARRIERS: [&str; 1] = ["biolab:infected"];
+
+/// Модель игрока в списке мобов окна: игроков анализатор не размечает.
+pub const ANALYZER_PLAYER_KIND: &str = "minecraft:player";
+
+/// Что анализатор видит в мобе.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnalyzerMark {
+    /// Носитель болезни.
+    Carrier,
+    /// Мутант: в геноме есть гены.
+    Mutant,
+    /// И то и другое — опаснее всего.
+    CarrierMutant,
+}
+
+/// Цвета рамок, ARGB: болезнь — зелёный, мутация — фиолетовый, оба —
+/// красный.
+pub const ANALYZER_CARRIER_COLOR: u32 = 0xFF5C_E04A;
+pub const ANALYZER_MUTANT_COLOR: u32 = 0xFFB4_6CFF;
+pub const ANALYZER_BOTH_COLOR: u32 = 0xFFFF_5A3C;
+/// Толщина рамки в пикселях.
+pub const ANALYZER_LINE: f32 = 2.0;
+/// Подпись: размер (1 — табличка с именем; с `scale_with_distance` такой,
+/// как на 8 блоках) и зазор над рамкой в блоках.
+pub const ANALYZER_TEXT_SCALE: f32 = 0.8;
+pub const ANALYZER_TEXT_GAP: f64 = 0.3;
+
+/// Носитель ли болезни моб такого вида. `zombie` — его вид в игре
+/// `Species::Zombie` (так заражает близость, `infection.rs`).
+pub fn analyzer_carrier(kind: &str, zombie: bool) -> bool {
+    zombie || ANALYZER_CARRIERS.contains(&full_kind(kind).as_str())
+}
+
+/// Что показать над мобом; None — обычный моб, рамки нет.
+pub fn analyzer_mark(carrier: bool, genes: &[(&str, i32)]) -> Option<AnalyzerMark> {
+    match (carrier, !genes.is_empty()) {
+        (true, true) => Some(AnalyzerMark::CarrierMutant),
+        (true, false) => Some(AnalyzerMark::Carrier),
+        (false, true) => Some(AnalyzerMark::Mutant),
+        (false, false) => None,
+    }
+}
+
+/// Цвет рамки и подписи.
+pub fn analyzer_color(mark: AnalyzerMark) -> u32 {
+    match mark {
+        AnalyzerMark::Carrier => ANALYZER_CARRIER_COLOR,
+        AnalyzerMark::Mutant => ANALYZER_MUTANT_COLOR,
+        AnalyzerMark::CarrierMutant => ANALYZER_BOTH_COLOR,
+    }
+}
+
+/// Подпись над рамкой: что с мобом, у мутанта — сильнейший ген (сила
+/// плюсами) и сколько генов ещё, «спит» — если усыплён. «Заражён»,
+/// «Мутант: Хитиновый панцирь ++, ещё 2», «Заражён · мутант: Гигантизм + ·
+/// спит».
+pub fn analyzer_label(mark: AnalyzerMark, genes: &[(&str, i32)], asleep: bool) -> String {
+    let mutant = || {
+        // Сильнейший ген; при равной силе — первый по порядку.
+        let mut best: Option<(&str, i32)> = None;
+        for (name, strength) in genes {
+            if best.is_none_or(|(_, s)| *strength > s) {
+                best = Some((*name, *strength));
+            }
+        }
+        let Some((name, strength)) = best else {
+            return "мутант".to_string();
+        };
+        let title = gene(name).map_or(name, |g| g.title);
+        let mut text = format!("мутант: {title} {}", "+".repeat(strength.clamp(1, 3) as usize));
+        if genes.len() > 1 {
+            text.push_str(&format!(", ещё {}", genes.len() - 1));
+        }
+        text
+    };
+    let mut label = match mark {
+        AnalyzerMark::Carrier => "заражён".to_string(),
+        AnalyzerMark::Mutant => mutant(),
+        AnalyzerMark::CarrierMutant => format!("заражён · {}", mutant()),
+    };
+    if asleep {
+        label.push_str(" · спит");
+    }
+    // С заглавной.
+    let mut chars = label.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => label,
+    }
+}
+
+/// Дотягивается ли анализатор от `from` до моба у `feet`: шар радиуса
+/// `ANALYZER_RANGE` плюс `margin` (запас снимка, который берётся раз в тик).
+pub fn analyzer_reaches(from: [f64; 3], feet: [f64; 3], margin: f64) -> bool {
+    let d: f64 = (0..3).map(|i| (feet[i] - from[i]).powi(2)).sum();
+    let r = ANALYZER_RANGE + margin.max(0.0);
+    d.is_finite() && d <= r * r
+}
+
+/// Рамка вокруг моба: `feet` — середина ног, `width` и `height` — хитбокс
+/// вида, `scale` — во сколько раз мутант крупнее (`body_scale`: так его
+/// рисует `biolab-deep`). Лежащего (спит, на столе) обводим низким квадратом:
+/// куда он лёг головой, окну не известно. Рамка чуть шире моба, чтобы линии
+/// не прятались в модели.
+pub fn analyzer_box(feet: [f64; 3], width: f64, height: f64, scale: f64, lying: bool) -> ([f64; 3], [f64; 3]) {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let (w, h) = if lying {
+        (width.max(height) * scale, width.min(height) * scale)
+    } else {
+        (width * scale, height * scale)
+    };
+    let pad = 0.05;
+    let half = w / 2.0 + pad;
+    (
+        [feet[0] - half, feet[1] - pad, feet[2] - half],
+        [feet[0] + half, feet[1] + h + pad, feet[2] + half],
+    )
+}
+
+/// Где моб в кадре: между прошлым и нынешним положением, `partial` — доля
+/// тика (0–1).
+pub fn analyzer_lerp(previous: [f64; 3], now: [f64; 3], partial: f32) -> [f64; 3] {
+    let t = f64::from(partial.clamp(0.0, 1.0));
+    [0, 1, 2].map(|i| previous[i] + (now[i] - previous[i]) * t)
+}
+
+/// Что окно знает о мобе из его данных (геном и операционная); снимает тик.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnalyzerSeen {
+    pub id: u32,
+    pub genes: Vec<(&'static str, i32)>,
+    /// Бит «спит» (`ASLEEP_BIT`).
+    pub asleep: bool,
+    /// Лежит: спит или на столе.
+    pub lying: bool,
+}
+
+impl AnalyzerSeen {
+    /// Снимок по данным моба; None — рамке из них нечего взять.
+    pub fn of(id: u32, genes: Vec<(&'static str, i32)>, surgery: u8) -> Option<Self> {
+        let lying = surgery & (ASLEEP_BIT | TABLE_BIT) != 0;
+        if genes.is_empty() && !lying {
+            return None;
+        }
+        Some(Self { id, genes, asleep: surgery & ASLEEP_BIT != 0, lying })
+    }
+}
+
+/// Снимок анализатора: None — анализатора в руке нет, рамки не рисуются.
+fn analyzer_scan() -> &'static std::sync::Mutex<Option<Vec<AnalyzerSeen>>> {
+    static SCAN: std::sync::OnceLock<std::sync::Mutex<Option<Vec<AnalyzerSeen>>>> = std::sync::OnceLock::new();
+    SCAN.get_or_init(Default::default)
+}
+
+/// Тик окна: анализатор в руке, вот что видно рядом.
+pub fn remember_analyzer_scan(seen: Vec<AnalyzerSeen>) {
+    *analyzer_scan().lock().unwrap_or_else(|e| e.into_inner()) = Some(seen);
+}
+
+/// Тик окна: анализатора в руке нет.
+pub fn forget_analyzer_scan() {
+    *analyzer_scan().lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Для кадра: None — не рисовать ничего; иначе данные мобов по id.
+pub fn shown_analyzer_scan() -> Option<std::collections::HashMap<u32, AnalyzerSeen>> {
+    let scan = analyzer_scan().lock().unwrap_or_else(|e| e.into_inner());
+    scan.as_ref().map(|seen| seen.iter().map(|s| (s.id, s.clone())).collect())
+}
+
+/// Слот машины для воронки, выбрасывателя и `native_insert_item`
+/// (`native_container_accepts`): None — блок-сущность не наша машина (решает
+/// не мод), иначе — берёт ли слот предмет. Правило то же, что у меню.
+pub fn container_slot_accepts(entity: &str, slot: usize, item: &str) -> Option<bool> {
+    machine(entity).map(|machine| slot_accepts(machine, slot, item))
+}
+
+#[cfg(test)]
+mod m11g_tests {
+    use super::*;
+
+    #[test]
+    fn hoppers_ask_each_slot() {
+        // Чан: фрагмент — только во вход, раствор — только в топливо. Раньше
+        // фрагмент, пришедший сбоку, лёг бы в слот раствора: сбоку воронке
+        // открыт только он, а «машина целиком» фрагмент берёт.
+        assert_eq!(container_slot_accepts(CLONING_VAT, SLOT_INPUT, FRAGMENT_ID), Some(true));
+        assert_eq!(container_slot_accepts(CLONING_VAT, SLOT_FUEL, FRAGMENT_ID), Some(false));
+        assert_eq!(container_slot_accepts(CLONING_VAT, SLOT_FUEL, BROTH_ID), Some(true));
+        assert_eq!(container_slot_accepts(CLONING_VAT, SLOT_INPUT, BROTH_ID), Some(false));
+        // Выход не берёт ничего.
+        for machine in &MACHINES {
+            for slot in machine_outputs(machine) {
+                for (_, items) in &MACHINE_INGREDIENTS {
+                    for item in *items {
+                        assert_eq!(container_slot_accepts(machine.id, slot, item), Some(false), "{} {slot} {item}", machine.id);
+                    }
+                }
+            }
+        }
+        // Чужое — мимо, своё сырьё — во вход.
+        assert_eq!(container_slot_accepts("biolab:still", SLOT_INPUT, "minecraft:dirt"), Some(false));
+        assert_eq!(container_slot_accepts("biolab:still", SLOT_INPUT, "minecraft:kelp"), Some(true));
+        assert_eq!(container_slot_accepts(SYNTHESIZER, 3, "biolab:element_oxygen"), Some(true));
+        assert_eq!(container_slot_accepts(SYNTHESIZER, 8, "biolab:element_oxygen"), Some(false));
+        // Не наша блок-сущность — решает не мод.
+        assert_eq!(container_slot_accepts("minecraft:furnace", 0, "minecraft:kelp"), None);
+        assert_eq!(container_slot_accepts(GM_PLOT, 0, "minecraft:kelp"), None);
+    }
+
+    #[test]
+    fn every_face_a_hopper_fills_takes_something() {
+        // Каждый слот, который `ModContainer` открывает воронке, что-то берёт
+        // (иначе сторона мертва), а каждое сырьё машины находит свой слот
+        // хоть с одной стороны.
+        let known: Vec<&str> = MACHINE_INGREDIENTS
+            .iter()
+            .flat_map(|(_, items)| items.iter().copied())
+            .chain([FRAGMENT_ID, BROTH_ID, FLASK_ID, "biolab:element_oxygen"])
+            .collect();
+        for machine in &MACHINES {
+            let faces = machine_faces(machine);
+            for slot in faces[1..].iter().flatten() {
+                let takes = known.iter().any(|item| slot_accepts(machine, *slot, item));
+                assert!(takes, "{}: слот {slot} ничего не берёт", machine.id);
+            }
+            for item in machine_ingredients(machine.id) {
+                let reachable = faces[1..]
+                    .iter()
+                    .flatten()
+                    .any(|slot| container_slot_accepts(machine.id, *slot, item) == Some(true));
+                assert!(reachable, "{}: {item} воронкой не положить", machine.id);
+            }
+        }
+    }
+
+    #[test]
+    fn analyzer_marks_carriers_and_mutants() {
+        assert!(analyzer_carrier("minecraft:zombie", true), "вид зомби");
+        assert!(analyzer_carrier("biolab:infected", false));
+        assert!(!analyzer_carrier("minecraft:cow", false));
+        assert!(!analyzer_carrier("cow", false));
+        let horns = [("horns", 2)];
+        assert_eq!(analyzer_mark(false, &[]), None);
+        assert_eq!(analyzer_mark(true, &[]), Some(AnalyzerMark::Carrier));
+        assert_eq!(analyzer_mark(false, &horns), Some(AnalyzerMark::Mutant));
+        assert_eq!(analyzer_mark(true, &horns), Some(AnalyzerMark::CarrierMutant));
+        let colors = [AnalyzerMark::Carrier, AnalyzerMark::Mutant, AnalyzerMark::CarrierMutant].map(analyzer_color);
+        assert!(colors.iter().all(|c| c >> 24 == 0xFF), "непрозрачные");
+        assert!(colors[0] != colors[1] && colors[1] != colors[2] && colors[0] != colors[2]);
+    }
+
+    #[test]
+    fn analyzer_label_is_short() {
+        assert_eq!(analyzer_label(AnalyzerMark::Carrier, &[], false), "Заражён");
+        assert_eq!(analyzer_label(AnalyzerMark::Mutant, &[("chitin", 2)], false), "Мутант: Хитиновый панцирь ++");
+        assert_eq!(
+            analyzer_label(AnalyzerMark::Mutant, &[("gigantism", 1), ("chitin", 3), ("dwarfism", 3)], false),
+            "Мутант: Хитиновый панцирь +++, ещё 2",
+            "сильнейший, при равной силе — первый"
+        );
+        assert_eq!(
+            analyzer_label(AnalyzerMark::CarrierMutant, &[("gigantism", 1)], true),
+            "Заражён · мутант: Гигантизм + · спит"
+        );
+        // Каждый ген таблицы подписан своим именем, и подпись не разрастается.
+        for kind in &GENES {
+            let label = analyzer_label(AnalyzerMark::CarrierMutant, &[(kind.name, 3), ("gigantism", 1)], true);
+            assert!(label.contains(kind.title), "{label}");
+            assert!(label.chars().count() <= 64, "{label}");
+        }
+    }
+
+    #[test]
+    fn analyzer_reaches_sixteen_blocks() {
+        let at = [0.0, 64.0, 0.0];
+        assert!(analyzer_reaches(at, [16.0, 64.0, 0.0], 0.0));
+        assert!(!analyzer_reaches(at, [12.0, 64.0, 12.0], 0.0), "по шару, а не по кубу");
+        assert!(analyzer_reaches(at, [17.0, 64.0, 0.0], 2.0), "запас снимка");
+        assert!(!analyzer_reaches(at, [f64::NAN, 64.0, 0.0], 2.0));
+    }
+
+    #[test]
+    fn analyzer_box_wraps_the_mob() {
+        // Зомби 0,6 × 1,95 стоит в (10, 64, 10).
+        let (min, max) = analyzer_box([10.0, 64.0, 10.0], 0.6, 1.95, 1.0, false);
+        assert!(min[0] < 9.7 && max[0] > 10.3 && min[1] < 64.0 && max[1] > 65.95);
+        assert!((max[0] - min[0] - (max[2] - min[2])).abs() < 1e-9, "квадрат в плане");
+        // Великан выше, лежащий — низкий и длинный.
+        let (_, giant) = analyzer_box([0.0; 3], 0.6, 1.95, 1.5, false);
+        assert!(giant[1] > 2.9);
+        let (lmin, lmax) = analyzer_box([0.0; 3], 0.6, 1.95, 1.0, true);
+        assert!(lmax[1] - lmin[1] < 0.8 && lmax[0] - lmin[0] > 1.9);
+        // Битый масштаб — как у обычного моба.
+        assert_eq!(analyzer_box([0.0; 3], 0.6, 1.95, f64::NAN, false), analyzer_box([0.0; 3], 0.6, 1.95, 1.0, false));
+        assert_eq!(analyzer_lerp([0.0; 3], [2.0, 4.0, -2.0], 0.5), [1.0, 2.0, -1.0]);
+        assert_eq!(analyzer_lerp([0.0; 3], [2.0, 4.0, -2.0], 7.0), [2.0, 4.0, -2.0]);
+    }
+
+    #[test]
+    fn analyzer_scan_keeps_only_what_the_frame_needs() {
+        assert_eq!(AnalyzerSeen::of(1, Vec::new(), 0), None);
+        let seen = AnalyzerSeen::of(2, Vec::new(), ASLEEP_BIT).expect("спит");
+        assert!(seen.asleep && seen.lying);
+        let seen = AnalyzerSeen::of(3, vec![("horns", 1)], TABLE_BIT).expect("мутант на столе");
+        assert!(!seen.asleep && seen.lying);
+        // Срезы без стола и сна рамке не нужны.
+        assert_eq!(AnalyzerSeen::of(4, Vec::new(), FLAYED_BITS), None);
+        forget_analyzer_scan();
+        assert_eq!(shown_analyzer_scan(), None);
+        remember_analyzer_scan(vec![AnalyzerSeen::of(5, vec![("horns", 1)], 0).expect("мутант")]);
+        assert_eq!(shown_analyzer_scan().expect("в руке")[&5].genes, vec![("horns", 1)]);
+        forget_analyzer_scan();
     }
 }
 

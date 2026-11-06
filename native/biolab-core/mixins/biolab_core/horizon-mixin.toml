@@ -356,19 +356,6 @@ bindings = [
   { name = "handled", ty = "&mut bool", value = "&mut *handled" },
 ]
 
-# Воронка не кладёт в машину чужое. Стабильный хук API 334.
-[[injection]]
-id = "hopper-filter"
-kind = "HEAD"
-target = "horizon_client::game::native_hooks::Game<'_>::native_inventory_move_item"
-helper = "hopper_filter.rs"
-bindings = [
-  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
-  { name = "destination", ty = "[i32; 3]", value = "destination" },
-  { name = "item", ty = "&str", value = "item" },
-  { name = "cancel", ty = "&mut bool", value = "&mut *cancel" },
-]
-
 # Правила слотов своего меню машины (`data/biolab/horizon/menu/`). Хук —
 # свободная функция lib-крейта, где `crate::game::biolab_core` не виден,
 # поэтому `runtime.rs` добавлен и туда: `crate::biolab_core` lib-крейта.
@@ -833,4 +820,49 @@ bindings = [
   { name = "kind", ty = "&str", value = "kind" },
   { name = "at", ty = "[f64; 3]", value = "at" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# M11-Г (GDD 4.26). Воронка, выбрасыватель и `native_insert_item` кладут в
+# слот машины только то, что слот берёт (`IItemHandler.isItemValid`): правило
+# то же, что у меню. Заменил фильтр `hopper_filter.rs` на
+# `native_inventory_move_item`, который при наших бандлах-миксинах не звался
+# (`runtime.rs`, раздел «M11-Г»). Только сервер. В пине — фрагмент API
+# `container_accepts` без своего номера (хук в коде есть).
+[[injection]]
+id = "container-accepts"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_container_accepts"
+helper = "container_accepts.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "entity", ty = "&horizon_client::chunk::block_entity::ModBlockEntity", value = "&*entity" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "cancel", ty = "&mut bool", value = "&mut *cancel" },
+]
+
+# Анализатор в руке: раз в тик окна — данные мобов рядом (геном, сон, стол)
+# в снимок для рамок. Хук кадра ниже — `&self`, `Host` ему не достать.
+# Стабильный хук `native_tick` (тик каждого `Game`, у окна — из `tick_remote`).
+[[injection]]
+id = "analyzer-scan"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+helper = "analyzer_scan.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Анализатор в руке: рамки в мире вокруг заражённых и мутантов в 16 блоках и
+# подпись над ними. Клиент, раз в кадр. В пине — фрагмент API
+# `world_primitives` без своего номера (хук в коде есть).
+[[injection]]
+id = "analyzer-marks"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_world_primitives"
+helper = "analyzer_marks.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "partial", ty = "f32", value = "partial" },
+  { name = "primitives", ty = "&mut horizon_client::world_primitives::WorldPrimitives", value = "&mut *primitives" },
 ]
