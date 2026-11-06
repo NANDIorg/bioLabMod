@@ -317,3 +317,56 @@ bindings = [
   { name = "uuid", ty = "u128", value = "uuid" },
   { name = "kind", ty = "&str", value = "kind" },
 ]
+
+# ---- M11-Б/В: урон и наследование (GDD 4.26, В) ----
+
+# Гены по наследству: что видит только игра (мобы, данные, память о снятых
+# мобах). Правила — `runtime.rs`, раздел «M11-Б/В». Детёнышу геном отдаёт
+# `joined.rs` (до природного броска), рождение запоминают два хука ниже.
+[[module]]
+id = "heredity"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_heredity"
+source = "heredity.rs"
+
+# Разведение: стабильный хук API 395 (NeoForge `BabyEntitySpawnEvent`), до
+# создания детёныша. Не отменяем.
+[[injection]]
+id = "baby-spawn"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_baby_entity_spawn"
+helper = "baby_spawn.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "parent", ty = "u32", value = "parent" },
+  { name = "partner", ty = "u32", value = "partner" },
+]
+
+# Его же — на внутренней `breed`: стабильный хук игра зовёт только при
+# загруженном трейт-моде (`creatures.rs`: `!mod_api::mods().is_empty()`), а
+# наши бандлы — миксины. Внутренняя функция: при обновлении Horizon
+# проверить сигнатуру `breed(&mut self, parent: u32, partner: u32, llama)`.
+[[injection]]
+id = "breed"
+kind = "HEAD"
+target = "horizon_client::game::creatures::Game<'_>::breed"
+helper = "breed.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "parent", ty = "u32", value = "parent" },
+  { name = "partner", ty = "u32", value = "partner" },
+]
+
+# Превращение: геном и срезы старого моба — новому. Стабильный хук API 390
+# (NeoForge `LivingConversionEvent.Post`), после того как новый моб вошёл в
+# мир (и прошёл свой бросок в `joined.rs`).
+[[injection]]
+id = "converted"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_living_conversion_post"
+helper = "converted.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "entity", ty = "u32", value = "entity" },
+  { name = "converted", ty = "u32", value = "converted" },
+]

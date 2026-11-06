@@ -105,9 +105,11 @@ pub fn dose(
                 let (ticks, amplifier) = m::OVERDOSE_TOXICOSIS;
                 mob.add_effect(m::TOXICOSIS_EFFECT, ticks, amplifier);
             }
-            // Сильный газ — смерть. Магия: броня и щит не спасают, тотем — да.
+            // Сильный газ — смерть от яда (тип токсикоза, GDD 4.26, Б): броня
+            // не спасает, тотем — да.
             m::SleepOutcome::Fatal => {
-                mob.damage(1000.0, horizon_client::mobs::Damage::of(horizon_client::mobs::DamageKind::Magic));
+                let toxin = crate::game::biolab_effects::damage_of(m::TOXICOSIS_EFFECT);
+                mob.damage(1000.0, crate::game::biolab_damage::mob(toxin));
             }
             m::SleepOutcome::Takes | m::SleepOutcome::TooWeak => {}
         }

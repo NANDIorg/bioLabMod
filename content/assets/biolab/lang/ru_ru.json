@@ -153,5 +153,13 @@
  "entity.biolab.dart_tranquilizer": "Транквилизатор, дротик",
  "entity.biolab.grenade_ether": "Эфир, граната",
  "entity.biolab.grenade_chloroform": "Хлороформ, граната",
- "effect.biolab.paralysis": "Паралич"
+ "effect.biolab.paralysis": "Паралич",
+ "death.attack.biolab.acid": "%1$s растворила кислота",
+ "death.attack.biolab.acid.player": "%1$s растворила кислота в бою с %2$s",
+ "death.attack.biolab.toxin": "%1$s убил яд",
+ "death.attack.biolab.toxin.player": "%1$s убил яд в бою с %2$s",
+ "death.attack.biolab.infection": "%1$s сгубила болезнь",
+ "death.attack.biolab.infection.player": "%1$s сгубила болезнь в бою с %2$s",
+ "death.attack.biolab.mutation": "%1$s разорвала собственная мутация",
+ "death.attack.biolab.mutation.player": "%1$s разорвала собственная мутация в бою с %2$s"
 }

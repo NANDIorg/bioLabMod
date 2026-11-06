@@ -19,12 +19,10 @@ fn biolab_core_effect_actions(game: &mut crate::game::Game<'_>) {
         Err(_) => return,
     };
     // Урон игроку — путём урона эффекта, как раньше в `tick.rs`: броня и
-    // кадры неуязвимости работают как у ванильного яда.
-    for amount in due.hurts {
-        game.apply_effect_action(horizon_client::effects::EffectAction::Hurt(
-            fx::DAMAGE_TYPE,
-            amount,
-        ));
+    // кадры неуязвимости работают как у ванильного яда. Тип — свой у каждого
+    // эффекта (`fx::damage_of`, GDD 4.26, Б).
+    for (amount, damage) in due.hurts {
+        crate::game::biolab_damage::player(game, damage, amount);
     }
     for (id, act) in due.mobs {
         // Мутаген пишет геном в данные моба: для этого нужна вся игра, а не
@@ -68,11 +66,8 @@ fn biolab_core_effect_actions(game: &mut crate::game::Game<'_>) {
             continue;
         };
         match act {
-            fx::Act::Hurt(amount) => {
-                mob.damage(
-                    amount,
-                    horizon_client::mobs::Damage::of(horizon_client::mobs::DamageKind::Magic),
-                );
+            fx::Act::Hurt(amount, damage) => {
+                mob.damage(amount, crate::game::biolab_damage::mob(damage));
             }
             // Седативное: моб забывает, кого преследовал. Стоять на месте его
             // заставляет модификатор скорости — он в `biolab-deep`

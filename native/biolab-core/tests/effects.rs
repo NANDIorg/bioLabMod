@@ -41,7 +41,14 @@ fn player_tick(fx: &mut Effects, clock: u64, id: &str, amplifier: i32, calls: us
     }
     let due = fx.take(clock, me, "minecraft:overworld");
     assert!(due.mobs.is_empty());
+    // Сила — прежняя, тип — из таблицы урона (GDD 4.26, Б).
     due.hurts
+        .into_iter()
+        .map(|(amount, damage)| {
+            assert_eq!(damage, effects::damage_of(id), "{id}");
+            amount
+        })
+        .collect()
 }
 
 /// Главное: числа и ритм у игрока те же, что до переезда, — по каждому
@@ -111,10 +118,10 @@ fn mobs_and_players_share_one_rhythm() {
                 let due = fx.take(clock, None, "minecraft:overworld");
                 for (id, act) in due.mobs {
                     assert_eq!(id, 11);
-                    let Act::Hurt(amount) = act else { panic!("{act:?}") };
-                    mob_hits.push((clock, amount));
+                    let Act::Hurt(amount, damage) = act else { panic!("{act:?}") };
+                    mob_hits.push((clock, amount, damage.id));
                 }
-                player_hits.extend(due.hurts.into_iter().map(|a| (clock, a)));
+                player_hits.extend(due.hurts.into_iter().map(|(a, damage)| (clock, a, damage.id)));
             }
             assert_eq!(mob_hits, player_hits, "{} {amp}", effect.id);
             assert_eq!(mob_hits.len() as i32, 2400 / effects::effect_period(effect, amp));
@@ -152,4 +159,64 @@ fn a_mutation_names_a_real_marker() {
     let empty = vec![0u8; biolab_core::GENES.len()];
     let (index, strength) = effects::mutation(&empty, effects::mutation_seed(42, 1000)).unwrap();
     assert!(index < biolab_core::GENES.len() && (1..=3).contains(&strength));
+}
+
+// ---- Свои типы урона (GDD 4.26, Б) ----
+
+fn content(path: &str) -> String {
+    let full = format!("{}/../../content/{path}", env!("CARGO_MANIFEST_DIR"));
+    std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{full}: {e}"))
+}
+
+/// Строковое поле плоского JSON (`"key": "value"`), без своего парсера.
+fn string_field(json: &str, key: &str) -> Option<String> {
+    let rest = &json[json.find(&format!("\"{key}\""))? + key.len() + 2..];
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+    Some(rest[..rest.find('"')?].to_owned())
+}
+
+/// У каждого нашего типа урона есть описание в данных, теги совпадают с
+/// флагами, которыми бьётся моб (`NamedDamage`), а сообщения о смерти есть
+/// на обоих языках. Иначе игрок не получил бы урона вовсе (игра не нашла бы
+/// тип в реестре), а моб и игрок по-разному считали бы броню.
+#[test]
+fn our_damage_types_are_in_the_data_pack() {
+    let tag = |name: &str| content(&format!("data/minecraft/tags/damage_type/{name}.json"));
+    let (armor, knockback, panic) = (tag("bypasses_armor"), tag("no_knockback"), tag("panic_causes"));
+    let langs = [content("assets/biolab/lang/en_us.json"), content("assets/biolab/lang/ru_ru.json")];
+    for damage in effects::OUR_DAMAGE {
+        let (namespace, name) = damage.id.split_once(':').unwrap();
+        let json = content(&format!("data/{namespace}/damage_type/{name}.json"));
+        let message = string_field(&json, "message_id").expect(damage.id);
+        assert_eq!(message, format!("{namespace}.{name}"), "{}", damage.id);
+        let scaling = string_field(&json, "scaling").expect(damage.id);
+        assert!(
+            ["never", "when_caused_by_living_non_player", "always"].contains(&scaling.as_str()),
+            "{}: scaling {scaling}",
+            damage.id
+        );
+        assert!(json.contains("\"exhaustion\""), "{}: exhaustion", damage.id);
+        if let Some(effects) = string_field(&json, "effects") {
+            assert!(
+                ["hurt", "thorns", "drowning", "burning", "poking", "freezing"].contains(&effects.as_str()),
+                "{}: effects {effects}",
+                damage.id
+            );
+        }
+        let quoted = format!("\"{}\"", damage.id);
+        assert_eq!(armor.contains(&quoted), damage.bypasses_armor, "{}: bypasses_armor", damage.id);
+        assert_eq!(knockback.contains(&quoted), damage.no_knockback, "{}: no_knockback", damage.id);
+        assert_eq!(panic.contains(&quoted), damage.panic_causes, "{}: panic_causes", damage.id);
+        for lang in &langs {
+            for key in [format!("death.attack.{message}"), format!("death.attack.{message}.player")] {
+                assert!(lang.contains(&format!("\"{key}\"")), "{key}");
+            }
+        }
+    }
+    // Теги дописывают ванильные, а не заменяют их.
+    for tag in [&armor, &knockback, &panic] {
+        assert!(!tag.contains("\"replace\": true"), "{tag}");
+    }
+    // Эффект болезни в таблице урона — тот же, что выдаёт заражение.
+    assert_eq!(effects::INFECTION, biolab_core::INFECTION_EFFECT);
 }

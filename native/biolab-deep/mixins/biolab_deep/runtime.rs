@@ -679,6 +679,349 @@ pub fn mutants(dimension: &str) -> Vec<(u32, Vec<(usize, u8)>)> {
         .unwrap_or_default()
 }
 
+// ---- M11-Б/В: урон и наследование (GDD 4.26, В) ----
+//
+// Урон (Б) целиком в `biolab-core` (`effects.rs`, `damage.rs`). Здесь —
+// гены по наследству: детёныш мутантов и моб, превратившийся в другой вид.
+//
+// *Потомство.* Игра разводит животных в `Game::breed` (`Animal.
+// spawnChildFromBreeding`): сначала спрашивает `native_baby_entity_spawn`
+// (API 395), потом тут же, в том же тике, создаёт детёныша в точке
+// родителя (`spawn_mob`), и он проходит `native_mobs_joined` — там, где
+// природный бросок (`joined.rs`). Поэтому рождение запоминается заранее
+// (`Births::expect`: геномы обоих родителей, точка, тик), а `joined.rs`
+// узнаёт детёныша по точке и тику (`Births::claim`) и вместо броска пишет
+// геном по наследству (`inherit`). Бросок такой геном не перезаписывает:
+// детёныш получает и геном, и отметку «бросок был».
+//
+// Важно: игра зовёт `native_baby_entity_spawn` только при загруженном
+// трейт-моде (`creatures.rs` пина: `!mod_api::mods().is_empty()`), а наши
+// бандлы — миксины. Поэтому рождение запоминает и HEAD на саму `breed`
+// (внутренняя функция, при обновлении Horizon проверить); два вызова одного
+// рождения сливаются в одну запись.
+//
+// *Превращение* (`native_living_conversion_post`, API 390): житель в
+// зомби-жителя, свинья от молнии, зомби в утопленника, грибная корова и т. п.
+// Новый моб к этому моменту уже прошёл `native_mobs_joined` (свой бросок),
+// а старый снят с уровня — его данные `Host` уже не отдаёт, их читает
+// `heredity.rs` из памяти игры по uuid. Правило — `converted_genome` и
+// `converted_surgery`.
+
+/// Один из стольких унаследованных генов ослабевает на ступень.
+pub const WEAKEN_IN: u64 = 4;
+/// Сколько тиков рождение ждёт своего детёныша. Игра создаёт его в том же
+/// вызове, что и спрашивает хук, так что хватает и нуля; запас — на случай,
+/// если между ними когда-нибудь появится отложенное событие.
+pub const BIRTH_TICKS: u64 = 2;
+/// Как далеко от родителя может появиться детёныш, блоков: игра ставит его
+/// ровно в точку родителя.
+pub const BIRTH_REACH: f64 = 0.75;
+/// Предел ожидающих рождений: если их никто не забирает, список не растёт.
+pub const MAX_BIRTHS: usize = 64;
+
+/// Перемешать биты зерна (splitmix64): соседние id дают несвязанные броски.
+fn mix(seed: u64) -> u64 {
+    let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// Зерно наследства: от детёныша и пары родителей (порядок пары неважен).
+/// Детерминировано — одна и та же пара с тем же детёнышем даёт тот же геном.
+pub fn heir_seed(baby: u32, parent: u32, partner: u32) -> u64 {
+    let (a, b) = (parent.min(partner), parent.max(partner));
+    mix(u64::from(baby) ^ mix((u64::from(a) << 32) | u64::from(b)))
+}
+
+/// Геном детёныша по геномам родителей. По каждому гену, который есть хотя
+/// бы у одного из них, — бросок: от кого взять (у второго гена может не
+/// быть — тогда он не передаётся) и не ослабнуть ли на ступень (один из
+/// `WEAKEN_IN`). Ген, который есть у обоих, передаётся всегда, хотя может
+/// ослабнуть; ген одного родителя — через раз. Так разведение двух мутантов
+/// с одним геном закрепляет его, а случайная пара его теряет. Предела
+/// стабильности нет: это не природный бросок, а разведение (как и укол
+/// фрагмента, GDD 4.19).
+pub fn inherit(mother: &[(usize, i32)], father: &[(usize, i32)], seed: u64) -> Vec<(usize, i32)> {
+    let mut strengths = [[0i32; 2]; GENE_NAMES.len()];
+    for (side, genome) in [mother, father].into_iter().enumerate() {
+        for (gene, strength) in genome {
+            if let Some(slot) = strengths.get_mut(*gene) {
+                slot[side] = slot[side].max((*strength).clamp(0, 3));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (gene, [a, b]) in strengths.iter().enumerate() {
+        if *a == 0 && *b == 0 {
+            continue;
+        }
+        let draw = mix(seed ^ (gene as u64 + 1).wrapping_mul(0xD6E8_FEB8_6659_FD93));
+        let mut strength = if draw & 1 == 0 { *a } else { *b };
+        if strength > 0 && (draw >> 1) % WEAKEN_IN == 0 {
+            strength -= 1;
+        }
+        if strength > 0 {
+            out.push((gene, strength));
+        }
+    }
+    out
+}
+
+/// Вылупляется из яйца, а не рождается: черепаха, лягушка (головастик из
+/// икры), нюхач. Их `breed` детёныша не создаёт — и ждать его незачем.
+pub fn hatches_from_egg(kind: &str) -> bool {
+    matches!(kind.trim_start_matches("minecraft:"), "turtle" | "frog" | "sniffer")
+}
+
+/// Ожидаемое рождение: где и когда появится детёныш и что у родителей.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Birth {
+    pub dimension: String,
+    /// Точка родителя: детёныш появляется в ней.
+    pub at: [f64; 3],
+    /// `game.ticks` в момент рождения.
+    pub tick: u64,
+    pub parents: (u32, u32),
+    /// Геномы родителей строками данных (`genome_text`), в порядке пары.
+    pub genomes: (String, String),
+}
+
+impl Birth {
+    /// Геном детёныша `baby` строкой данных; пусто — гены не передались.
+    pub fn heir(&self, baby: u32) -> String {
+        let seed = heir_seed(baby, self.parents.0, self.parents.1);
+        genome_text(&inherit(&genome_from_text(&self.genomes.0), &genome_from_text(&self.genomes.1), seed))
+    }
+}
+
+/// Рождения, ждущие своего детёныша.
+#[derive(Debug, Default)]
+pub struct Births {
+    list: Vec<Birth>,
+}
+
+fn same_pair(a: (u32, u32), b: (u32, u32)) -> bool {
+    a == b || a == (b.1, b.0)
+}
+
+fn fresh(born: u64, now: u64) -> bool {
+    now >= born && now - born <= BIRTH_TICKS
+}
+
+impl Births {
+    /// Запомнить рождение. Устаревшие и прежняя запись той же пары
+    /// уходят (два хука одного рождения дают одну запись). Пара обычных
+    /// мобов не запоминается: наследовать нечего, детёныш получит обычный
+    /// природный бросок.
+    pub fn expect(&mut self, birth: Birth) {
+        self.list
+            .retain(|b| fresh(b.tick, birth.tick) && !same_pair(b.parents, birth.parents));
+        if genome_from_text(&birth.genomes.0).is_empty() && genome_from_text(&birth.genomes.1).is_empty() {
+            return;
+        }
+        if self.list.len() >= MAX_BIRTHS {
+            self.list.remove(0);
+        }
+        self.list.push(birth);
+    }
+
+    /// Новый моб в точке `at` уровня `dimension` в тик `tick` — чей-то
+    /// детёныш? Ближайшее подходящее рождение забирается целиком: второй
+    /// моб в той же точке его уже не получит.
+    pub fn claim(&mut self, dimension: &str, at: [f64; 3], tick: u64) -> Option<Birth> {
+        let near = |b: &Birth| {
+            let d = [b.at[0] - at[0], b.at[1] - at[1], b.at[2] - at[2]];
+            d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+        };
+        let index = self
+            .list
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.dimension == dimension && fresh(b.tick, tick) && near(b) <= BIRTH_REACH * BIRTH_REACH)
+            .min_by(|(_, a), (_, b)| near(a).total_cmp(&near(b)))?
+            .0;
+        Some(self.list.remove(index))
+    }
+
+    /// Сколько рождений ждёт.
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+}
+
+/// Общий список рождений: запоминает хук разведения, забирает `joined.rs`.
+/// Только сервер.
+pub fn births() -> &'static std::sync::Mutex<Births> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Births>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Геном нового моба после превращения: `Some` — записать (пустая строка —
+/// снять геном, который новому успел выпасть броском), `None` — оставить как
+/// есть. Превращение сохраняет моба, а не бросает заново: мутант остаётся
+/// мутантом, обычный (бросок у него уже был) — обычным. Только моб, у
+/// которого броска не было вовсе (появился до мода), получает бросок
+/// нового вида.
+pub fn converted_genome(old: Option<&str>, old_checked: bool) -> Option<String> {
+    let genes = genome_from_text(old.unwrap_or(""));
+    if !genes.is_empty() {
+        return Some(genome_text(&genes));
+    }
+    old_checked.then(String::new)
+}
+
+/// Что из операционной переживает превращение: срезанные конечности. Стол
+/// и сон — нет: стол помнит своего пациента, а сон проход мутантов
+/// пересчитывает сам по эффекту.
+pub fn converted_surgery(bits: u8) -> u8 {
+    bits & FLAYED_BITS
+}
+
+#[cfg(test)]
+mod heredity_tests {
+    use super::*;
+
+    fn gene(name: &str) -> usize {
+        GENE_NAMES.iter().position(|n| *n == name).unwrap()
+    }
+
+    fn birth(tick: u64, parents: (u32, u32), at: [f64; 3], genomes: (&str, &str)) -> Birth {
+        Birth {
+            dimension: "minecraft:overworld".into(),
+            at,
+            tick,
+            parents,
+            genomes: (genomes.0.into(), genomes.1.into()),
+        }
+    }
+
+    #[test]
+    fn a_shared_gene_always_passes_and_never_grows() {
+        let horns = gene("horns");
+        let mut weakened = 0;
+        for seed in 0..2000u64 {
+            let heir = inherit(&[(horns, 3)], &[(horns, 3)], mix(seed));
+            assert_eq!(heir.len(), 1, "общий ген передаётся всегда");
+            let (g, s) = heir[0];
+            assert_eq!(g, horns);
+            assert!(s == 3 || s == 2, "ослабнуть можно только на ступень: {s}");
+            weakened += usize::from(s == 2);
+        }
+        // Один из четырёх — с запасом на разброс.
+        assert!((350..650).contains(&weakened), "ослабло {weakened} из 2000");
+    }
+
+    #[test]
+    fn a_gene_of_one_parent_passes_about_half_the_time() {
+        let tail = gene("tail");
+        let passed = (0..2000u64)
+            .filter(|seed| !inherit(&[(tail, 2)], &[], mix(*seed)).is_empty())
+            .count();
+        // Половина, из неё четверть ослабевает до 1 (не до нуля).
+        assert!((850..1150).contains(&passed), "передалось {passed} из 2000");
+        // Ген силы 1 при ослаблении пропадает совсем — даже общий.
+        let lost = (0..2000u64)
+            .filter(|seed| inherit(&[(tail, 1)], &[(tail, 1)], mix(*seed)).is_empty())
+            .count();
+        assert!((350..650).contains(&lost), "пропал {lost} из 2000");
+    }
+
+    #[test]
+    fn inheritance_takes_only_parents_genes() {
+        let (horns, chitin, tail) = (gene("horns"), gene("chitin"), gene("tail"));
+        for seed in 0..500u64 {
+            for (g, s) in inherit(&[(horns, 2), (chitin, 1)], &[(tail, 3), (99, 3)], seed) {
+                assert!([horns, chitin, tail].contains(&g), "чужой ген {g}");
+                assert!((1..=3).contains(&s));
+            }
+        }
+        assert!(inherit(&[], &[], 7).is_empty());
+        // Детерминировано.
+        assert_eq!(inherit(&[(horns, 2)], &[(tail, 3)], 42), inherit(&[(horns, 2)], &[(tail, 3)], 42));
+        assert_eq!(heir_seed(5, 1, 2), heir_seed(5, 2, 1), "порядок пары неважен");
+        assert_ne!(heir_seed(5, 1, 2), heir_seed(6, 1, 2));
+    }
+
+    #[test]
+    fn a_birth_is_claimed_by_the_baby_in_place_and_in_time() {
+        let mut births = Births::default();
+        births.expect(birth(100, (1, 2), [10.0, 64.0, 10.0], ("horns:2", "")));
+        assert_eq!(births.len(), 1);
+        // Другой уровень, далеко, раньше рождения, слишком поздно — не он.
+        assert!(births.claim("minecraft:the_nether", [10.0, 64.0, 10.0], 100).is_none());
+        assert!(births.claim("minecraft:overworld", [12.0, 64.0, 10.0], 100).is_none());
+        assert!(births.claim("minecraft:overworld", [10.0, 64.0, 10.0], 99).is_none());
+        assert!(births.claim("minecraft:overworld", [10.0, 64.0, 10.0], 100 + BIRTH_TICKS + 1).is_none());
+        let got = births.claim("minecraft:overworld", [10.2, 64.0, 10.0], 100).expect("детёныш");
+        assert_eq!(got.parents, (1, 2));
+        assert!(births.is_empty(), "забран целиком");
+        assert!(births.claim("minecraft:overworld", [10.0, 64.0, 10.0], 100).is_none());
+    }
+
+    #[test]
+    fn two_hooks_of_one_birth_make_one_record() {
+        let mut births = Births::default();
+        births.expect(birth(7, (1, 2), [0.0; 3], ("horns:1", "")));
+        births.expect(birth(7, (2, 1), [0.0; 3], ("", "horns:1")));
+        assert_eq!(births.len(), 1);
+        // Новое рождение выметает устаревшие.
+        births.expect(birth(7 + BIRTH_TICKS + 1, (3, 4), [5.0; 3], ("tail:1", "")));
+        assert_eq!(births.len(), 1);
+        // Обычные родители — наследовать нечего, природный бросок.
+        births.expect(birth(10, (5, 6), [9.0; 3], ("", "")));
+        assert_eq!(births.len(), 1);
+        for i in 0..(MAX_BIRTHS as u32 + 5) {
+            births.expect(birth(10, (100 + i, 1000 + i), [0.0; 3], ("tail:1", "")));
+        }
+        assert_eq!(births.len(), MAX_BIRTHS);
+    }
+
+    #[test]
+    fn the_nearest_birth_wins() {
+        let mut births = Births::default();
+        births.expect(birth(1, (1, 2), [0.0, 0.0, 0.0], ("horns:1", "")));
+        births.expect(birth(1, (3, 4), [0.5, 0.0, 0.0], ("tail:1", "")));
+        assert_eq!(births.claim("minecraft:overworld", [0.45, 0.0, 0.0], 1).unwrap().parents, (3, 4));
+        assert_eq!(births.claim("minecraft:overworld", [0.45, 0.0, 0.0], 1).unwrap().parents, (1, 2));
+    }
+
+    #[test]
+    fn the_heir_genome_is_canonical_text() {
+        let b = birth(0, (1, 2), [0.0; 3], ("horns:3,chitin:2", "horns:3"));
+        for baby in 0..200 {
+            let text = b.heir(baby);
+            assert_eq!(genome_text(&genome_from_text(&text)), text);
+            assert!(text.contains("horns:"), "общий ген: {text}");
+        }
+    }
+
+    #[test]
+    fn eggs_are_not_babies() {
+        assert!(hatches_from_egg("minecraft:turtle") && hatches_from_egg("frog") && hatches_from_egg("sniffer"));
+        assert!(!hatches_from_egg("minecraft:cow") && !hatches_from_egg("minecraft:mule"));
+    }
+
+    #[test]
+    fn conversion_keeps_the_mob_as_it_was() {
+        // Мутант остаётся мутантом, строка — каноническая.
+        assert_eq!(converted_genome(Some("tail:1,horns:2"), true), Some("horns:2,tail:1".into()));
+        assert_eq!(converted_genome(Some("horns:2"), false), Some("horns:2".into()));
+        // Обычный остаётся обычным: бросок нового вида снимается.
+        assert_eq!(converted_genome(None, true), Some(String::new()));
+        assert_eq!(converted_genome(Some(""), true), Some(String::new()));
+        // Броска не было вовсе — пусть остаётся бросок нового вида.
+        assert_eq!(converted_genome(None, false), None);
+        // Срезы — да, стол и сон — нет.
+        assert_eq!(converted_surgery(0b0101 | TABLE_BIT | ASLEEP_BIT), 0b0101);
+        assert_eq!(converted_surgery(TABLE_BIT), 0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
