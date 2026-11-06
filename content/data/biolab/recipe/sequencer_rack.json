@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "crc",
+  "gkg",
+  "crc"
+ ],
+ "key": {
+  "c": "minecraft:copper_ingot",
+  "r": "minecraft:redstone",
+  "g": "minecraft:glass_pane",
+  "k": "biolab:casing"
+ },
+ "result": {
+  "id": "biolab:sequencer_rack",
+  "count": 1
+ }
+}

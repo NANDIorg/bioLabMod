@@ -329,6 +329,75 @@ fn biolab_core_interact_entity(
         return;
     }
 
+    // Векторы секвенатора (GDD 4.18, п. 3): генный — все гены одним уколом,
+    // антисмысловой — удаляет ген. Пишут те же данные `biolab:genome`, что и
+    // фрагмент: прибавки по новому геному (и снятие лишних) ставит проход
+    // мутантов `biolab-deep` (`apply_genome`).
+    if &*stack.item == m::GENE_VECTOR || &*stack.item == m::ANTISENSE_VECTOR {
+        *claimed = true;
+        // Клик по мобу ловят оба хука: без отметки вектор достался бы ещё и
+        // самому игроку (`remedy.rs`).
+        m::remember_injection(game.ticks);
+        let antisense = &*stack.item == m::ANTISENSE_VECTOR;
+        let key = if antisense { m::ANTISENSE_KEY } else { m::VECTOR_KEY };
+        let text = stack
+            .extra
+            .as_ref()
+            .and_then(|extra| {
+                extra
+                    .other
+                    .iter()
+                    .find(|(k, _)| k == "minecraft:custom_data")
+                    .and_then(|(_, data)| match data.get(key) {
+                        Some(horizon_world::nbt::Tag::String(s)) => Some(s.to_string_lossy()),
+                        _ => None,
+                    })
+            })
+            .unwrap_or_default();
+        let Some((id, kind, at)) = game
+            .mobs
+            .iter()
+            .find(|mob| mob.id as i32 == entity && mob.alive())
+            .map(|mob| (mob.id, mob.kind.id.to_string(), [mob.position.x, mob.position.y + 0.9, mob.position.z]))
+        else {
+            return;
+        };
+        let have = crate::game::biolab_core_data::genes(game, id);
+        let (genome, message) = if antisense {
+            match m::gene(&text) {
+                Some(g) => {
+                    let after = m::remove_gene(&have, g.name);
+                    (after.clone(), m::antisense_message(g.name, after.is_some()))
+                }
+                None => (None, "Вектор пустой: ген не прочитан".to_string()),
+            }
+        } else {
+            let genes = m::vector_genes(&text);
+            if genes.is_empty() {
+                (None, "Вектор пустой: генов нет".to_string())
+            } else {
+                let (after, results) = m::splice_vector_mob(&have, &genes);
+                let done = results.contains(&m::Splice::Done);
+                (done.then_some(after), m::vector_message(&genes, &results))
+            }
+        };
+        crate::game::biolab_say::say(game, &message);
+        let Some(genome) = genome else {
+            return;
+        };
+        crate::game::biolab_core_data::set_genes(game, id, &genome);
+        let slot = game.selected as i32;
+        if let Some(carried) = game.native_carried_stack(slot)
+            && &*carried.item == &*stack.item
+        {
+            carried.count = carried.count.saturating_sub(1);
+        }
+        let world = game.world_root.clone();
+        m::record_trial(&world, &m::trial_record(&stack.item, &kind));
+        play_at(game, m::Cue::GeneSplice, at);
+        return;
+    }
+
     /// Препарат в руке потрачен: от шприца остаётся пустой, от отвара —
     /// бутылка. Если это был последний в стаке, кладём остаток прямо в слот:
     /// выдача в инвентарь из этого хука не доходит (проверено в игре —

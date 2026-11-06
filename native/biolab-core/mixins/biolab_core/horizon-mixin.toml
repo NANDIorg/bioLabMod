@@ -983,3 +983,38 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
 ]
+
+# ---- M8: генный секвенатор (GDD 4.18, п. 3) ----
+# Работа консоли: вектор, антисмысл, чтение генома (зовёт тик машины,
+# `machine.rs`). Решения — подраздел «M8: генный секвенатор» в `runtime.rs`.
+[[module]]
+id = "sequencer"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_sequencer"
+source = "sequencer.rs"
+
+# Кнопки режимов на экране консоли: окно называет номер кнопки (API 20),
+# Horizon шлёт его серверу `ContainerButtonClick`.
+[[injection]]
+id = "sequencer-click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_click"
+helper = "sequencer_click.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "at", ty = "[f32; 2]", value = "at" },
+  { name = "right", ty = "bool", value = "right" },
+  { name = "button", ty = "&mut Option<i32>", value = "&mut *button" },
+]
+
+# Кнопка пришла на сервер: режим — в сейв консоли (API 20).
+[[injection]]
+id = "sequencer-button"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_menu_button"
+helper = "sequencer_button.rs"
+bindings = [
+  { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
+  { name = "id", ty = "i32", value = "id" },
+]

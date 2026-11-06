@@ -1,0 +1,20 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "imi",
+  "ckc",
+  "iei"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "m": "biolab:microscope",
+  "c": "minecraft:comparator",
+  "k": "biolab:casing",
+  "e": "biolab:extractor"
+ },
+ "result": {
+  "id": "biolab:sequencer",
+  "count": 1
+ }
+}

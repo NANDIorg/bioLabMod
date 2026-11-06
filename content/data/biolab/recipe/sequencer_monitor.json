@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iii",
+  "gdg",
+  "iri"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "g": "minecraft:glass_pane",
+  "d": "minecraft:glowstone_dust",
+  "r": "minecraft:redstone"
+ },
+ "result": {
+  "id": "biolab:sequencer_monitor",
+  "count": 1
+ }
+}

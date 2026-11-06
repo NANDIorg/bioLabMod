@@ -20,6 +20,9 @@
     "biolab:reactor",
     "biolab:spectrometer",
     "biolab:still",
-    "biolab:synthesizer"
+    "biolab:synthesizer",
+    "biolab:sequencer",
+    "biolab:sequencer_monitor",
+    "biolab:sequencer_rack"
   ]
 }

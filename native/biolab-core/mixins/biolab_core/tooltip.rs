@@ -65,6 +65,30 @@ fn biolab_core_tooltip(
             }
             return;
         }
+        // Векторы секвенатора: гены и цена, или какой ген удалит.
+        if &*stack.item == m::GENE_VECTOR || &*stack.item == m::ANTISENSE_VECTOR {
+            let antisense = &*stack.item == m::ANTISENSE_VECTOR;
+            let key = if antisense { m::ANTISENSE_KEY } else { m::VECTOR_KEY };
+            let text = stack
+                .extra
+                .as_ref()
+                .and_then(|extra| {
+                    extra
+                        .other
+                        .iter()
+                        .find(|(k, _)| k == "minecraft:custom_data")
+                        .and_then(|(_, data)| match data.get(key) {
+                            Some(Tag::String(s)) => Some(s.to_string_lossy()),
+                            _ => None,
+                        })
+                })
+                .unwrap_or_default();
+            let found = if antisense { m::antisense_tooltip(&text) } else { m::vector_tooltip(&text) };
+            for line in found {
+                lines.push((horizon_client::text::Text::literal(&line), 0xAA_AAAA));
+            }
+            return;
+        }
         // Культура: характеристики штамма.
         if &*stack.item == m::CULTURE_ID {
             let text = stack

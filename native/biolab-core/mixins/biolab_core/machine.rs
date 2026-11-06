@@ -389,6 +389,7 @@ fn biolab_core_machine_tick(
         let assembly = crate::game::biolab_multiblock::tick(game, pos, entity);
         let step = match entity.id.as_str() {
             m::COLUMN => crate::game::biolab_column::work(game, entity, assembly.as_ref()),
+            m::SEQUENCER => crate::game::biolab_sequencer::work(game, pos, entity, assembly.as_ref()),
             _ => m::Step::Idle,
         };
         machine_sound(game, pos, entity, step);

@@ -938,6 +938,10 @@ ITEMS = {
     "syringe_tranquilizer": ("syringe", "#b0403a"),
     "dart_tranquilizer": ("dart", "#b0403a"),
     "syringe_wake": ("syringe", "#e8c040"),
+    # Векторы генного секвенатора (GDD 4.18): укол — значит шприц; генный —
+    # бирюзовый, как экран секвенатора, антисмысловой — красный.
+    "gene_vector": ("syringe", "#3fd8c4"),
+    "antisense_vector": ("syringe", "#e0604a"),
 }
 
 # Объёмные и в инвентаре: GDD 4.12 называет колбу, шприц и тюбик мази вещами,

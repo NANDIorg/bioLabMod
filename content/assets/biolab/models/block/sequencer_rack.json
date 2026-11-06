@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/cube_column",
+  "textures": {"side": "biolab:block/sequencer_rack_side", "end": "biolab:block/sequencer_rack_end", "particle": "biolab:block/sequencer_rack_side"}
+}

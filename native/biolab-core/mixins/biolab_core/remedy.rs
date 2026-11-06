@@ -164,6 +164,64 @@ fn biolab_core_use_item(
         return;
     }
 
+    // Векторы секвенатора (GDD 4.18, п. 3) себе: генный — генотерапия всеми
+    // генами разом, антисмысловой — обратная генотерапия, ген уходит из
+    // генома. Эффекты гена подновляются раз в секунду на 3 секунды
+    // (`infection.rs`), так что снятый ген гаснет сам; наросты уходят с
+    // данными игрока в ту же секунду.
+    if &*stack.item == m::GENE_VECTOR || &*stack.item == m::ANTISENSE_VECTOR {
+        *claimed = true;
+        if m::just_injected(game.ticks) {
+            return;
+        }
+        let antisense = &*stack.item == m::ANTISENSE_VECTOR;
+        let key = if antisense { m::ANTISENSE_KEY } else { m::VECTOR_KEY };
+        let text = stack
+            .extra
+            .as_ref()
+            .and_then(|extra| {
+                extra
+                    .other
+                    .iter()
+                    .find(|(k, _)| k == "minecraft:custom_data")
+                    .and_then(|(_, data)| match data.get(key) {
+                        Some(horizon_world::nbt::Tag::String(s)) => Some(s.to_string_lossy()),
+                        _ => None,
+                    })
+            })
+            .unwrap_or_default();
+        let (message, used) = if antisense {
+            match m::gene(&text) {
+                Some(g) => match m::unsplice_world_player(&world, uuid, g.name) {
+                    Some(removed) => (m::antisense_message(g.name, removed), removed),
+                    None => return,
+                },
+                None => ("Вектор пустой: ген не прочитан".to_string(), false),
+            }
+        } else {
+            let genes = m::vector_genes(&text);
+            if genes.is_empty() {
+                ("Вектор пустой: генов нет".to_string(), false)
+            } else {
+                let Some(results) = m::splice_vector_world_player(&world, uuid, &genes) else {
+                    return;
+                };
+                (m::vector_message(&genes, &results), results.contains(&m::Splice::Done))
+            }
+        };
+        crate::game::biolab_say::say(game, &message);
+        if used {
+            play(game, m::Cue::GeneTherapy);
+            let slot = game.selected as i32;
+            if let Some(carried) = game.native_carried_stack(slot)
+                && &*carried.item == &*stack.item
+            {
+                carried.count = carried.count.saturating_sub(1);
+            }
+        }
+        return;
+    }
+
     // Препарат: доза уходит в кровь, дальше ею занимается тик кинетики.
     // Если этим же кликом шприц уже достался мобу, внутрь ничего не идёт.
     if let Some(med) = m::medicine(&stack.item) {

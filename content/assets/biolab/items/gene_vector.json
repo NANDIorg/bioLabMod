@@ -1,0 +1,12 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "biolab:item/3d/syringe",
+    "tints": [
+      {
+        "type": "minecraft:constant",
+        "value": 4184260
+      }
+    ]
+  }
+}

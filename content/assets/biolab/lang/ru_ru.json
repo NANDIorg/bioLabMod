@@ -169,5 +169,10 @@
  "block.biolab.output_port": "Выходной порт",
  "block.biolab.column": "Кипятильник колонны",
  "block.biolab.column_tray": "Тарелка колонны",
- "block.biolab.column_condenser": "Конденсатор колонны"
+ "block.biolab.column_condenser": "Конденсатор колонны",
+ "block.biolab.sequencer": "Консоль секвенатора",
+ "block.biolab.sequencer_rack": "Стойка секвенатора",
+ "block.biolab.sequencer_monitor": "Монитор секвенатора",
+ "item.biolab.gene_vector": "Генный вектор",
+ "item.biolab.antisense_vector": "Антисмысловой вектор"
 }

@@ -16,7 +16,7 @@
   горящей машины: её модель берёт копию `<машина>_<текстура>_on.png`;
 - optifine/ctm/lab_bench_top/ — сшивка столешниц лабораторных столов в ряд;
 - части многоблочных установок (GDD 4.18, `write_multiblock`): корпус, стекло,
-  порты, колонна; у склеиваемых — модель `<блок>_formed` для `formed=true`,
+  порты, колонна, секвенатор; у склеиваемых — модель `<блок>_formed` для `formed=true`,
   и ещё items/<блок>.json.
 
 Правила геометрии (блоки по шаблону печки — для игры сплошной куб, соседи не
@@ -1637,6 +1637,94 @@ def column_textures():
     write_png("column_condenser_bottom", end)
 
 
+# Нуклеотиды на экранах секвенатора: A, C, G, T.
+BASES = ((90, 220, 120), (80, 150, 240), (240, 200, 70), (230, 80, 80))
+
+
+def sequencer_textures():
+    """Генный секвенатор (GDD 4.18, п. 3): консоль, стойка, монитор."""
+    # Консоль: сверху экран с прочтением (у работающей — яркий и светится),
+    # ниже клавиатура; бока — корпус с решёткой, крыша — плита.
+    front = plate(STEEL_DARK, stable("sequencer_front") & 0xFFF, amp=3)
+    rect(front, 2, 2, 14, 8, EDGE)
+    rect(front, 3, 3, 13, 7, (14, 26, 30))
+    for y in range(10, 14, 2):  # клавиши
+        for x in range(2, 14, 2):
+            put(front, x, y, STEEL_LIGHT)
+            put(front, x, y + 1, STEEL)
+    rect(front, 6, 14, 10, 15, TEAL_DIM)
+    lit = [row[:] for row in front]
+    rng = random.Random(stable("sequencer_read"))
+    for x in range(3, 13):  # хроматограмма: пик на каждом основании
+        c = BASES[rng.randrange(4)]
+        top = 3 + rng.randrange(3)
+        for y in range(top, 7):
+            put(lit, x, y, c if y == top else shade(c, -70))
+            if y == top:
+                put(front, x, y, dim(c))
+    write_png("sequencer_front", front)
+    write_png("sequencer_front_on", lit)
+    write_e("sequencer_front_on", lit, bright_pixels(lit, 200))
+    side = casing_tex(stable("sequencer_side") & 0xFFF, False)
+    vents(side, 4, 4, 12, 12)
+    write_png("sequencer_side", side)
+    top = plate(STEEL, stable("sequencer_top") & 0xFFF)
+    rect(top, 4, 4, 12, 12, STEEL_DARK)
+    outline(top, 4, 4, 12, 12, EDGE)
+    write_png("sequencer_top", top)
+
+    # Стойка: шкаф с рядами кассет. Несклеенная — рама по краю, лампы
+    # погашены; склеенная — без рамы (шкафы сливаются в ряд), лампы горят.
+    def rack(formed):
+        img = canvas((44, 52, 58))
+        grain(img, 3, stable("sequencer_rack") & 0xFFF)
+        for y in range(2, 15, 3):
+            rect(img, 0 if formed else 2, y, 16 if formed else 14, y + 2, (30, 36, 40))
+            rect(img, 0 if formed else 2, y, 16 if formed else 14, y + 1, (58, 68, 74))
+            for i, x in enumerate((4, 8, 12)):
+                c = BASES[(y + i) % 4]
+                put(img, x, y, c if formed else dim(c))
+        if not formed:
+            outline(img, 0, 0, 16, 16, EDGE)
+            outline(img, 1, 1, 15, 15, STEEL_DARK)
+        return img
+
+    rack_on = rack(True)
+    write_png("sequencer_rack_side", rack(False))
+    write_png("sequencer_rack_side_formed", rack_on)
+    write_e("sequencer_rack_side_formed", rack_on,
+            [(x, y) for y in range(16) for x in range(16) if rack_on[y][x][:3] in BASES])
+    end = plate(STEEL_DARK, stable("sequencer_rack_end") & 0xFFF, amp=3, rivets=False)
+    vents(end, 3, 3, 13, 13)
+    write_png("sequencer_rack_end", end)
+
+    # Монитор: несклеенный — тёмный экран в раме; склеенный — рамы нет,
+    # по всему экрану бегут прочтения цветными основаниями (светятся).
+    def monitor(formed):
+        img = canvas((14, 26, 30))
+        if formed:
+            rng = random.Random(stable("sequencer_monitor"))
+            for y in range(1, 16, 2):
+                for x in range(16):
+                    if rng.random() < 0.7:
+                        put(img, x, y, BASES[rng.randrange(4)])
+            return img
+        outline(img, 0, 0, 16, 16, STEEL_DARK)
+        outline(img, 1, 1, 15, 15, EDGE)
+        for x in range(3, 13, 3):
+            put(img, x, 7, TEAL_DIM)
+        return img
+
+    screen = monitor(True)
+    write_png("sequencer_monitor_side", monitor(False))
+    write_png("sequencer_monitor_side_formed", screen)
+    write_e("sequencer_monitor_side_formed", screen,
+            [(x, y) for y in range(16) for x in range(16) if screen[y][x][:3] in BASES])
+    cap = plate(STEEL, stable("sequencer_monitor_end") & 0xFFF, rivets=False)
+    write_png("sequencer_monitor_end", cap)
+    return rack_on, screen
+
+
 def seamless(img):
     """Склеенная текстура не рисует шов по краю: каждый крайний пиксель —
     тот же материал, что внутри. Проверка грубая — нет ли у края рамки:
@@ -1738,6 +1826,28 @@ def write_multiblock():
         formed_states(name)
         write_item(name)
     print("установки: корпус, стекло, порты, колонна (кипятильник, тарелка, конденсатор)")
+
+    # Генный секвенатор: консоль на шаблоне печи, стойка и монитор склеиваются.
+    rack_on, screen = sequencer_textures()
+    for img, what in ((rack_on, "стойка"), (screen, "монитор")):
+        if not seamless(img):
+            raise SystemExit(f"склеенная {what} секвенатора: шов по краю")
+    write_model("sequencer", "minecraft:block/orientable",
+                {"front": "sequencer_front", "side": "sequencer_side", "top": "sequencer_top",
+                 "particle": "sequencer_side"})
+    write_model("sequencer_on", "minecraft:block/orientable",
+                {"front": "sequencer_front_on", "side": "sequencer_side", "top": "sequencer_top",
+                 "particle": "sequencer_side"})
+    facing_states("sequencer", "sequencer_on")
+    write_item("sequencer")
+    for name in ("sequencer_rack", "sequencer_monitor"):
+        for formed in (False, True):
+            suffix = "_formed" if formed else ""
+            write_model(name + suffix, "minecraft:block/cube_column",
+                        {"side": f"{name}_side{suffix}", "end": f"{name}_end", "particle": f"{name}_side"})
+        formed_states(name)
+        write_item(name)
+    print("секвенатор: консоль, стойка, монитор")
 
 
 if __name__ == "__main__":

@@ -75,6 +75,8 @@ fn group(item: &str) -> usize {
         // Многоблочные установки (GDD 4.18): общие части и колонна — к машинам.
         "casing" | "casing_glass" | "input_port" | "output_port" | "column" | "column_tray"
         | "column_condenser" => 1,
+        // Генный секвенатор (GDD 4.18, п. 3): консоль, стойка, монитор.
+        "sequencer" | "sequencer_rack" | "sequencer_monitor" => 1,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
         // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.
@@ -92,6 +94,8 @@ fn group(item: &str) -> usize {
             5
         }
         "mutant_tissue" | "dna_fragment" | "gm_plot" | "gm_crop" => 6,
+        // Векторы секвенатора — тоже генетика.
+        "gene_vector" | "antisense_vector" => 6,
         _ if name.ends_with("_bucket") => 7,
         // Новый предмет без группы падает к веществам — тест ниже скажет, если
         // он встал не на своё место.

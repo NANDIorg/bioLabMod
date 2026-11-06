@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {"front": "biolab:block/sequencer_front", "side": "biolab:block/sequencer_side", "top": "biolab:block/sequencer_top", "particle": "biolab:block/sequencer_side"}
+}

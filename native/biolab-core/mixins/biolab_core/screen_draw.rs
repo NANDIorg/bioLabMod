@@ -652,6 +652,76 @@ fn biolab_core_screen_draw(
                 }
             }
         }
+        // Генный секвенатор (GDD 4.18, п. 3): слева три кнопки режима
+        // (выбранная подсвечена), между рядами слотов — шкала цветом режима,
+        // справа монитор: режим, гены, внизу итог; у несобранного — нехватка.
+        m::SEQUENCER => {
+            let shown = m::seq_shown(data);
+            for (b, mode) in m::seq_buttons().iter().zip(m::SeqMode::ALL) {
+                let on = shown.mode == mode;
+                pen.fill(*b, m::SCREEN_EDGE);
+                pen.fill([b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0], if on { m::SCREEN_TEAL_DIM } else { m::SCREEN_STEEL_DARK });
+                pen.fill([b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, 1.0], if on { m::SCREEN_TEAL } else { m::SCREEN_STEEL });
+                let mark = mode.mark();
+                let mw = pen.width(mark);
+                let ink = if on { m::SCREEN_TEXT } else { m::SCREEN_TEXT_DIM };
+                pen.text(mark, [b[0] + ((b[2] - mw) / 2.0).floor(), b[1] + 4.0], ink, on);
+            }
+            let colour = match shown.mode {
+                m::SeqMode::Vector => m::SCREEN_TEAL,
+                m::SeqMode::Antisense => m::SCREEN_RED,
+                m::SeqMode::Read => m::SCREEN_AMBER,
+            };
+            pen.bar(p, progress, colour);
+            // Ступени двойной спирали поверх шкалы: читается как цепь ДНК.
+            for k in 0..((p[2] - 4.0) / 4.0) as i32 {
+                let x = p[0] + 2.0 + k as f32 * 4.0;
+                let up = k % 2 == 0;
+                pen.fill([x, if up { p[1] + 2.0 } else { p[1] + p[3] - 3.0 }, 2.0, 1.0], m::SCREEN_EDGE);
+            }
+
+            pen.glass(g);
+            let inner = g[2] - 6.0;
+            match m::multiblock_shown(data) {
+                m::MultiblockShown::Formed { .. } => {
+                    let head = pen.fit(shown.mode.title(), inner);
+                    pen.text(&head, [g[0] + 3.0, g[1] + 3.0], 0x5A_E8B4, true);
+                    if working {
+                        let phase = m::anim_phase(true, millis, 1800);
+                        let x = (g[0] + 2.0 + (g[2] - 4.0) * phase).floor();
+                        pen.fill([x, g[1] + 12.0, 1.0, g[3] - 13.0], m::SCREEN_TEAL_DIM);
+                    }
+                    let rows = ((g[3] - 14.0) / 9.0).floor().max(1.0) as usize;
+                    for (k, (line, ink)) in m::seq_monitor(&shown, rows).iter().enumerate() {
+                        let line = pen.fit(line, inner);
+                        pen.text(&line, [g[0] + 3.0, g[1] + 13.0 + k as f32 * 9.0], *ink, false);
+                    }
+                }
+                other => {
+                    let (head, ink, rest): (&str, u32, Vec<String>) = match other {
+                        m::MultiblockShown::Broken { rows, total } => {
+                            let lines = m::multiblock(block)
+                                .map(|mb| m::shortage_lines(mb, &rows, total))
+                                .unwrap_or_default();
+                            ("Не собран", 0xE8_5A4A, lines.into_iter().take(1).collect())
+                        }
+                        _ => ("Проверка схемы…", m::SCREEN_TEXT_DIM, Vec::new()),
+                    };
+                    pen.text(head, [g[0] + 3.0, g[1] + 3.0], ink, true);
+                    let mut line_y = g[1] + 13.0;
+                    for text in &rest {
+                        for line in pen.wrap(text, inner) {
+                            if line_y + 8.0 > g[1] + g[3] - 1.0 {
+                                break;
+                            }
+                            let line = pen.fit(&line, inner);
+                            pen.text(&line, [g[0] + 3.0, line_y], m::SCREEN_TEXT, false);
+                            line_y += 10.0;
+                        }
+                    }
+                }
+            }
+        }
         // Порт установки: стрелка подачи — бирюзовая к слотам у входного,
         // янтарная от слотов у выходного; справа табличка.
         m::INPUT_PORT | m::OUTPUT_PORT => {

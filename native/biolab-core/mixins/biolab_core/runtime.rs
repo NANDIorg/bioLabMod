@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 103] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 108] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -217,6 +217,12 @@ pub const ITEM_HINTS: [(&str, &[&str]); 103] = [
     ("biolab:syringe_tranquilizer", &["Сила 5: берёт любого, уснёт до 8 с", "ПКМ — себе, по мобу — усыпить"]),
     ("biolab:dart_tranquilizer", &["ПКМ — бросить в моба, как снежок", "Сила 5, любого; рукой — до 8 блоков"]),
     ("biolab:syringe_wake", &["Снимает сон и паралич; себе — бодрость", "ПКМ — себе, по мобу — разбудить"]),
+    // Генный секвенатор (GDD 4.18, п. 3).
+    ("biolab:sequencer", &["Консоль секвенатора: установка 3×2×3", "Вектор, антисмысл, чтение генома"]),
+    ("biolab:sequencer_rack", &["Стойка секвенатора: по бокам за консолью"]),
+    ("biolab:sequencer_monitor", &["Монитор секвенатора: над консолью"]),
+    ("biolab:gene_vector", &["ПКМ по мобу — все гены одним уколом", "ПКМ в воздух — себе"]),
+    ("biolab:antisense_vector", &["ПКМ по мобу — удалить этот ген", "ПКМ в воздух — удалить у себя"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -247,6 +253,8 @@ pub fn item_label(item: &str, text: impl Fn(&str) -> Option<String>) -> Option<S
         CULTURE_ID => Some(culture_label(&strain_from_text(&text(STRAIN_KEY)?)?)),
         GM_CROP => Some(crop_label(&genome_from_text(&text(PLOT_GENOME_KEY)?))),
         STRETCHER_ID => stretcher_label(&text(PATIENT_KEY)?),
+        GENE_VECTOR => Some(vector_label(&text(VECTOR_KEY)?)),
+        ANTISENSE_VECTOR => Some(antisense_label(&text(ANTISENSE_KEY)?)),
         _ => None,
     }
 }
@@ -473,7 +481,7 @@ pub struct Machine {
     pub menu: &'static str,
 }
 
-pub const MACHINES: [Machine; 12] = [
+pub const MACHINES: [Machine; 13] = [
     Machine { id: "biolab:still", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:incubator", slots: 3, menu: "minecraft:furnace" },
     Machine { id: "biolab:fermenter", slots: 3, menu: "minecraft:furnace" },
@@ -491,6 +499,7 @@ pub const MACHINES: [Machine; 12] = [
     // Контроллеры многоблочных установок (GDD 4.18, раздел «M8»): роли
     // слотов — из их строки `MULTIBLOCKS`, меню — всегда своё.
     Machine { id: COLUMN, slots: COLUMN_SLOTS, menu: MULTIBLOCK_MENU },
+    Machine { id: SEQUENCER, slots: SEQUENCER_SLOTS, menu: MULTIBLOCK_MENU },
 ];
 
 /// Машина с таким id, если она наша.
@@ -553,6 +562,8 @@ pub fn machine_data_slots(id: &str) -> usize {
         CLONING_VAT | "biolab:extractor" => DATA_GENE_STRENGTH + 1,
         "biolab:incubator" => DATA_STRAIN + 4,
         LAB_BENCH => DATA_BENCH_RESULT + 1,
+        // Генный секвенатор: режим, итог и гены на мониторе (раздел «M8»).
+        SEQUENCER => DATA_SEQ_END,
         // Контроллер установки: общие числа сборки (раздел «M8»); свои
         // числа установки — после `DATA_MB_END`.
         id if multiblock(id).is_some() => DATA_MB_END,
@@ -1023,6 +1034,8 @@ pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
             SPECTROMETER => item == FLASK_ID,
             // Центрифуга разлагает колбы и вдобавок крутит свои рецепты.
             CENTRIFUGE => item == FLASK_ID || machine_ingredients(machine.id).contains(&item),
+            // Секвенатор (GDD 4.18): фрагменты, фосфор — каждый в свой слот.
+            SEQUENCER => sequencer_accepts(slot, item),
             id => machine_ingredients(id).contains(&item),
         },
     }
@@ -1505,7 +1518,7 @@ pub struct MachineSounds {
 
 /// Машина → её звуки. Каждой — свой характер, чтобы по звуку было ясно, какая
 /// из соседних машин закончила.
-pub const MACHINE_SOUNDS: [MachineSounds; 12] = [
+pub const MACHINE_SOUNDS: [MachineSounds; 13] = [
     // Перегонный куб: закипает, побулькивает, перелив готового в колбу.
     MachineSounds {
         machine: "biolab:still",
@@ -1595,6 +1608,14 @@ pub const MACHINE_SOUNDS: [MachineSounds; 12] = [
         start: block("minecraft:block.fire.extinguish", 0.3, 0.8),
         work: block("minecraft:block.blastfurnace.fire_crackle", 0.35, 0.8),
         done: block("minecraft:item.bottle.fill", 0.6, 0.7),
+    },
+    // Генный секвенатор: щелчок консоли, перезвон стоек при чтении цепи,
+    // сигнал прибора — выше, чем у спектрометра.
+    MachineSounds {
+        machine: SEQUENCER,
+        start: block("minecraft:block.comparator.click", 0.5, 1.4),
+        work: block("minecraft:block.amethyst_block.chime", 0.3, 1.4),
+        done: block("biolab:block.machine.ready", 0.5, 1.5),
     },
 ];
 
@@ -6890,6 +6911,8 @@ pub fn trial_record(item: &str, mob: &str) -> String {
         .unwrap_or(match item {
             "biolab:syringe_mutagen" => "Мутаген",
             FRAGMENT_ID => "Фрагмент ДНК",
+            GENE_VECTOR => "Генный вектор",
+            ANTISENSE_VECTOR => "Антисмысловой вектор",
             CULTURE_ID => "Культура",
             _ => "Препарат",
         });
@@ -7216,6 +7239,8 @@ mod tests {
         let single = [
             // Свои данные в стеке: меню сливает стопки по id, разные гены слиплись бы.
             FLASK_ID, FRAGMENT_ID, CULTURE_ID, BLUEPRINT_ID, GM_CROP, STRETCHER_ID,
+            // Векторы секвенатора (GDD 4.18): гены в данных, как у фрагмента.
+            GENE_VECTOR, ANTISENSE_VECTOR,
             // Инструменты.
             SCALPEL_ID, ANALYZER_ID, MICROSCOPE_ID, MANUAL_ID,
             // Оружие: свои данные (заряд, магазин, газ) и стопкой не держится.
@@ -10112,7 +10137,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 64] = [
+pub const RESEARCH: [Research; 65] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10195,6 +10220,9 @@ pub const RESEARCH: [Research; 64] = [
     // химия (после элементов: она их и даёт).
     node("multiblock", 0, (4, 1), "biolab:casing", "Установки", &["bench"], Unlock::Item(&["biolab:casing", "biolab:casing_glass", "biolab:input_port", "biolab:output_port"]), "Сделайте корпус установки: железо и медь."),
     node("column", 1, (1, 2), "biolab:column", "Ректификационная колонна", &["elements"], Unlock::Item(&["biolab:column", "biolab:column_tray", "biolab:column_condenser"]), "Сделайте кипятильник: куб и доменная печь."),
+    // Генный секвенатор (GDD 4.18, п. 3) — генетика, после генотерапии:
+    // антисмысл — это она же, только обратная.
+    node("sequencer", 4, (4, 3), "biolab:sequencer", "Генный секвенатор", &["therapy"], Unlock::Item(&["biolab:sequencer", "biolab:sequencer_rack", "biolab:sequencer_monitor", "biolab:gene_vector", "biolab:antisense_vector"]), "Сделайте консоль: экстрактор и микроскоп."),
 ];
 
 /// Номер узла по id.
@@ -11996,7 +12024,7 @@ mod m11g_tests {
         let known: Vec<&str> = MACHINE_INGREDIENTS
             .iter()
             .flat_map(|(_, items)| items.iter().copied())
-            .chain([FRAGMENT_ID, BROTH_ID, FLASK_ID, "biolab:element_oxygen"])
+            .chain([FRAGMENT_ID, BROTH_ID, FLASK_ID, "biolab:element_oxygen", PHOSPHORUS_ID])
             .collect();
         for machine in &MACHINES {
             let faces = machine_faces(machine);
@@ -12578,7 +12606,7 @@ pub const COLUMN_CONDENSER: &str = "biolab:column_condenser";
 pub const FORMED: &str = "formed";
 /// Блоки со свойством `formed` (данные блоков объявляют его в
 /// `state_properties`, тест сверяет).
-pub const FORMABLE: [&str; 4] = [CASING, CASING_GLASS, COLUMN_TRAY, COLUMN_CONDENSER];
+pub const FORMABLE: [&str; 6] = [CASING, CASING_GLASS, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER_RACK, SEQUENCER_MONITOR];
 
 /// Есть ли у блока «склеенный» вид.
 pub fn is_formable(id: &str) -> bool {
@@ -13265,13 +13293,22 @@ pub const COLUMN_SLOT_ROLES: [SlotRole; COLUMN_SLOTS] = [
 ];
 
 /// Установки мода. Новая установка — строка здесь и машина в `MACHINES`.
-pub const MULTIBLOCKS: [Multiblock; 1] = [Multiblock {
-    controller: COLUMN,
-    title: "Ректификационная колонна",
-    needs: &COLUMN_NEEDS,
-    check: Check::Shape(COLUMN_SHAPE),
-    slots: &COLUMN_SLOT_ROLES,
-}];
+pub const MULTIBLOCKS: [Multiblock; 2] = [
+    Multiblock {
+        controller: COLUMN,
+        title: "Ректификационная колонна",
+        needs: &COLUMN_NEEDS,
+        check: Check::Shape(COLUMN_SHAPE),
+        slots: &COLUMN_SLOT_ROLES,
+    },
+    Multiblock {
+        controller: SEQUENCER,
+        title: "Генный секвенатор",
+        needs: &SEQUENCER_NEEDS,
+        check: Check::Shape(SEQUENCER_SHAPE),
+        slots: &SEQUENCER_SLOT_ROLES,
+    },
+];
 
 /// Установка, чей это контроллер.
 pub fn multiblock(controller: &str) -> Option<&'static Multiblock> {
@@ -13736,6 +13773,1025 @@ mod multiblock_tests {
     }
 }
 
+// ---- M8: генный секвенатор (GDD 4.18, п. 3) ----
+//
+// Установка 3×2×3: в середине передней стенки нижнего яруса — консоль
+// (контроллер), по бокам среднего ряда — две стойки секвенаторов, над
+// консолью — монитор, остальные клетки — корпус, стекло или порты. Вглубь от
+// лица консоли три ряда, вширь три, в высоту два.
+//
+// Три работы; режим выбирают три кнопки слева на экране консоли: окно ловит
+// нажатие (`native_screen_click`, `sequencer_click.rs`) и шлёт его серверу
+// кнопкой меню, сервер меняет режим в сейве консоли (`native_menu_button`,
+// `sequencer_button.rs`).
+// - *Сборка вектора*: 2–3 фрагмента ДНК → генный вектор со всеми их генами;
+//   вживляется одним уколом — мобу (`inject.rs`), себе (`remedy.rs`). Вектор
+//   держит не больше `MAX_GENES` генов при сумме цен до `STABILITY`: в
+//   лаборатории предела генома нет (GDD 4.19), а у конструкта — есть.
+// - *Антисмысловой вектор*: фрагмент → вектор, который уколом удаляет этот
+//   ген у моба или у игрока — обратная генотерапия. Прибавки к атрибутам
+//   моба снимает сам `biolab-deep`: проход мутантов раз в `SCAN_EVERY` тиков
+//   ставит их по геному и снимает те, которых по геному больше нет
+//   (`biolab_bridge::apply_genome`). У игрока эффекты генов подновляются раз
+//   в секунду на 3 секунды (`gene_effects`, `PHARMA_EFFECT_TICKS`): снятый
+//   ген перестаёт их подновлять, наросты уходят с данными игрока.
+// - *Чтение генома*: моб на операционном столе не дальше `SEQ_TABLE_REACH`
+//   блоков от консоли — все гены, сила и цена на мониторе. Прочитанное
+//   держится, пока на столе тот же моб с тем же геномом.
+// Расходники — фосфор (нуклеотиды: штука на каждый ген вектора, на
+// антисмысл и на чтение) и питательный раствор (порция на любой вектор).
+// Исполнение на игре — `crate::game::biolab_sequencer` (`sequencer.rs`).
+
+/// Консоль секвенатора — контроллер.
+pub const SEQUENCER: &str = "biolab:sequencer";
+/// Стойка секвенатора: по одной в левой и правой стенке среднего ряда.
+pub const SEQUENCER_RACK: &str = "biolab:sequencer_rack";
+/// Монитор — над консолью.
+pub const SEQUENCER_MONITOR: &str = "biolab:sequencer_monitor";
+/// Генный вектор: несколько генов, один укол.
+pub const GENE_VECTOR: &str = "biolab:gene_vector";
+/// Антисмысловой вектор: удаляет ген.
+pub const ANTISENSE_VECTOR: &str = "biolab:antisense_vector";
+/// Гены вектора в `custom_data`: строка генома (`genome_data`, `chitin:2,horns:1`).
+pub const VECTOR_KEY: &str = "biolab_vector";
+/// Ген антисмыслового вектора в `custom_data`: имя гена (`chitin`).
+pub const ANTISENSE_KEY: &str = "biolab_antisense";
+/// Фосфор — нуклеотиды секвенатора.
+pub const PHOSPHORUS_ID: &str = "biolab:element_phosphorus";
+
+/// Слоты консоли: три фрагмента, фосфор, раствор, выход.
+pub const SEQ_FRAGMENT_SLOTS: usize = 3;
+pub const SEQ_SLOT_PHOSPHORUS: usize = 3;
+pub const SEQ_SLOT_BROTH: usize = 4;
+pub const SEQ_SLOT_OUTPUT: usize = 5;
+pub const SEQUENCER_SLOTS: usize = 6;
+
+/// Роли слотов консоли: пять входов и выход. Раствор — тоже вход, а не
+/// топливо: каждый вход берёт только своё (`sequencer_accepts`), так что
+/// воронка с любой стороны кладёт фрагмент, фосфор и раствор по местам.
+pub const SEQUENCER_SLOT_ROLES: [SlotRole; SEQUENCER_SLOTS] = [
+    SlotRole::Input,
+    SlotRole::Input,
+    SlotRole::Input,
+    SlotRole::Input,
+    SlotRole::Input,
+    SlotRole::Output,
+];
+
+pub const SEQUENCER_NEEDS: [Need; 3] = [
+    Need {
+        parts: &[Part::Block(CASING), Part::Block(CASING_GLASS), Part::Port],
+        one: "блока корпуса",
+        many: "блоков корпуса",
+    },
+    Need { parts: &[Part::Block(SEQUENCER_RACK)], one: "стойки секвенатора", many: "стоек секвенатора" },
+    Need { parts: &[Part::Block(SEQUENCER_MONITOR)], one: "монитора", many: "мониторов" },
+];
+
+/// Нижний ярус: консоль в середине переднего ряда (клеткой не пишется),
+/// стойки — по бокам среднего, остальное — стенка.
+const SEQ_BOTTOM: [Cell; 8] = [
+    cell(-1, 0, 0),
+    cell(1, 0, 0),
+    cell(-1, 1, 1),
+    cell(0, 1, 0),
+    cell(1, 1, 1),
+    cell(-1, 2, 0),
+    cell(0, 2, 0),
+    cell(1, 2, 0),
+];
+/// Верхний ярус: монитор над консолью, остальное — стенка.
+const SEQ_TOP: [Cell; 9] = [
+    cell(-1, 0, 0),
+    cell(0, 0, 2),
+    cell(1, 0, 0),
+    cell(-1, 1, 0),
+    cell(0, 1, 0),
+    cell(1, 1, 0),
+    cell(-1, 2, 0),
+    cell(0, 2, 0),
+    cell(1, 2, 0),
+];
+
+pub const SEQUENCER_SHAPE: Shape = Shape {
+    layers: &[
+        Layer { cells: &SEQ_BOTTOM, min: 1, max: 1, name: "" },
+        Layer { cells: &SEQ_TOP, min: 1, max: 1, name: "" },
+    ],
+    controller: 0,
+};
+
+/// Что берёт слот консоли: фрагменты — в первые три, фосфор и раствор — в
+/// свои. Зовёт `slot_accepts`.
+pub fn sequencer_accepts(slot: usize, item: &str) -> bool {
+    match slot {
+        s if s < SEQ_FRAGMENT_SLOTS => item == FRAGMENT_ID,
+        SEQ_SLOT_PHOSPHORUS => item == PHOSPHORUS_ID,
+        SEQ_SLOT_BROTH => item == BROTH_ID,
+        _ => false,
+    }
+}
+
+/// Работа секвенатора.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeqMode {
+    Vector,
+    Antisense,
+    Read,
+}
+
+impl SeqMode {
+    pub const ALL: [SeqMode; 3] = [SeqMode::Vector, SeqMode::Antisense, SeqMode::Read];
+
+    /// Номер режима: в сейве, в числах экрана и кнопкой меню.
+    pub fn id(self) -> i32 {
+        SeqMode::ALL.iter().position(|m| *m == self).unwrap_or(0) as i32
+    }
+
+    pub fn from_id(id: i32) -> Option<SeqMode> {
+        SeqMode::ALL.get(usize::try_from(id).ok()?).copied()
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            SeqMode::Vector => "Сборка вектора",
+            SeqMode::Antisense => "Антисмысловой вектор",
+            SeqMode::Read => "Чтение генома",
+        }
+    }
+
+    /// Знак на кнопке.
+    pub fn mark(self) -> &'static str {
+        match self {
+            SeqMode::Vector => "+",
+            SeqMode::Antisense => "-",
+            SeqMode::Read => "?",
+        }
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            SeqMode::Vector => "2–3 фрагмента → вектор: все гены одним уколом",
+            SeqMode::Antisense => "Фрагмент → вектор, который удаляет этот ген",
+            SeqMode::Read => "Геном моба на операционном столе рядом",
+        }
+    }
+
+    /// Сколько тиков идёт работа.
+    pub fn time(self) -> i32 {
+        match self {
+            SeqMode::Vector => 200,
+            SeqMode::Antisense => 120,
+            SeqMode::Read => 60,
+        }
+    }
+}
+
+/// Режим консоли в её сейве.
+pub const SEQ_MODE_KEY: &str = "biolab_seq_mode";
+/// Последнее чтение: id моба и его геном строкой (`genome_data`).
+pub const SEQ_PATIENT_KEY: &str = "biolab_seq_patient";
+pub const SEQ_READ_KEY: &str = "biolab_seq_read";
+
+/// Как далеко от консоли ищут операционный стол с пациентом: по горизонтали
+/// (от центра консоли до моба) и по высоте.
+pub const SEQ_TABLE_REACH: f64 = 6.0;
+pub const SEQ_TABLE_HEIGHT: f64 = 3.0;
+
+/// Что с работой секвенатора — для монитора.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeqStatus {
+    /// Установка не собрана или ещё не тикала.
+    Idle,
+    /// Фрагментов нет.
+    Empty,
+    /// Вектору мало одного фрагмента.
+    One,
+    /// Во фрагменте нет прочитанного гена.
+    Blank,
+    /// Один ген в двух фрагментах.
+    Twice,
+    /// Генов больше `MAX_GENES`.
+    TooMany,
+    /// Сумма цен выше `STABILITY`.
+    Unstable,
+    NoPhosphorus,
+    NoBroth,
+    /// В выходе лежит вектор.
+    OutputFull,
+    /// Всё есть, идёт сборка.
+    Working,
+    /// На столе рядом никого.
+    NoPatient,
+    /// Идёт чтение.
+    Reading,
+    /// Прочитано: геном на мониторе.
+    Read,
+}
+
+impl SeqStatus {
+    pub const ALL: [SeqStatus; 14] = [
+        SeqStatus::Idle,
+        SeqStatus::Empty,
+        SeqStatus::One,
+        SeqStatus::Blank,
+        SeqStatus::Twice,
+        SeqStatus::TooMany,
+        SeqStatus::Unstable,
+        SeqStatus::NoPhosphorus,
+        SeqStatus::NoBroth,
+        SeqStatus::OutputFull,
+        SeqStatus::Working,
+        SeqStatus::NoPatient,
+        SeqStatus::Reading,
+        SeqStatus::Read,
+    ];
+
+    pub fn id(self) -> i32 {
+        SeqStatus::ALL.iter().position(|s| *s == self).unwrap_or(0) as i32
+    }
+
+    pub fn from_id(id: i32) -> SeqStatus {
+        usize::try_from(id).ok().and_then(|i| SeqStatus::ALL.get(i).copied()).unwrap_or(SeqStatus::Idle)
+    }
+}
+
+/// Сумма цен генома: цена гена за единицу силы × сила.
+pub fn genome_cost(genes: &[(&str, i32)]) -> i32 {
+    genes.iter().filter_map(|(name, strength)| Some(gene(name)?.cost * strength)).sum()
+}
+
+/// Что собирается из входов: гены (для монитора — и при отказе) и итог.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeqPlan {
+    pub genes: Vec<(&'static str, i32)>,
+    pub status: SeqStatus,
+}
+
+/// Сборка вектора из фрагментов во входах: `fragments` — по слоту, None —
+/// пусто, Some(строка гена) — фрагмент (пустая или битая строка — фрагмент
+/// без гена). Нужно 2–3 разных гена, не больше `MAX_GENES`, сумма цен — не
+/// выше `STABILITY`.
+pub fn vector_plan(fragments: &[Option<&str>]) -> SeqPlan {
+    let present: Vec<&str> = fragments.iter().flatten().copied().collect();
+    let genes: Vec<(&'static str, i32)> = present.iter().filter_map(|t| gene_from_text(t)).collect();
+    let status = if present.is_empty() {
+        SeqStatus::Empty
+    } else if genes.len() < present.len() {
+        SeqStatus::Blank
+    } else if present.len() == 1 {
+        SeqStatus::One
+    } else if genes.iter().enumerate().any(|(i, (a, _))| genes[..i].iter().any(|(b, _)| a == b)) {
+        SeqStatus::Twice
+    } else if genes.len() > MAX_GENES {
+        SeqStatus::TooMany
+    } else if genome_cost(&genes) > STABILITY {
+        SeqStatus::Unstable
+    } else {
+        SeqStatus::Working
+    };
+    SeqPlan { genes, status }
+}
+
+/// Антисмысл: ген первого фрагмента во входах (по порядку слотов) — его
+/// вектор и будет удалять. Остальные фрагменты ждут своей очереди.
+pub fn antisense_plan(fragments: &[Option<&str>]) -> SeqPlan {
+    match fragments.iter().flatten().next() {
+        None => SeqPlan { genes: Vec::new(), status: SeqStatus::Empty },
+        Some(text) => match gene_from_text(text) {
+            Some(g) => SeqPlan { genes: vec![g], status: SeqStatus::Working },
+            None => SeqPlan { genes: Vec::new(), status: SeqStatus::Blank },
+        },
+    }
+}
+
+/// Сколько уйдёт фосфора и раствора: фосфор — штука на ген вектора, на
+/// антисмысл и на чтение; раствор — порция на любой вектор, чтение без него.
+pub fn seq_supplies(mode: SeqMode, genes: usize) -> (u32, u32) {
+    match mode {
+        SeqMode::Vector => (genes.max(1) as u32, 1),
+        SeqMode::Antisense => (1, 1),
+        SeqMode::Read => (1, 0),
+    }
+}
+
+/// Хватает ли всего, чтобы начать: план готов, расходники есть, выход пуст
+/// (вектор не стакается). Иначе — чего не хватает, по порядку.
+pub fn seq_ready(plan: SeqStatus, need: (u32, u32), phosphorus: u32, broth: u32, output_free: bool) -> SeqStatus {
+    if plan != SeqStatus::Working {
+        return plan;
+    }
+    if phosphorus < need.0 {
+        return SeqStatus::NoPhosphorus;
+    }
+    if broth < need.1 {
+        return SeqStatus::NoBroth;
+    }
+    if !output_free {
+        return SeqStatus::OutputFull;
+    }
+    SeqStatus::Working
+}
+
+/// Пациент для чтения: ближайший моб на операционном столе (`mobs` — id и
+/// позиция тех, у кого бит «на столе») не дальше `SEQ_TABLE_REACH` от центра
+/// консоли по горизонтали и `SEQ_TABLE_HEIGHT` по высоте.
+pub fn nearest_patient(origin: [i32; 3], mobs: &[(u32, [f64; 3])]) -> Option<u32> {
+    let c = [f64::from(origin[0]) + 0.5, f64::from(origin[1]), f64::from(origin[2]) + 0.5];
+    mobs.iter()
+        .filter(|(_, p)| (p[1] - c[1]).abs() <= SEQ_TABLE_HEIGHT)
+        .map(|(id, p)| (*id, (p[0] - c[0]).powi(2) + (p[2] - c[2]).powi(2)))
+        .filter(|(_, d)| *d <= SEQ_TABLE_REACH * SEQ_TABLE_REACH)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| id)
+}
+
+/// Действует ли прочитанное: тот же пациент с тем же геномом (строка
+/// `genome_data`). Иначе — читать заново.
+pub fn read_still_valid(patient: (u32, &str), saved: Option<(u32, &str)>) -> bool {
+    saved.is_some_and(|(id, text)| id == patient.0 && text == patient.1)
+}
+
+/// Ген одной строкой: «Хитиновый панцирь ++».
+pub fn gene_short(name: &str, strength: i32) -> String {
+    let title = gene(name).map_or(name, |k| k.title);
+    format!("{title} {}", "+".repeat(strength.clamp(0, 3) as usize))
+}
+
+/// Гены вектора строкой для предмета: та же форма, что геном моба.
+pub fn vector_text(genes: &[(&str, i32)]) -> String {
+    genome_data(genes)
+}
+
+/// Гены вектора из строки предмета.
+pub fn vector_genes(text: &str) -> Vec<(&'static str, i32)> {
+    genes_of_data(text)
+}
+
+/// Подпись вектора: «Генный вектор: Хитиновый панцирь ++, Рогатость +».
+pub fn vector_label(text: &str) -> String {
+    let genes = vector_genes(text);
+    if genes.is_empty() {
+        return "Генный вектор: пустой".to_string();
+    }
+    let list: Vec<String> = genes.iter().map(|(n, s)| gene_short(n, *s)).collect();
+    format!("Генный вектор: {}", list.join(", "))
+}
+
+/// Подсказка вектора: гены, что они дают, цена и как вводить.
+pub fn vector_tooltip(text: &str) -> Vec<String> {
+    let genes = vector_genes(text);
+    if genes.is_empty() {
+        return vec!["Генов нет".to_string()];
+    }
+    let mut lines: Vec<String> = genes
+        .iter()
+        .filter_map(|(n, s)| Some(format!("{}: {}", gene_short(n, *s), gene(n)?.about)))
+        .collect();
+    lines.push(format!("Цена {} из {STABILITY}, генов {} из {MAX_GENES}", genome_cost(&genes), genes.len()));
+    let human = genes.iter().filter(|(n, _)| gene(n).is_some_and(takes_in_humans)).count();
+    lines.push(if human == genes.len() {
+        "Человеку приживаются все".to_string()
+    } else {
+        format!("Человеку приживаются {human} из {}", genes.len())
+    });
+    lines
+}
+
+/// Подпись антисмыслового вектора: «Антисмысловой вектор: Хитиновый панцирь».
+pub fn antisense_label(name: &str) -> String {
+    match gene(name) {
+        Some(kind) => format!("Антисмысловой вектор: {}", kind.title),
+        None => "Антисмысловой вектор: пустой".to_string(),
+    }
+}
+
+pub fn antisense_tooltip(name: &str) -> Vec<String> {
+    match gene(name) {
+        Some(kind) => vec![
+            format!("Удаляет ген: {}", kind.title),
+            "Уходят и прибавки, и эффекты гена".to_string(),
+        ],
+        None => vec!["Ген не прочитан".to_string()],
+    }
+}
+
+/// Вектор мобу: каждый ген — как укол фрагментом (`splice_mob`, без предела
+/// генома). Вернёт новый геном и исход по каждому гену вектора.
+pub fn splice_vector_mob(
+    have: &[(&'static str, i32)],
+    genes: &[(&'static str, i32)],
+) -> (Vec<(&'static str, i32)>, Vec<Splice>) {
+    let mut out = have.to_vec();
+    let mut results = Vec::with_capacity(genes.len());
+    for (name, strength) in genes {
+        let result = splice_mob(&out, name, *strength);
+        if result == Splice::Done {
+            out.retain(|(n, _)| n != name);
+            out.push((name, *strength));
+        }
+        results.push(result);
+    }
+    (genes_of_data(&genome_data(&out)), results)
+}
+
+/// Вектор себе: каждый ген — как генотерапия (`splice_player`).
+pub fn splice_vector_player(state: &mut PlayerState, genes: &[(&'static str, i32)]) -> Vec<Splice> {
+    genes.iter().map(|(name, strength)| splice_player(state, name, *strength)).collect()
+}
+
+/// Что сказать после укола вектором: что вжилось, что нет и почему.
+pub fn vector_message(genes: &[(&'static str, i32)], results: &[Splice]) -> String {
+    let took: Vec<&str> = genes
+        .iter()
+        .zip(results)
+        .filter(|(_, r)| **r == Splice::Done)
+        .filter_map(|((n, _), _)| Some(gene(n)?.title))
+        .collect();
+    let refused = |want: Splice| -> Vec<&str> {
+        genes
+            .iter()
+            .zip(results)
+            .filter(|(_, r)| **r == want)
+            .filter_map(|((n, _), _)| Some(gene(n)?.title))
+            .collect()
+    };
+    let (already, alien) = (refused(Splice::Already), refused(Splice::NotForHumans));
+    let mut parts = Vec::new();
+    if took.is_empty() {
+        parts.push("Вектор не вжился".to_string());
+    } else {
+        parts.push(format!("Вектор вжился: {}", took.join(", ")));
+    }
+    if !already.is_empty() {
+        parts.push(format!("уже есть: {}", already.join(", ")));
+    }
+    if !alien.is_empty() {
+        parts.push(format!("не приживается: {}", alien.join(", ")));
+    }
+    parts.join("; ")
+}
+
+/// Антисмысл мобу: геном без гена `name`; None — такого гена нет.
+pub fn remove_gene(have: &[(&'static str, i32)], name: &str) -> Option<Vec<(&'static str, i32)>> {
+    if !have.iter().any(|(n, _)| *n == name) {
+        return None;
+    }
+    Some(have.iter().filter(|(n, _)| *n != name).copied().collect())
+}
+
+/// Антисмысл себе: снять ген из генома игрока. Ложь — гена не было.
+pub fn unsplice_player(state: &mut PlayerState, name: &str) -> bool {
+    match GENES.iter().position(|g| g.name == name) {
+        Some(i) if state.genes[i] > 0 => {
+            state.genes[i] = 0;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Что сказать после укола антисмыслом.
+pub fn antisense_message(name: &str, removed: bool) -> String {
+    let title = gene(name).map_or("Ген", |k| k.title);
+    if removed {
+        format!("{title}: ген выключен и удалён из генома")
+    } else {
+        format!("{title}: такого гена нет — удалять нечего")
+    }
+}
+
+/// Поменять состояние игрока этого мира и, если поменялось, сразу записать
+/// на диск — как `splice_world_player`. `f` отвечает итогом и «поменялось ли».
+pub fn edit_world_player<R>(
+    world: &std::path::Path,
+    uuid: u128,
+    f: impl FnOnce(&mut PlayerState) -> (R, bool),
+) -> Option<R> {
+    let mut table = states().lock().ok()?;
+    let state = table.entry((world.to_path_buf(), uuid)).or_insert_with(|| {
+        std::fs::read_to_string(state_path(world, uuid)).map(|t| state_from_text(&t)).unwrap_or_default()
+    });
+    let (result, changed) = f(state);
+    let saved = *state;
+    drop(table);
+    if changed {
+        let path = state_path(world, uuid);
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, state_to_text(&saved));
+    }
+    Some(result)
+}
+
+/// Вектор себе в этом мире.
+pub fn splice_vector_world_player(
+    world: &std::path::Path,
+    uuid: u128,
+    genes: &[(&'static str, i32)],
+) -> Option<Vec<Splice>> {
+    edit_world_player(world, uuid, |state| {
+        let results = splice_vector_player(state, genes);
+        let changed = results.contains(&Splice::Done);
+        (results, changed)
+    })
+}
+
+/// Антисмысл себе в этом мире. Some(false) — гена не было.
+pub fn unsplice_world_player(world: &std::path::Path, uuid: u128, name: &str) -> Option<bool> {
+    edit_world_player(world, uuid, |state| {
+        let removed = unsplice_player(state, name);
+        (removed, removed)
+    })
+}
+
+// Числа экрана консоли — после общих чисел установки: режим, итог (`SeqStatus`),
+// сумма цен, сколько генов всего и первые `SEQ_SHOWN_GENES` генов числом
+// «номер в `GENES` × 4 + сила» (0 — пусто).
+pub const DATA_SEQ_MODE: usize = DATA_MB_END;
+pub const DATA_SEQ_STATUS: usize = DATA_MB_END + 1;
+pub const DATA_SEQ_COST: usize = DATA_MB_END + 2;
+pub const DATA_SEQ_COUNT: usize = DATA_MB_END + 3;
+pub const DATA_SEQ_GENES: usize = DATA_MB_END + 4;
+pub const SEQ_SHOWN_GENES: usize = 8;
+pub const DATA_SEQ_END: usize = DATA_SEQ_GENES + SEQ_SHOWN_GENES;
+
+/// Записать в числа экрана режим, итог и гены (`data` длиной не меньше
+/// `DATA_SEQ_END`).
+pub fn write_seq(data: &mut [i32], mode: SeqMode, status: SeqStatus, genes: &[(&str, i32)]) {
+    if data.len() < DATA_SEQ_END {
+        return;
+    }
+    data[DATA_SEQ_MODE] = mode.id();
+    data[DATA_SEQ_STATUS] = status.id();
+    data[DATA_SEQ_COST] = genome_cost(genes);
+    data[DATA_SEQ_COUNT] = genes.len() as i32;
+    for k in 0..SEQ_SHOWN_GENES {
+        data[DATA_SEQ_GENES + k] = genes
+            .get(k)
+            .and_then(|(name, s)| Some(GENES.iter().position(|g| g.name == *name)? as i32 * 4 + (*s).clamp(1, 3)))
+            .unwrap_or(0);
+    }
+}
+
+/// Что монитор знает о работе.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeqShown {
+    pub mode: SeqMode,
+    pub status: SeqStatus,
+    pub cost: i32,
+    /// Генов всего; на экран пришли первые `SEQ_SHOWN_GENES`.
+    pub count: u32,
+    pub genes: Vec<(&'static str, i32)>,
+}
+
+pub fn seq_shown(data: &[i32]) -> SeqShown {
+    let genes = (0..SEQ_SHOWN_GENES)
+        .filter_map(|k| {
+            let v = screen_datum(data, DATA_SEQ_GENES + k, 0);
+            let (index, s) = (v / 4, v % 4);
+            (v > 0 && s > 0).then(|| GENES.get(index as usize).map(|g| (g.name, s)))?
+        })
+        .collect();
+    SeqShown {
+        mode: SeqMode::from_id(screen_datum(data, DATA_SEQ_MODE, 0)).unwrap_or(SeqMode::Vector),
+        status: SeqStatus::from_id(screen_datum(data, DATA_SEQ_STATUS, 0)),
+        cost: screen_datum(data, DATA_SEQ_COST, 0),
+        count: screen_datum(data, DATA_SEQ_COUNT, 0).max(0) as u32,
+        genes,
+    }
+}
+
+/// Итог коротко — нижней строкой монитора.
+pub fn seq_status_text(shown: &SeqShown) -> String {
+    let (phosphorus, _) = seq_supplies(shown.mode, shown.count as usize);
+    match shown.status {
+        SeqStatus::Idle => "Ждёт".to_string(),
+        SeqStatus::Empty if shown.mode == SeqMode::Vector => "Нет фрагментов".to_string(),
+        SeqStatus::Empty => "Нет фрагмента".to_string(),
+        SeqStatus::One => "Нужно 2–3 фрагмента".to_string(),
+        SeqStatus::Blank => "Пустой фрагмент".to_string(),
+        SeqStatus::Twice => "Ген дважды".to_string(),
+        SeqStatus::TooMany => format!("Больше {MAX_GENES} генов"),
+        SeqStatus::Unstable => format!("Цена {} > {STABILITY}", shown.cost),
+        SeqStatus::NoPhosphorus => format!("Нужен фосфор ×{phosphorus}"),
+        SeqStatus::NoBroth => "Нужен раствор".to_string(),
+        SeqStatus::OutputFull => "Выход занят".to_string(),
+        SeqStatus::Working if shown.mode == SeqMode::Antisense => "Синтез антисмысла".to_string(),
+        SeqStatus::Working => format!("Цена {} из {STABILITY}", shown.cost),
+        SeqStatus::NoPatient => "Нет пациента".to_string(),
+        SeqStatus::Reading => "Чтение…".to_string(),
+        SeqStatus::Read if shown.count == 0 => "Мутаций нет".to_string(),
+        SeqStatus::Read => format!("Цена генов: {}", shown.cost),
+    }
+}
+
+/// Итог подробно — в подсказке монитора.
+pub fn seq_status_long(shown: &SeqShown) -> String {
+    match shown.status {
+        SeqStatus::Empty if shown.mode == SeqMode::Read => "Положите фосфор: чтение тратит штуку".to_string(),
+        SeqStatus::Empty => "Положите фрагменты ДНК в три верхних слота".to_string(),
+        SeqStatus::One => "Вектор собирают из 2–3 фрагментов".to_string(),
+        SeqStatus::Blank => "Во фрагменте нет прочитанного гена".to_string(),
+        SeqStatus::Twice => "Один ген в двух фрагментах: оставьте один".to_string(),
+        SeqStatus::TooMany => format!("Вектор держит не больше {MAX_GENES} генов"),
+        SeqStatus::Unstable => {
+            format!("Вектор нестабилен: сумма цен {} выше {STABILITY} — уберите дорогой ген", shown.cost)
+        }
+        SeqStatus::NoPatient => format!(
+            "Уложите усыплённого моба на операционный стол не дальше {} блоков от консоли",
+            SEQ_TABLE_REACH as i32
+        ),
+        SeqStatus::Read if shown.cost > STABILITY || shown.count as usize > MAX_GENES => {
+            format!("Сверх природы ({MAX_GENES} гена, цена {STABILITY}): геном лабораторный")
+        }
+        SeqStatus::Read => format!("В пределах природы: до {MAX_GENES} генов, цена до {STABILITY}"),
+        _ => seq_status_text(shown),
+    }
+}
+
+/// Цвет нижней строки монитора.
+pub fn seq_status_ink(status: SeqStatus) -> u32 {
+    match status {
+        SeqStatus::Working | SeqStatus::Reading | SeqStatus::Read => 0x5A_E8B4,
+        SeqStatus::Idle | SeqStatus::Empty | SeqStatus::NoPatient => SCREEN_TEXT_DIM,
+        _ => 0xE8_5A4A,
+    }
+}
+
+/// Строки монитора (текст и цвет): гены, «…и ещё N», внизу — итог. Не
+/// больше `rows` строк: итог всегда виден.
+pub fn seq_monitor(shown: &SeqShown, rows: usize) -> Vec<(String, u32)> {
+    let room = rows.saturating_sub(1);
+    let total = (shown.count as usize).max(shown.genes.len());
+    let show = if total > room { room.saturating_sub(1) } else { total };
+    let mut out: Vec<(String, u32)> = shown
+        .genes
+        .iter()
+        .take(show)
+        .map(|(name, s)| {
+            let line = gene_short(name, *s);
+            if shown.mode == SeqMode::Antisense { (format!("- {line}"), SCREEN_TEXT) } else { (line, SCREEN_TEXT) }
+        })
+        .collect();
+    if total > out.len() {
+        out.push((format!("…и ещё {}", total - out.len()), SCREEN_TEXT_DIM));
+    }
+    out.push((seq_status_text(shown), seq_status_ink(shown.status)));
+    out
+}
+
+/// Подсказка монитора: режим, все пришедшие гены с тем, что они дают, итог.
+pub fn seq_tooltip(shown: &SeqShown) -> Vec<String> {
+    let mut lines = vec![shown.mode.title().to_string()];
+    for (name, s) in &shown.genes {
+        if let Some(kind) = gene(name) {
+            lines.push(format!("§7{}: {}", gene_short(name, *s), kind.about));
+        }
+    }
+    let more = (shown.count as usize).saturating_sub(shown.genes.len());
+    if more > 0 {
+        lines.push(format!("§7…и ещё {more}"));
+    }
+    lines.push(seq_status_long(shown));
+    let (phosphorus, broth) = seq_supplies(shown.mode, shown.count as usize);
+    lines.push(if broth > 0 {
+        format!("§7Расход: фосфор ×{phosphorus}, раствор ×{broth}")
+    } else {
+        format!("§7Расход: фосфор ×{phosphorus}")
+    });
+    lines
+}
+
+/// Кнопки режимов слева на экране консоли: сверху вниз — вектор, антисмысл,
+/// чтение.
+pub fn seq_buttons() -> [[f32; 4]; 3] {
+    [[5.0, 17.0, 16.0, 16.0], [5.0, 35.0, 16.0, 16.0], [5.0, 53.0, 16.0, 16.0]]
+}
+
+/// Кнопка под курсором.
+pub fn seq_button_at(at: [f32; 2]) -> Option<SeqMode> {
+    seq_buttons().iter().position(|r| inside(*r, at)).and_then(|i| SeqMode::ALL.get(i).copied())
+}
+
+/// Нажатие кнопки меню на сервере: новый режим, если кнопка наша и режим
+/// другой. Иначе None — ничего не менять.
+pub fn seq_press(current: i32, button: i32) -> Option<SeqMode> {
+    let mode = SeqMode::from_id(button)?;
+    (mode.id() != current).then_some(mode)
+}
+
+/// Подсказка кнопки режима.
+pub fn seq_button_tooltip(mode: SeqMode, current: SeqMode) -> Vec<String> {
+    let mut lines = vec![mode.title().to_string(), format!("§7{}", mode.hint())];
+    if mode == current {
+        lines.push("§aВыбрано".to_string());
+    } else {
+        lines.push("§7ЛКМ — выбрать".to_string());
+    }
+    lines
+}
+
+#[cfg(test)]
+mod sequencer_tests {
+    use super::*;
+
+    fn world(blocks: &[([i32; 3], &str)]) -> impl Fn([i32; 3]) -> String + use<> {
+        let map: std::collections::HashMap<[i32; 3], String> =
+            blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+        move |p| map.get(&p).cloned().unwrap_or_else(|| "minecraft:air".to_string())
+    }
+
+    fn sequencer() -> &'static Multiblock {
+        multiblock(SEQUENCER).expect("секвенатор — установка")
+    }
+
+    /// Собранный секвенатор у `site`: консоль, стойки, монитор, корпус; на
+    /// месте `[вправо, вверх, назад]` из `swap` — другой блок.
+    fn built(site: Site, swap: &[([i32; 3], &'static str)]) -> Vec<([i32; 3], &'static str)> {
+        let mut out = Vec::new();
+        for y in 0..=1 {
+            for r in -1..=1 {
+                for b in 0..=2 {
+                    let at = [r, y, b];
+                    let block = match at {
+                        [0, 0, 0] => SEQUENCER,
+                        [-1 | 1, 0, 1] => SEQUENCER_RACK,
+                        [0, 1, 0] => SEQUENCER_MONITOR,
+                        [_, 1, _] if b == 0 => CASING_GLASS,
+                        _ => CASING,
+                    };
+                    let block = swap.iter().find(|(p, _)| *p == at).map_or(block, |(_, s)| *s);
+                    out.push((place(site.origin, site.facing, at), block));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_sequencer_is_formed_in_any_facing() {
+        for facing in [Facing::North, Facing::South, Facing::West, Facing::East] {
+            let site = Site { origin: [10, 64, -4], facing };
+            let at = world(&built(site, &[([1, 0, 0], INPUT_PORT), ([0, 1, 2], OUTPUT_PORT)]));
+            let Verdict::Formed(a) = check_multiblock(sequencer(), site, &at) else {
+                panic!("{facing:?}: не собран");
+            };
+            assert_eq!(a.parts.len(), 18 - 1 - 2, "{facing:?}: без консоли и портов");
+            assert_eq!(a.inputs().count(), 1);
+            assert_eq!(a.outputs().count(), 1);
+            assert!(a.parts.iter().all(|p| is_formable(&at(*p))), "склеиваются все части");
+        }
+    }
+
+    #[test]
+    fn missing_racks_and_monitor_are_named() {
+        let site = Site { origin: [0, 64, 0], facing: Facing::South };
+        let mb = sequencer();
+        let at = world(&built(site, &[([-1, 0, 1], CASING), ([0, 1, 0], "minecraft:air"), ([1, 0, 2], "minecraft:dirt")]));
+        let Verdict::Broken(short) = check_multiblock(mb, site, &at) else { panic!() };
+        let texts: Vec<String> = short.iter().map(|s| shortage_text(mb, s)).collect();
+        assert_eq!(
+            texts,
+            vec!["Нет стойки секвенатора: 1-й ярус, слева", "Нет блока корпуса: 1-й ярус, справа", "Нет монитора: 2-й ярус, спереди"]
+        );
+        // Голая консоль: 14 стенок, 2 стойки, монитор.
+        let Verdict::Broken(short) = check_multiblock(mb, site, &world(&[([0, 64, 0], SEQUENCER)])) else { panic!() };
+        let walls: u32 = short.iter().filter(|s| s.need == 0).map(|s| s.count).sum();
+        let racks: u32 = short.iter().filter(|s| s.need == 1).map(|s| s.count).sum();
+        assert_eq!((walls, racks), (14, 2));
+    }
+
+    #[test]
+    fn sequencer_slots_take_their_items() {
+        let m = machine(SEQUENCER).expect("машина");
+        for slot in 0..SEQ_FRAGMENT_SLOTS {
+            assert!(slot_accepts(m, slot, FRAGMENT_ID));
+            assert!(!slot_accepts(m, slot, PHOSPHORUS_ID));
+        }
+        assert!(slot_accepts(m, SEQ_SLOT_PHOSPHORUS, PHOSPHORUS_ID));
+        assert!(!slot_accepts(m, SEQ_SLOT_PHOSPHORUS, FRAGMENT_ID));
+        assert!(slot_accepts(m, SEQ_SLOT_BROTH, BROTH_ID));
+        assert!(!slot_accepts(m, SEQ_SLOT_OUTPUT, GENE_VECTOR), "в выход не кладут");
+        assert_eq!(machine_outputs(m), vec![SEQ_SLOT_OUTPUT]);
+        assert_eq!(quick_move_targets(m, BROTH_ID), vec![SEQ_SLOT_BROTH]);
+        assert_eq!(quick_move_targets(m, FRAGMENT_ID), vec![0, 1, 2]);
+        assert!(is_output_slot(SEQUENCER, SEQ_SLOT_OUTPUT) && !is_output_slot(SEQUENCER, 0));
+        assert_eq!(machine_data_slots(SEQUENCER), DATA_SEQ_END);
+    }
+
+    #[test]
+    fn a_vector_holds_two_or_three_genes_within_stability() {
+        // Хитин 2 (цена 2×2) + пружинные ноги 1 (1) = 5 — стабилен.
+        let plan = vector_plan(&[Some("chitin:2"), None, Some("spring_legs:1")]);
+        assert_eq!(plan.status, SeqStatus::Working);
+        assert_eq!(plan.genes, vec![("chitin", 2), ("spring_legs", 1)]);
+        assert_eq!(genome_cost(&plan.genes), 5);
+        // Ровно шесть — ещё можно.
+        assert_eq!(vector_plan(&[Some("chitin:2"), Some("spring_legs:1"), Some("albinism:1")]).status, SeqStatus::Working);
+        // Семь — нет.
+        let plan = vector_plan(&[Some("chitin:2"), Some("spring_legs:2"), Some("albinism:1")]);
+        assert_eq!((plan.status, genome_cost(&plan.genes)), (SeqStatus::Unstable, 7));
+        // Один фрагмент — мало, ни одного — пусто.
+        assert_eq!(vector_plan(&[Some("chitin:1"), None, None]).status, SeqStatus::One);
+        assert_eq!(vector_plan(&[None, None, None]).status, SeqStatus::Empty);
+        // Тот же ген дважды, даже разной силы.
+        assert_eq!(vector_plan(&[Some("chitin:1"), Some("chitin:2")]).status, SeqStatus::Twice);
+        // Фрагмент без гена.
+        assert_eq!(vector_plan(&[Some(""), Some("chitin:1")]).status, SeqStatus::Blank);
+        assert_eq!(vector_plan(&[Some("nonsense:2"), Some("chitin:1")]).status, SeqStatus::Blank);
+        // Четыре гена не влезают, даже дешёвые.
+        let four = [Some("albinism:1"), Some("pallor:1"), Some("rust_hide:1"), Some("tumor:1")];
+        assert_eq!(vector_plan(&four).status, SeqStatus::TooMany);
+    }
+
+    #[test]
+    fn antisense_takes_the_first_fragment() {
+        assert_eq!(antisense_plan(&[None, Some("horns:2"), Some("chitin:1")]).genes, vec![("horns", 2)]);
+        assert_eq!(antisense_plan(&[None, None, None]).status, SeqStatus::Empty);
+        assert_eq!(antisense_plan(&[Some("")]).status, SeqStatus::Blank);
+        assert_eq!(antisense_plan(&[Some("chitin:3")]).status, SeqStatus::Working);
+    }
+
+    #[test]
+    fn supplies_are_checked_in_order() {
+        assert_eq!(seq_supplies(SeqMode::Vector, 3), (3, 1));
+        assert_eq!(seq_supplies(SeqMode::Antisense, 1), (1, 1));
+        assert_eq!(seq_supplies(SeqMode::Read, 5), (1, 0));
+        let need = (2, 1);
+        assert_eq!(seq_ready(SeqStatus::Working, need, 2, 1, true), SeqStatus::Working);
+        assert_eq!(seq_ready(SeqStatus::Working, need, 1, 1, true), SeqStatus::NoPhosphorus);
+        assert_eq!(seq_ready(SeqStatus::Working, need, 2, 0, true), SeqStatus::NoBroth);
+        assert_eq!(seq_ready(SeqStatus::Working, need, 2, 1, false), SeqStatus::OutputFull);
+        assert_eq!(seq_ready(SeqStatus::Unstable, need, 9, 9, true), SeqStatus::Unstable, "план важнее расходников");
+    }
+
+    #[test]
+    fn one_prick_of_a_vector_splices_every_gene() {
+        let have = vec![("chitin", 1), ("regeneration", 3)];
+        let (genome, results) = splice_vector_mob(&have, &[("chitin", 2), ("horns", 1), ("regeneration", 2)]);
+        assert_eq!(results, vec![Splice::Done, Splice::Done, Splice::Already]);
+        assert_eq!(genome, vec![("chitin", 2), ("regeneration", 3), ("horns", 1)], "порядок таблицы, сила сильнейшая");
+        let text = vector_message(&[("chitin", 2), ("horns", 1), ("regeneration", 2)], &results);
+        assert_eq!(text, "Вектор вжился: Хитиновый панцирь, Рогатость; уже есть: Регенерация");
+
+        let mut state = PlayerState::default();
+        let results = splice_vector_player(&mut state, &[("chitin", 2), ("acid_glands", 1)]);
+        assert_eq!(results, vec![Splice::Done, Splice::NotForHumans]);
+        assert_eq!(player_gene(&state, "chitin"), 2);
+        assert!(vector_message(&[("chitin", 2), ("acid_glands", 1)], &results).contains("не приживается: Кислотные железы"));
+        assert_eq!(vector_message(&[("pallor", 1)], &[Splice::NotForHumans]), "Вектор не вжился; не приживается: Бледность");
+    }
+
+    #[test]
+    fn antisense_removes_the_gene_from_mob_and_player() {
+        let have = vec![("chitin", 2), ("horns", 1)];
+        assert_eq!(remove_gene(&have, "chitin"), Some(vec![("horns", 1)]));
+        assert_eq!(remove_gene(&have, "tail"), None);
+        assert_eq!(remove_gene(&[("horns", 1)], "horns"), Some(vec![]), "последний ген — геном пуст");
+        let mut state = PlayerState::default();
+        assert_eq!(splice_player(&mut state, "chitin", 3), Splice::Done);
+        assert!(gene_effects(&state).iter().any(|(e, _)| *e == "resistance"));
+        assert!(unsplice_player(&mut state, "chitin"));
+        assert_eq!(player_gene(&state, "chitin"), 0);
+        assert!(gene_effects(&state).is_empty(), "эффекты гена больше не подновляются");
+        assert!(!unsplice_player(&mut state, "chitin"), "второй раз — нечего");
+        assert!(antisense_message("chitin", true).contains("удалён"));
+        assert!(antisense_message("chitin", false).contains("нечего"));
+    }
+
+    #[test]
+    fn the_world_player_keeps_vector_and_antisense() {
+        let world = std::env::temp_dir().join(format!("biolab_seq_{}", std::process::id()));
+        let uuid = 0x5E0_u128;
+        let results = splice_vector_world_player(&world, uuid, &[("chitin", 1), ("aquatic", 2)]).unwrap();
+        assert_eq!(results, vec![Splice::Done, Splice::Done]);
+        assert_eq!(world_player_gene(&world, uuid, "aquatic"), 2);
+        let saved = state_from_text(&std::fs::read_to_string(state_path(&world, uuid)).unwrap());
+        assert_eq!(player_gene(&saved, "chitin"), 1, "записано на диск");
+        assert_eq!(unsplice_world_player(&world, uuid, "aquatic"), Some(true));
+        assert_eq!(unsplice_world_player(&world, uuid, "aquatic"), Some(false));
+        let saved = state_from_text(&std::fs::read_to_string(state_path(&world, uuid)).unwrap());
+        assert_eq!(player_gene(&saved, "aquatic"), 0);
+        let _ = std::fs::remove_dir_all(&world);
+    }
+
+    #[test]
+    fn the_patient_is_the_nearest_on_a_table() {
+        let origin = [0, 64, 0];
+        let mobs = [(7, [5.0, 64.0, 0.5]), (3, [2.5, 64.5, 2.5]), (9, [0.5, 70.0, 0.5])];
+        assert_eq!(nearest_patient(origin, &mobs), Some(3));
+        assert_eq!(nearest_patient(origin, &mobs[..1]), Some(7));
+        assert_eq!(nearest_patient(origin, &mobs[2..]), None, "слишком высоко");
+        assert_eq!(nearest_patient(origin, &[(1, [7.0, 64.0, 0.5])]), None, "дальше шести блоков");
+        assert!(read_still_valid((3, "chitin:1"), Some((3, "chitin:1"))));
+        assert!(!read_still_valid((3, "chitin:2"), Some((3, "chitin:1"))), "геном поменяли — читать заново");
+        assert!(!read_still_valid((4, "chitin:1"), Some((3, "chitin:1"))));
+        assert!(!read_still_valid((3, ""), None));
+    }
+
+    #[test]
+    fn vector_items_are_labelled_from_their_data() {
+        let text = vector_text(&[("horns", 1), ("chitin", 2)]);
+        assert_eq!(text, "chitin:2,horns:1");
+        assert_eq!(vector_label(&text), "Генный вектор: Хитиновый панцирь ++, Рогатость +");
+        assert_eq!(item_label(GENE_VECTOR, |k| (k == VECTOR_KEY).then(|| text.clone())), Some(vector_label(&text)));
+        assert_eq!(antisense_label("chitin"), "Антисмысловой вектор: Хитиновый панцирь");
+        assert_eq!(item_label(ANTISENSE_VECTOR, |k| (k == ANTISENSE_KEY).then(|| "horns".to_string())).unwrap(), "Антисмысловой вектор: Рогатость");
+        let tip = vector_tooltip(&text);
+        assert!(tip.iter().any(|l| l == "Цена 6 из 6, генов 2 из 3"), "{tip:?}");
+        assert!(tip.last().unwrap().contains("приживаются все"));
+        assert!(antisense_tooltip("horns")[0].contains("Рогатость"));
+        assert!(!item_hint(GENE_VECTOR).is_empty() && !item_hint(ANTISENSE_VECTOR).is_empty());
+    }
+
+    #[test]
+    fn the_monitor_gets_the_genome_through_numbers() {
+        let mut data = vec![0; DATA_SEQ_END];
+        let genes: Vec<(&str, i32)> = vec![("gigantism", 3), ("chitin", 1), ("sedation_resistance", 2)];
+        write_seq(&mut data, SeqMode::Read, SeqStatus::Read, &genes);
+        let shown = seq_shown(&data);
+        assert_eq!(shown.genes, genes);
+        assert_eq!((shown.mode, shown.status, shown.cost, shown.count), (SeqMode::Read, SeqStatus::Read, 12, 3));
+        assert_eq!(seq_status_text(&shown), "Цена генов: 12");
+        assert!(seq_status_long(&shown).contains("лабораторный"));
+        // Три строки: ген, «…и ещё 2», итог.
+        let lines = seq_monitor(&shown, 3);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].0, "Гигантизм +++");
+        assert_eq!(lines[1].0, "…и ещё 2");
+        assert_eq!(lines[2].0, "Цена генов: 12");
+        // Влезает целиком — без «и ещё».
+        let lines = seq_monitor(&shown, 4);
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[2].0, "Устойчивость к снотворному ++");
+        // Генов больше, чем чисел: на экран приходят первые восемь.
+        let many: Vec<(&str, i32)> = GENES.iter().take(10).map(|g| (g.name, 1)).collect();
+        write_seq(&mut data, SeqMode::Read, SeqStatus::Read, &many);
+        let shown = seq_shown(&data);
+        assert_eq!((shown.genes.len(), shown.count), (SEQ_SHOWN_GENES, 10));
+        assert!(seq_tooltip(&shown).iter().any(|l| l == "§7…и ещё 2"));
+        // До первого пакета.
+        let empty = seq_shown(&[]);
+        assert_eq!((empty.mode, empty.status), (SeqMode::Vector, SeqStatus::Idle));
+        assert_eq!(seq_monitor(&empty, 4), vec![("Ждёт".to_string(), SCREEN_TEXT_DIM)]);
+        // Антисмысл помечает ген минусом.
+        write_seq(&mut data, SeqMode::Antisense, SeqStatus::NoBroth, &[("horns", 2)]);
+        let lines = seq_monitor(&seq_shown(&data), 4);
+        assert_eq!(lines[0].0, "- Рогатость ++");
+        assert_eq!(lines[1].0, "Нужен раствор");
+        for s in SeqStatus::ALL {
+            assert_eq!(SeqStatus::from_id(s.id()), s);
+        }
+    }
+
+    #[test]
+    fn mode_buttons_sit_left_of_the_slots() {
+        let s = machine_screen(SEQUENCER).unwrap();
+        let rects = screen_rects(&s);
+        for (i, b) in seq_buttons().iter().enumerate() {
+            assert!(b[0] >= 4.0 && b[1] >= SCREEN_HEADER && b[1] + b[3] <= s.inventory[1] - 12.0, "кнопка {i}");
+            for r in &rects {
+                assert!(!rects_overlap(*b, *r), "кнопка {i} налезает на {r:?}");
+            }
+            let centre = [b[0] + b[2] / 2.0, b[1] + b[3] / 2.0];
+            assert_eq!(seq_button_at(centre), Some(SeqMode::ALL[i]));
+        }
+        assert_eq!(seq_button_at([100.0, 30.0]), None);
+        assert_eq!(seq_press(0, 2), Some(SeqMode::Read));
+        assert_eq!(seq_press(2, 2), None, "тот же режим");
+        assert_eq!(seq_press(0, 7), None, "чужая кнопка");
+        assert!(seq_button_tooltip(SeqMode::Vector, SeqMode::Vector).iter().any(|l| l.contains("Выбрано")));
+        // Подсказки экрана: над кнопкой — режим, над монитором — геном.
+        let tip = screen_tooltip(SEQUENCER, &[], [13.0, 43.0]);
+        assert_eq!(tip.first().map(String::as_str), Some("Антисмысловой вектор"));
+    }
+
+    /// Блоки секвенатора в `content/`: стойка и монитор склеиваются, у консоли
+    /// шаблон печи; меню — со своими числами.
+    #[test]
+    fn sequencer_blocks_are_declared() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/data/biolab/horizon");
+        for id in [SEQUENCER, SEQUENCER_RACK, SEQUENCER_MONITOR] {
+            let name = id.trim_start_matches("biolab:");
+            let text = std::fs::read_to_string(root.join(format!("block/{name}.json"))).unwrap_or_else(|_| panic!("нет блока {id}"));
+            let json = Json::parse(&text).unwrap();
+            let formed = json.get("state_properties").and_then(|p| p.get(FORMED)).is_some();
+            assert_eq!(formed, is_formable(id), "{id}");
+            if id == SEQUENCER {
+                assert_eq!(json.get("template").and_then(Json::str), Some("minecraft:furnace"));
+            }
+        }
+        let menu = Json::parse(&std::fs::read_to_string(root.join("menu/sequencer.json")).unwrap()).unwrap();
+        assert_eq!(menu.get("data_slots").and_then(Json::num), Some(DATA_SEQ_END as f64));
+        for item in [GENE_VECTOR, ANTISENSE_VECTOR] {
+            let name = item.trim_start_matches("biolab:");
+            assert!(root.join(format!("item/{name}.json")).exists(), "нет предмета {item}");
+        }
+    }
+}
+
 // ---- M8: связь установок между собой (контракт волны 2) ----
 //
 // Карантинная камера (GDD 4.18 п. 4) отвечает на вопрос «эта точка внутри
@@ -13788,7 +14844,7 @@ pub const SCREEN_HEADER: f32 = 16.0;
 
 /// Название машины на экране, если сервер не прислал своё, и что она делает —
 /// для подсказки над шкалой.
-pub const SCREEN_NAMES: [(&str, &str, &str); 14] = [
+pub const SCREEN_NAMES: [(&str, &str, &str); 15] = [
     ("biolab:still", "Перегонный куб", "Перегонка"),
     ("biolab:incubator", "Инкубатор", "Рост культуры"),
     ("biolab:fermenter", "Ферментер", "Брожение"),
@@ -13804,6 +14860,7 @@ pub const SCREEN_NAMES: [(&str, &str, &str); 14] = [
     // Порты установок (GDD 4.18): не машины, но экран у них свой.
     (INPUT_PORT, "Входной порт", "Подача"),
     (OUTPUT_PORT, "Выходной порт", "Выдача"),
+    (SEQUENCER, "Генный секвенатор", "Секвенирование"),
 ];
 
 /// Название машины для заголовка.
@@ -13961,6 +15018,24 @@ pub fn machine_screen(id: &str) -> Option<MachineScreen> {
             inventory: [8.0, SCREEN_INVENTORY_Y],
             gauge: [52.0, 38.0, 118.0, 34.0],
             progress: [6.0, 17.0, 22.0, 55.0],
+        },
+        // Генный секвенатор: слева кнопки режимов (`seq_buttons`), сверху три
+        // фрагмента, под ними фосфор, раствор и выход, между рядами — шкала;
+        // справа монитор с генами.
+        SEQUENCER => MachineScreen {
+            width: SCREEN_WIDTH,
+            height: SCREEN_HEIGHT,
+            slots: vec![
+                Some([26.0, 18.0]),
+                Some([44.0, 18.0]),
+                Some([62.0, 18.0]),
+                Some([26.0, 54.0]),
+                Some([44.0, 54.0]),
+                Some([62.0, 54.0]),
+            ],
+            inventory: [8.0, SCREEN_INVENTORY_Y],
+            gauge: [84.0, 17.0, 87.0, 54.0],
+            progress: [25.0, 38.0, 54.0, 12.0],
         },
         _ => return None,
     };
@@ -14473,8 +15548,19 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
         let over = inside(screen.gauge, at) || inside(screen.progress, at);
         return if over { port_tooltip(id) } else { Vec::new() };
     }
+    // Кнопки режимов секвенатора — вне прибора и шкалы.
+    if id == SEQUENCER
+        && let Some(mode) = seq_button_at(at)
+    {
+        return seq_button_tooltip(mode, seq_shown(data).mode);
+    }
     if inside(screen.progress, at) {
         let mut lines = Vec::new();
+        if id == SEQUENCER {
+            let shown = seq_shown(data);
+            lines.push(shown.mode.title().to_string());
+            lines.push(seq_status_text(&shown));
+        }
         if let MultiblockShown::Formed { sections, .. } = multiblock_shown(data)
             && id == COLUMN
         {
@@ -14496,6 +15582,12 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
     let working = screen_working(data);
     let percent = (screen_progress(data) * 100.0) as i32;
     match id {
+        // Монитор собранного секвенатора — гены; несобранного — нехватка.
+        SEQUENCER if matches!(multiblock_shown(data), MultiblockShown::Formed { .. }) => {
+            let mut lines = seq_tooltip(&seq_shown(data));
+            lines.extend(multiblock_tooltip(id, data).into_iter().skip(1));
+            lines
+        }
         id if multiblock(id).is_some() => multiblock_tooltip(id, data),
         REACTOR => reactor_tooltip(data),
         SYNTHESIZER => synth_tooltip(data),
@@ -14895,7 +15987,7 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 29, "блоков стало больше — решите, выпадают ли новые");
+        assert_eq!(blocks.len(), 32, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,
@@ -14941,7 +16033,7 @@ mod drop_tests {
             assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
         }
         // Части многоблочных установок (GDD 4.18) — тоже.
-        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN_TRAY, COLUMN_CONDENSER] {
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER_RACK, SEQUENCER_MONITOR] {
             assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
         }
         for fluid in &FLUIDS {
@@ -14979,7 +16071,7 @@ mod drop_tests {
         assert!(pickaxe.contains(&LAB_BENCH.to_string()));
         assert!(pickaxe.contains(&OPERATING_TABLE.to_string()));
         // Части установок — металл и стекло в раме: киркой.
-        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER] {
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER, SEQUENCER_RACK, SEQUENCER_MONITOR] {
             assert!(pickaxe.contains(&id.to_string()), "{id}");
         }
     }
