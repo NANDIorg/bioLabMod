@@ -1042,3 +1042,16 @@ id = "quarantine"
 file = "crates/horizon-client/src/game.rs"
 name = "biolab_quarantine"
 source = "quarantine.rs"
+
+# ---- M9: лаборатория (GDD 4.23 п. 7, 9, 11) ----
+# Порча образцов вне холода, криобанк и термобокс (`lab.rs`). Новых хуков
+# нет: инвентарь — `inventory` (`inventory.rs` зовёт `inventory_tick`), тик
+# криобанка — `machine-tick` (ветка в `machine.rs`), его слоты и блок-сущность —
+# `block-entity-container`, `block-entity`, `block-entity-ticks`, свежесть в
+# подсказке — `tooltip`. Очки знания — в `infection.rs` и `net.rs`, опыты
+# машин отмечают `machine.rs` и `bioreactor.rs`, герметичность — `quarantine.rs`.
+[[module]]
+id = "lab"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_lab"
+source = "lab.rs"

@@ -1,10 +1,13 @@
 // Карантинная камера в игре (GDD 4.18, п. 4). Закрыта ли комната — решила
 // проверка каркаса (`biolab_multiblock::tick` зовёт `quarantine_check` раз в
 // секунду, сразу — после загрузки); здесь работа фильтра: подробности
-// проверки — на экран, клетки комнаты — в реестр `in_quarantine`, пока в
-// фильтре живой патрон, износ патрона. И утечка тяжёлого штамма из машин вне
-// камеры (`leak`, зовёт тик машины). Решения — раздел «M8: карантинная
-// камера» в `runtime.rs`, под тестами.
+// проверки — на экран, клетки комнаты и её доля утечки — в реестр
+// `in_quarantine` / `quarantine_leak`, износ патрона. С M9 (GDD 4.23 п. 11)
+// камера с пробоинами, дверью без шлюза или без патрона собрана, но
+// подтекает (`seal_room`, `seal_factors`, раздел «M9: лаборатория»). И
+// утечка тяжёлого штамма из машин вне камеры (`leak`, зовёт тик машины).
+// Решения — разделы «M8: карантинная камера» и «M9: лаборатория» в
+// `runtime.rs`, под тестами.
 //
 // Реестр живёт в копии `runtime.rs` игрового крейта (`crate::game::
 // biolab_core`): спрашивать его — из хуков игры (тик игрока, тик мира, тик
@@ -49,32 +52,39 @@ pub fn work(
         entity.items[0].as_ref().and_then(|s| m::filter_left(Some((&*s.item, i64::from(s.damage)))))
     };
     let mut left = filter(&*entity);
-    // Держит: собрана, патрон живой и клетки комнаты в реестре. Клетки
-    // приносит только проверка, поэтому патрон, вставленный между
-    // проверками, начинает держать с ближайшей (≤ 1 с).
-    let mut held = false;
-    if m::room_holds(assembly.is_some(), left) {
-        held = match &checked {
-            Some(Ok(room)) => {
-                m::hold_room(&dimension, pos, room);
+    // С M9 (GDD 4.23 п. 11) камера держит не «да/нет», а с долей утечки:
+    // собрана — значит в реестре, даже с пробоинами и без патрона; сколько
+    // она пропускает — произведение множителей (`seal_factors`). Клетки и
+    // герметичность приносит только проверка (раз в секунду), между
+    // проверками запись лишь отмечается, герметичность — в числах экрана.
+    let registered = if assembly.is_some() {
+        match &checked {
+            Some(Ok(sealed)) => {
+                let factors = m::seal_factors(sealed, left);
+                m::write_seal(&mut entity.data, &factors);
+                m::hold_room(&dimension, pos, &sealed.room, m::room_leak(&factors));
                 true
             }
             _ => m::touch_room(&dimension, pos),
-        };
+        }
     } else {
         m::forget_room(&dimension, pos);
-    }
+        false
+    };
+    let seal = entity.data.get(m::DATA_QR_SEAL).copied().unwrap_or(0);
+    let mut held = registered && seal as f32 >= m::SEAL_HOLDS * 100.0;
 
-    // Износ патрона, пока камера держит.
+    // Износ патрона, пока камера собрана и в нём есть что тратить.
     let mut worn = false;
-    if held && m::filter_wear_due(game.ticks as i64, pos) {
+    if registered && left.is_some() && m::filter_wear_due(game.ticks as i64, pos) {
         if let Some(stack) = entity.items[0].as_mut() {
             stack.damage = stack.damage.saturating_add(1);
         }
         left = filter(&*entity);
         if left.is_none() {
+            // Износился: камера собрана, но течёт — герметичность пересчитает
+            // ближайшая проверка (≤ 1 с).
             entity.items[0] = None;
-            m::forget_room(&dimension, pos);
             held = false;
             worn = true;
         }
@@ -128,7 +138,10 @@ pub fn leak(game: &mut crate::game::Game<'_>, pos: [i32; 3], entity: &ModBlockEn
         return;
     }
     let dimension = game.dim.id().to_string();
-    let Some(strain) = m::leak_strain(&cultures, working, m::in_quarantine(&dimension, pos)) else {
+    // Негерметичная камера (GDD 4.23 п. 11) пропускает утечку в доле
+    // `quarantine_leak` случаев: бросок — `in_quarantine`; герметичная — нет.
+    let sealed = m::quarantine_leak(&dimension, pos) <= 0.0 || m::in_quarantine(&dimension, pos);
+    let Some(strain) = m::leak_strain(&cultures, working, sealed) else {
         return;
     };
     let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5];

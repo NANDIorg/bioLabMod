@@ -178,5 +178,7 @@
  "block.biolab.bioreactor": "Биореактор",
  "block.biolab.quarantine": "Фильтр карантинной камеры",
  "block.biolab.clean_panel": "Чистая панель",
- "item.biolab.filter_cartridge": "Фильтрующий патрон"
+ "item.biolab.filter_cartridge": "Фильтрующий патрон",
+ "block.biolab.cryobank": "Криобанк",
+ "item.biolab.thermobox": "Термобокс"
 }

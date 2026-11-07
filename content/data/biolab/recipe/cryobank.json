@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iii",
+  "pcp",
+  "iri"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "p": "minecraft:packed_ice",
+  "c": "minecraft:chest",
+  "r": "minecraft:redstone"
+ },
+ "result": {
+  "id": "biolab:cryobank",
+  "count": 1
+ }
+}

@@ -278,6 +278,11 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         }
         if pharma.hardened {
             crate::game::biolab_say::say(game, "Курс прерван: штамм стал устойчивее");
+            // Сорванный курс — тоже опыт (GDD 4.23 п. 7): очки «Сыворотке».
+            let detail = m::strain_to_text(&m::strain_or_wild(&after));
+            if let Some(line) = m::research_credit(&world, uuid, "course_broken", &detail) {
+                crate::game::biolab_say::say(game, &line);
+            }
         }
         if after.infection != state.infection {
             // Лечение пенициллином: записываем новый уровень на диск.
@@ -316,6 +321,14 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             discovered: entries.len() as u32,
             identified: entries.iter().filter(|e| e.identified).count() as u32,
         };
+        // Опыты машин рядом (перегрев, скисшая партия, селекция — GDD 4.23
+        // п. 7): очки узлам, сами узлы откроет `research_tick` ниже.
+        if let Some(player) = game.native_player() {
+            let (dimension, at) = (player.dimension, [player.x, player.y, player.z]);
+            for line in m::credit_lab_events(&world, uuid, dimension, at) {
+                crate::game::biolab_say::say(game, &line);
+            }
+        }
         let (mask, opened) = m::research_tick(&world, uuid, &facts);
         let mut fresh = false;
         for index in opened {
@@ -330,7 +343,9 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         if fresh {
             play(game, m::Cue::Research);
         }
-        let _ = game.native_net_send_to_player(uuid, m::NET_RESEARCH, &m::research_packet(mask));
+        // Маска и прогресс очков узлов (16 байт + байт на узел).
+        let progress = m::research_progress_of(&world, uuid);
+        let _ = game.native_net_send_to_player(uuid, m::NET_RESEARCH, &m::research_packet_with(mask, &progress));
     }
 
     // Симптомы: подновляем короткими эффектами, чтобы они гасли сами, когда

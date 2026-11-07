@@ -81,6 +81,9 @@ fn group(item: &str) -> usize {
         "bioreactor" => 1,
         // Карантинная камера: фильтр, панели и патрон фильтра — к машинам.
         "quarantine" | "clean_panel" | "filter_cartridge" => 1,
+        // Криобанк (GDD 4.23 п. 9) — к машинам, термобокс — к инструментам.
+        "cryobank" => 1,
+        "thermobox" => 2,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
         // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.

@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iwi",
+  "wpw",
+  "iwi"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "w": "#minecraft:wool",
+  "p": "minecraft:packed_ice"
+ },
+ "result": {
+  "id": "biolab:thermobox",
+  "count": 1
+ }
+}

@@ -185,6 +185,15 @@ fn biolab_core_research_draw(
                 } else {
                     game.native_item(batch, r.icon, [rect[0] + 4.0, rect[1] + 4.0], 16.0);
                 }
+                // Очки знания (GDD 4.23 п. 7): у неизученного начатого узла —
+                // полоска под иконкой, сколько набрано до порога.
+                let progress = m::shown_node_progress(i);
+                if states[i] != m::NodeState::Done && progress > 0 {
+                    let bar = [rect[0] + 3.0, rect[1] + rect[3] - 4.0, rect[2] - 6.0, 2.0];
+                    game.native_fill(batch, bar, m::RESEARCH_LOCK_EDGE);
+                    let filled = ((bar[2] * f32::from(progress.min(100)) / 100.0).round()).max(1.0);
+                    game.native_fill(batch, [bar[0], bar[1], filled, bar[3]], m::RESEARCH_GOLD);
+                }
                 if m::inside(rect, cursor) {
                     hovered = Some(i);
                     outline(game, batch, [rect[0] - 1.0, rect[1] - 1.0, rect[2] + 2.0, rect[3] + 2.0], 0xFF_FFFFFF);
@@ -195,7 +204,7 @@ fn biolab_core_research_draw(
 
             // Подсказка у курсора — поверх всего.
             if let Some(i) = hovered {
-                let lines = m::research_tooltip(mask, i);
+                let lines = m::research_tooltip_with(mask, m::shown_node_progress(i), i);
                 let tw = lines.iter().map(|s| game.native_text_width(s)).fold(0.0, f32::max) + 8.0;
                 let th = lines.len() as f32 * 10.0 + 5.0;
                 let mut tx = cursor[0] + 10.0;

@@ -766,6 +766,21 @@ fn biolab_core_screen_draw(
         }
         // Порт установки: стрелка подачи — бирюзовая к слотам у входного,
         // янтарная от слотов у выходного; справа табличка.
+        // Криобанк (GDD 4.23 п. 9): табло холода — иней по краю, крупно
+        // температура, под ней что тут хранится.
+        m::CRYOBANK => {
+            pen.glass(g);
+            let frost = 0xFF_BFE6F2;
+            for k in 0..((g[2] / 6.0) as i32) {
+                let x = g[0] + 2.0 + k as f32 * 6.0;
+                pen.fill([x, g[1] + 1.0, 3.0, 1.0], frost);
+                pen.fill([x + 2.0, g[1] + g[3] - 2.0, 3.0, 1.0], frost);
+            }
+            let inner = g[2] - 8.0;
+            pen.text("−80 °C", [g[0] + 4.0, g[1] + 5.0], frost & 0xFF_FFFF, true);
+            let line = pen.fit("Образцы здесь не портятся", inner);
+            pen.text(&line, [g[0] + 4.0, g[1] + 17.0], m::SCREEN_TEXT, false);
+        }
         m::INPUT_PORT | m::OUTPUT_PORT => {
             let input = block == m::INPUT_PORT;
             let colour = if input { m::SCREEN_TEAL } else { m::SCREEN_AMBER };
