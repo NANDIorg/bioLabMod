@@ -1,0 +1,29 @@
+{
+ "template": "minecraft:leather_boots",
+ "max_stack_size": 1,
+ "components": {
+  "minecraft:attribute_modifiers": [
+   {
+    "type": "minecraft:armor",
+    "amount": 1.0,
+    "id": "minecraft:armor.boots",
+    "operation": "add_value",
+    "slot": "feet"
+   },
+   {
+    "type": "minecraft:armor_toughness",
+    "amount": 0.0,
+    "id": "minecraft:armor.boots",
+    "operation": "add_value",
+    "slot": "feet"
+   },
+   {
+    "type": "minecraft:movement_speed",
+    "amount": -0.02,
+    "id": "biolab:hazmat_boots_weight",
+    "operation": "add_multiplied_base",
+    "slot": "feet"
+   }
+  ]
+ }
+}

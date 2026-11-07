@@ -1,0 +1,29 @@
+{
+ "template": "minecraft:leather_leggings",
+ "max_stack_size": 1,
+ "components": {
+  "minecraft:attribute_modifiers": [
+   {
+    "type": "minecraft:armor",
+    "amount": 2.0,
+    "id": "minecraft:armor.leggings",
+    "operation": "add_value",
+    "slot": "legs"
+   },
+   {
+    "type": "minecraft:armor_toughness",
+    "amount": 0.0,
+    "id": "minecraft:armor.leggings",
+    "operation": "add_value",
+    "slot": "legs"
+   },
+   {
+    "type": "minecraft:movement_speed",
+    "amount": -0.02,
+    "id": "biolab:hazmat_pants_weight",
+    "operation": "add_multiplied_base",
+    "slot": "legs"
+   }
+  ]
+ }
+}
