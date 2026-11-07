@@ -16514,6 +16514,76 @@ mod quarantine_tests {
     }
 }
 
+// ---- M9: контракт параллельной работы (GDD 4.23, 4.25) ----
+//
+// Доза заразы (4.23 п. 1) идёт игроку по каналам; спецодежда (4.25) режет
+// каждый канал своим множителем; загрязнённая еда и другие источники
+// (4.23 п. 13) не заражают сами, а кладут дозу в очередь — её разбирает тик
+// дозы. Сигнатуры не менять: тела заполняют агенты «доза» (очередь — уже
+// рабочая) и «спецодежда» (`suit_multiplier`).
+
+/// Канал, по которому зараза доходит до игрока.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DoseChannel {
+    /// Воздух: газ, споры, утечка штамма.
+    Air,
+    /// Контакт: лужа, заражённый блок, удар заражённого, мутантная ткань.
+    Contact,
+    /// Брызги: работа машин, вскрытие на столе.
+    Splash,
+    /// Съеденное: загрязнённая еда (костюм не помогает).
+    Ingest,
+}
+
+/// Одна порция дозы от источника.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QueuedDose {
+    pub player: u128,
+    pub channel: DoseChannel,
+    pub amount: f32,
+    /// Штамм источника; `None` — дикий.
+    pub strain: Option<Strain>,
+}
+
+/// Очередь доз от источников. Только сервер.
+pub fn dose_queue() -> &'static std::sync::Mutex<Vec<QueuedDose>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Vec<QueuedDose>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Положить дозу игроку в очередь (её снимет тик дозы игрока).
+pub fn queue_dose(player: u128, channel: DoseChannel, amount: f32, strain: Option<Strain>) {
+    if let Ok(mut queue) = dose_queue().lock() {
+        if queue.len() < 256 {
+            queue.push(QueuedDose { player, channel, amount, strain });
+        }
+    }
+}
+
+/// Забрать все дозы этого игрока из очереди.
+pub fn take_queued_doses(player: u128) -> Vec<QueuedDose> {
+    let Ok(mut queue) = dose_queue().lock() else {
+        return Vec::new();
+    };
+    let (mine, rest): (Vec<_>, Vec<_>) = queue.drain(..).partition(|d| d.player == player);
+    *queue = rest;
+    mine
+}
+
+/// Что надето на игрока: по слоту брони (голова, грудь, ноги, ступни) — id
+/// предмета и строка `custom_data` (пусто — нет). Собирает тот, кто зовёт.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Worn {
+    pub slots: [(String, String); 4],
+}
+
+/// Множитель потока дозы по каналу от надетого (1.0 — защиты нет, 0.05 —
+/// полный костюм с фильтром). Тело — агента «спецодежда»; доза только зовёт.
+pub fn suit_multiplier(worn: &Worn, channel: DoseChannel) -> f32 {
+    let _ = (worn, channel);
+    1.0
+}
+
 // ---- M8: связь установок между собой (контракт волны 2) ----
 //
 // Карантинная камера (GDD 4.18 п. 4) отвечает на вопрос «эта точка внутри
