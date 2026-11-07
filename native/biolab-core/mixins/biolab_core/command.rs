@@ -1,5 +1,6 @@
 // /biolab — состояние мода. Команды проверок: infect N, blood, cure,
-// journal и name <имя> для вещества в руке.
+// journal, name <имя> для вещества в руке и age <дней> — состарить часы гена
+// у мутантов рядом (предохранители, GDD 4.23 п. 10).
 // Журнал показывает панель анализатора: запрос клиент → сервер в одиночной
 // игре не доходит, а канал сервер → клиент работает.
 fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mut bool) {
@@ -97,6 +98,40 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
             } else {
                 crate::game::biolab_say::say(game, "Сначала опознайте вещество в спектрометре");
             }
+            return;
+        }
+        Some("age") => {
+            // Состарить предохранители (GDD 4.23 п. 10): часы гена у мутантов
+            // в 8 блоках сдвигаются на N игровых дней назад, и следующий тик
+            // мира выносит приговор. Иначе проверку пришлось бы ждать сутками
+            // игрового времени: `game_time` командой `/time` не двигается.
+            let days: i64 = words.next().and_then(|w| w.parse().ok()).unwrap_or(1);
+            let shift = days * m::GAME_DAY;
+            let Some(player) = game.native_player() else {
+                return;
+            };
+            let spot = [player.x, player.y, player.z];
+            let near: Vec<u32> = game
+                .mobs
+                .iter()
+                .filter(|mob| mob.alive() && m::within([mob.position.x, mob.position.y, mob.position.z], spot, 8.0))
+                .map(|mob| mob.id)
+                .collect();
+            let mut aged = 0;
+            for id in near {
+                let mut clock = crate::game::biolab_core_data::clock(game, id);
+                if clock.set == 0 {
+                    continue;
+                }
+                clock.set -= shift;
+                if clock.dose > 0 {
+                    clock.dose -= shift;
+                }
+                if crate::game::biolab_core_data::set_clock(game, id, &clock) {
+                    aged += 1;
+                }
+            }
+            crate::game::biolab_say::say(game, &format!("Часы гена сдвинуты на {days} дн.: мутантов {aged}"));
             return;
         }
         Some("cure") => {
