@@ -187,5 +187,6 @@
  "item.biolab.hazmat_respirator": "Респиратор",
  "item.biolab.hazmat_suit": "Костюм химзащиты",
  "item.biolab.hazmat_pants": "Штаны химзащиты",
- "item.biolab.hazmat_boots": "Сапоги химзащиты"
+ "item.biolab.hazmat_boots": "Сапоги химзащиты",
+ "item.biolab.protocol_card": "Карта протокола"
 }

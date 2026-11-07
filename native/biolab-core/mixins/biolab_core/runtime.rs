@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 121] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 122] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -240,6 +240,8 @@ pub const ITEM_HINTS: [(&str, &[&str]); 121] = [
     ("biolab:hazmat_suit", &["Закрывает: контакт и брызги ×0,25", "С респиратором воздух ещё ×0,35; жарко"]),
     ("biolab:hazmat_pants", &["Закрывает: контакт ×0,5, брызги ×0,6", "Полный костюм: поток ×0,05, скорость −8 %"]),
     ("biolab:hazmat_boots", &["Закрывает: контакт ×0,4, брызги ×0,6", "Полный костюм: поток ×0,05, скорость −8 %"]),
+    // Карта протокола (GDD 4.23 п. 3, раздел «M9: машины»).
+    ("biolab:protocol_card", &["ПКМ по ферментеру или экстрактору", "Пустая — запишет найденный режим"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -586,8 +588,9 @@ pub fn machine_data_slots(id: &str) -> usize {
     match id {
         REACTOR => DATA_RANGE_MAX + 1,
         SYNTHESIZER => DATA_SYNTH_ELEMENTS + ELEMENTS.len(),
-        SPECTROMETER => DATA_SPECTRUM + ELEMENTS.len(),
-        CLONING_VAT | "biolab:extractor" => DATA_GENE_STRENGTH + 1,
+        // Спектрометр: спектр и панель опознания пробы (раздел «M9: машины»).
+        SPECTROMETER => DATA_PROBE_END,
+        CLONING_VAT => DATA_GENE_STRENGTH + 1,
         "biolab:incubator" => DATA_STRAIN + 4,
         LAB_BENCH => DATA_BENCH_RESULT + 1,
         // Генный секвенатор: режим, итог и гены на мониторе (раздел «M8»).
@@ -598,6 +601,9 @@ pub fn machine_data_slots(id: &str) -> usize {
         // числа установки — после `DATA_MB_END`.
         BIOREACTOR => DATA_BIO_END,
         id if multiblock(id).is_some() => DATA_MB_END,
+        // Ферментер и экстрактор: панель режима (раздел «M9: машины»). У
+        // экстрактора числа гена свои, у ферментера пустуют — раскладка одна.
+        id if has_protocol(id) => DATA_PROTO_END,
         _ => DATA_SLOTS,
     }
 }
@@ -1028,6 +1034,9 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
             // Приходят из ветки растений (агент растений, M5).
             "biolab:belladonna_berries",
             "biolab:mandrake_root",
+            // Карта протокола (GDD 4.23 п. 3, раздел «M9: машины»).
+            "minecraft:paper",
+            "minecraft:redstone",
         ],
     ),
     // Ректификационная колонна (GDD 4.18): входы рецептов `biolab:column`.
@@ -2661,7 +2670,7 @@ pub const BENCH_UNLISTED: i32 = -3;
 /// только числом слота данных, поэтому номер — место в этой таблице, а имя
 /// отсюда же рисует табло. Тест сверяет таблицу с рецептами стола в
 /// `content/` и с именами в языковом файле.
-pub const BENCH_RESULTS: [(&str, &str); 40] = [
+pub const BENCH_RESULTS: [(&str, &str); 41] = [
     ("biolab:syringe", "Шприц"),
     ("biolab:syringe_penicillin", "Пенициллин, инъекция"),
     ("biolab:syringe_sedative", "Седативное, инъекция"),
@@ -2704,6 +2713,8 @@ pub const BENCH_RESULTS: [(&str, &str); 40] = [
     ("biolab:syringe_tranquilizer", "Транквилизатор, инъекция"),
     ("biolab:dart_tranquilizer", "Транквилизатор, дротик"),
     ("biolab:syringe_wake", "Пробуждающее, инъекция"),
+    // Карта протокола (GDD 4.23 п. 3, раздел «M9: машины»).
+    ("biolab:protocol_card", "Карта протокола"),
 ];
 
 /// Номер результата для слота данных стола.
@@ -2816,7 +2827,8 @@ mod bench_tests {
         // Баллон дописан веткой оружия, снотворные — следом за ним.
         assert!(bench_result_index(CO2_CANISTER_EMPTY_ID) > 18);
         assert_eq!(bench_result_index("biolab:nutrient_broth"), 18, "старые номера не сдвинулись");
-        assert_eq!(bench_result_index("biolab:syringe_wake"), BENCH_RESULTS.len() as i32 - 1);
+        assert_eq!(bench_result_index(PROTOCOL_CARD), BENCH_RESULTS.len() as i32 - 1);
+        assert!(bench_result_index("biolab:syringe_wake") > 18);
         assert_eq!(bench_result_index("minecraft:stick"), BENCH_UNLISTED);
         assert_eq!(machine_data_slots(LAB_BENCH), DATA_BENCH_RESULT + 1);
         let bench = machine(LAB_BENCH).expect("стол — машина");
@@ -7385,6 +7397,8 @@ mod tests {
             FILTER_CARTRIDGE,
             // Термобокс (GDD 4.23 п. 9): один на поход, стопка ему ни к чему.
             THERMOBOX,
+            // Карта протокола (GDD 4.23 п. 3): режим — в её данных.
+            PROTOCOL_CARD,
         ];
         let mut checked = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -9654,7 +9668,9 @@ mod tests {
         assert_eq!(synth_status(&water, Some(&formula_from_text("H2O2").unwrap())), SYNTH_NOT_BLUEPRINT);
         // Числа влезают в отведённые машине слоты данных.
         assert_eq!(machine_data_slots(SYNTHESIZER), DATA_SYNTH_ELEMENTS + water.len());
-        assert_eq!(machine_data_slots(EXTRACTOR), DATA_GENE_STRENGTH + 1);
+        // У экстрактора после чисел гена идёт панель режима (раздел «M9: машины»).
+        assert_eq!(machine_data_slots(EXTRACTOR), DATA_PROTO_END);
+        assert!(DATA_PROTO_TEMP > DATA_GENE_STRENGTH, "числа гена панель не затирает");
         assert_eq!(machine_data_slots(CENTRIFUGE), DATA_SLOTS);
     }
 
@@ -19579,6 +19595,1414 @@ mod suit_tests {
     }
 }
 
+// ---- M9: машины (GDD 4.23 п. 3, 4) ----
+//
+// Две механики про одно: машина больше не выдаёт знание в одно нажатие.
+//
+// **Подбор режима (п. 3).** У рецепта ферментера и экстрактора есть скрытое
+// окно двух ручек — температуры и выдержки. Игрок крутит ручки кнопками на
+// экране (`proto_buttons`, `native_screen_click` → `native_menu_button`, как
+// у секвенатора), запускает рецепт и по итогу читает подсказку направления
+// («температура чуть выше, выдержка в окне»). В окне — полный выход, рядом —
+// половина и вдвое дольше, мимо — брак: сырьё уходит, а в выход падает
+// колба-проба с побочным продуктом. Окно детерминировано от сида мира,
+// машины и id сырья (`protocol_window`): подсмотреть негде, а в одном мире
+// оно всегда то же. Найденное окно машина помнит (`FOUND_KEY`) и пишет в
+// карту протокола (`PROTOCOL_CARD`, ПКМ по машине); карта ставит ручки сразу
+// и ходит между игроками.
+//
+// **Опознание пробы (п. 4).** Колба-проба (`SEALED_KEY`) не показывает
+// состав ни в подсказке, ни на экране спектрометра. Вместо одного анализа —
+// четыре дешёвые проверки: микроскоп, нагрев, пламя, реактив (`Probe`).
+// Каждая отвечает признаком (`probe_result`), признак отсекает часть
+// известных веществ (`probe_candidates`), экран показывает остаток и
+// говорит, какая проверка разделит его лучше всех (`probe_best`). Остался
+// один вариант и он подтвердился — запись в журнале закрывается и печатается
+// чертёж, как раньше. Сделанные проверки — знание мира (`biolab/probes.txt`),
+// а не машины: колбу можно унести к другому спектрометру.
+//
+// Правила здесь — чистые функции под тестами; исполнение на игре —
+// `crate::game::biolab_protocol` (`protocol.rs`) и `crate::game::biolab_probe`
+// (`probe.rs`), оба зовёт тик машины (`machine.rs`).
+
+pub const FERMENTER: &str = "biolab:fermenter";
+
+/// Машины с подбором режима: там, где «выдержка» — это естественно.
+pub const PROTOCOL_MACHINES: [&str; 2] = [FERMENTER, EXTRACTOR];
+
+/// Крутятся ли у машины ручки режима.
+pub fn has_protocol(id: &str) -> bool {
+    PROTOCOL_MACHINES.contains(&id)
+}
+
+/// Шаг ручки: все числа режима стоят на этой сетке, и окно тоже.
+pub const KNOB_STEP: i32 = 5;
+/// Температура, °C.
+pub const TEMP_LOW: i32 = 20;
+pub const TEMP_HIGH: i32 = 120;
+/// Выдержка, секунды.
+pub const HOLD_LOW: i32 = 10;
+pub const HOLD_HIGH: i32 = 120;
+/// Полуширина окна: ровно шаг ручки, то есть окно — три её положения.
+pub const WINDOW_SLACK: i32 = KNOB_STEP;
+/// Докуда «близко»: ещё два шага за краем окна.
+pub const WINDOW_NEAR: i32 = 2 * KNOB_STEP;
+
+/// Ручка машины.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Knob {
+    Temperature,
+    Hold,
+}
+
+impl Knob {
+    pub const ALL: [Knob; 2] = [Knob::Temperature, Knob::Hold];
+
+    pub fn id(self) -> usize {
+        match self {
+            Knob::Temperature => 0,
+            Knob::Hold => 1,
+        }
+    }
+
+    pub fn from_id(id: usize) -> Option<Knob> {
+        Knob::ALL.get(id).copied()
+    }
+
+    /// Пределы ручки.
+    pub fn range(self) -> (i32, i32) {
+        match self {
+            Knob::Temperature => (TEMP_LOW, TEMP_HIGH),
+            Knob::Hold => (HOLD_LOW, HOLD_HIGH),
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Knob::Temperature => "Температура",
+            Knob::Hold => "Выдержка",
+        }
+    }
+
+    pub fn unit(self) -> &'static str {
+        match self {
+            Knob::Temperature => "°C",
+            Knob::Hold => "с",
+        }
+    }
+
+    /// Сколько у ручки положений на сетке шага.
+    pub fn steps(self) -> i32 {
+        let (low, high) = self.range();
+        (high - low) / KNOB_STEP + 1
+    }
+
+    /// Куда её двигать: температуру — выше или ниже, выдержку — больше или
+    /// меньше. Так подсказка читается как указание, а не как ребус.
+    pub fn way(self, up: bool) -> &'static str {
+        match (self, up) {
+            (Knob::Temperature, true) => "выше",
+            (Knob::Temperature, false) => "ниже",
+            (Knob::Hold, true) => "больше",
+            (Knob::Hold, false) => "меньше",
+        }
+    }
+}
+
+/// Положение ручки на сетке шага и в пределах.
+pub fn knob_clamp(knob: Knob, value: i32) -> i32 {
+    let (low, high) = knob.range();
+    let steps = ((value - low) as f32 / KNOB_STEP as f32).round() as i32;
+    (low + steps.clamp(0, knob.steps() - 1) * KNOB_STEP).clamp(low, high)
+}
+
+/// Середина пределов: с неё ручка и начинает.
+pub fn knob_default(knob: Knob) -> i32 {
+    let (low, _) = knob.range();
+    knob_clamp(knob, low + (knob.steps() - 1) / 2 * KNOB_STEP)
+}
+
+/// Повернуть ручку на шаг. У края остаётся на месте.
+pub fn knob_turn(knob: Knob, value: i32, up: bool) -> i32 {
+    let step = if up { KNOB_STEP } else { -KNOB_STEP };
+    knob_clamp(knob, knob_clamp(knob, value) + step)
+}
+
+/// Скрытое окно рецепта: середины обеих ручек.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Window {
+    pub temperature: i32,
+    pub hold: i32,
+}
+
+impl Window {
+    /// Середина ручки.
+    pub fn centre(&self, knob: Knob) -> i32 {
+        match knob {
+            Knob::Temperature => self.temperature,
+            Knob::Hold => self.hold,
+        }
+    }
+}
+
+/// Зерно окна: сид мира, машина и id сырья. FNV-1a — лишь бы перемешать:
+/// случайность здесь не нужна, нужна одинаковость в одном мире.
+fn protocol_seed(seed: i64, machine: &str, recipe: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ (seed as u64);
+    for byte in machine.bytes().chain([0]).chain(recipe.bytes()) {
+        h ^= u64::from(byte);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+/// Окно рецепта: детерминировано от сида мира, машины и id сырья.
+pub fn protocol_window(seed: i64, machine: &str, recipe: &str) -> Window {
+    let h = protocol_seed(seed, machine, recipe);
+    let temperature_steps = Knob::Temperature.steps() as u64;
+    let hold_steps = Knob::Hold.steps() as u64;
+    Window {
+        temperature: TEMP_LOW + (h % temperature_steps) as i32 * KNOB_STEP,
+        hold: HOLD_LOW + ((h / temperature_steps) % hold_steps) as i32 * KNOB_STEP,
+    }
+}
+
+/// Насколько ручка попала: в окне, рядом или мимо, и в какую сторону.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Aim {
+    In,
+    /// Ниже окна, но рядом.
+    NearLow,
+    NearHigh,
+    FarLow,
+    FarHigh,
+}
+
+impl Aim {
+    pub const ALL: [Aim; 5] = [Aim::In, Aim::NearLow, Aim::NearHigh, Aim::FarLow, Aim::FarHigh];
+
+    pub fn id(self) -> i32 {
+        Aim::ALL.iter().position(|a| *a == self).unwrap_or(0) as i32
+    }
+
+    pub fn from_id(id: i32) -> Option<Aim> {
+        Aim::ALL.get(usize::try_from(id).ok()?).copied()
+    }
+
+    /// Годится ли попытка хоть на половину выхода.
+    pub fn near(self) -> bool {
+        matches!(self, Aim::In | Aim::NearLow | Aim::NearHigh)
+    }
+}
+
+/// Куда смотрит ручка относительно окна.
+pub fn knob_aim(setting: i32, centre: i32) -> Aim {
+    let d = setting - centre;
+    if d.abs() <= WINDOW_SLACK {
+        Aim::In
+    } else if d < 0 {
+        if -d <= WINDOW_SLACK + WINDOW_NEAR { Aim::NearLow } else { Aim::FarLow }
+    } else if d <= WINDOW_SLACK + WINDOW_NEAR {
+        Aim::NearHigh
+    } else {
+        Aim::FarHigh
+    }
+}
+
+/// Подсказка по одной ручке: куда её двигать и насколько.
+pub fn aim_text(knob: Knob, aim: Aim) -> String {
+    let name = knob.title().to_lowercase();
+    match aim {
+        Aim::In => format!("{name} в окне"),
+        Aim::NearLow => format!("{name} чуть {}", knob.way(true)),
+        Aim::NearHigh => format!("{name} чуть {}", knob.way(false)),
+        Aim::FarLow => format!("{name} намного {}", knob.way(true)),
+        Aim::FarHigh => format!("{name} намного {}", knob.way(false)),
+    }
+}
+
+/// Оценка попытки.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grade {
+    /// Обе ручки в окне: полный выход.
+    Exact,
+    /// Обе рядом: половина и вдвое дольше.
+    Partial,
+    /// Хоть одна мимо: брак.
+    Spoiled,
+}
+
+/// Оценка попытки по ручкам и окну.
+pub fn protocol_grade(temperature: i32, hold: i32, window: &Window) -> Grade {
+    let t = knob_aim(temperature, window.temperature);
+    let h = knob_aim(hold, window.hold);
+    match (t, h) {
+        (Aim::In, Aim::In) => Grade::Exact,
+        _ if t.near() && h.near() => Grade::Partial,
+        _ => Grade::Spoiled,
+    }
+}
+
+/// Сколько тиков идёт работа: в окне — как в рецепте, рядом — вдвое дольше
+/// (машина вытягивает выход), мимо — вполовину (брак получается быстро).
+pub fn protocol_time(time: i32, grade: Grade) -> i32 {
+    match grade {
+        Grade::Exact => time,
+        Grade::Partial => time.saturating_mul(2),
+        Grade::Spoiled => (time / 2).max(20),
+    }
+}
+
+/// Сколько выйдет из рецепта: полный выход, половина (не меньше одного) или
+/// ничего.
+pub fn protocol_count(count: u32, grade: Grade) -> u32 {
+    match grade {
+        Grade::Exact => count,
+        Grade::Partial => (count / 2).max(1),
+        Grade::Spoiled => 0,
+    }
+}
+
+/// Итог попытки одной строкой: оценка и две подсказки. Найденное окно
+/// называется числами — его и записывает карта.
+pub fn protocol_report(temperature: i32, hold: i32, window: &Window) -> String {
+    match protocol_grade(temperature, hold, window) {
+        Grade::Exact => format!(
+            "Режим найден: {} {}, {} {}",
+            window.temperature,
+            Knob::Temperature.unit(),
+            window.hold,
+            Knob::Hold.unit()
+        ),
+        grade => {
+            let title = if grade == Grade::Partial { "Выход неполный" } else { "Брак" };
+            let t = aim_text(Knob::Temperature, knob_aim(temperature, window.temperature));
+            let h = aim_text(Knob::Hold, knob_aim(hold, window.hold));
+            format!("{title}: {t}, {h}")
+        }
+    }
+}
+
+// Числа экрана ферментера и экстрактора — после чисел гена (у экстрактора
+// они свои, у ферментера пустуют: одна раскладка на обе машины).
+/// Ручка температуры.
+pub const DATA_PROTO_TEMP: usize = DATA_GENE_STRENGTH + 1;
+/// Ручка выдержки.
+pub const DATA_PROTO_HOLD: usize = DATA_PROTO_TEMP + 1;
+/// Что известно про окно текущего сырья (`PROTO_*`).
+pub const DATA_PROTO_STATE: usize = DATA_PROTO_TEMP + 2;
+/// Подсказка прошлой попытки (`aim_code`, 0 — ещё не пробовали).
+pub const DATA_PROTO_AIM: usize = DATA_PROTO_TEMP + 3;
+pub const DATA_PROTO_END: usize = DATA_PROTO_TEMP + 4;
+
+/// Сырья нет: подбирать нечего.
+pub const PROTO_NO_RECIPE: i32 = 0;
+/// Сырьё есть, окно ещё не найдено.
+pub const PROTO_SEARCHING: i32 = 1;
+/// Окно этого сырья найдено — можно писать карту.
+pub const PROTO_FOUND: i32 = 2;
+
+/// Подсказку прошлой попытки — одним числом экрану.
+pub fn aim_code(temperature: Aim, hold: Aim) -> i32 {
+    1 + temperature.id() * Aim::ALL.len() as i32 + hold.id()
+}
+
+/// Обратно: пара подсказок из числа. None — попыток ещё не было.
+pub fn aim_from_code(code: i32) -> Option<(Aim, Aim)> {
+    let code = code.checked_sub(1).filter(|c| *c >= 0)?;
+    let count = Aim::ALL.len() as i32;
+    Some((Aim::from_id(code / count)?, Aim::from_id(code % count)?))
+}
+
+/// Что показывает панель протокола.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtoShown {
+    pub temperature: i32,
+    pub hold: i32,
+    pub state: i32,
+    pub aim: Option<(Aim, Aim)>,
+}
+
+pub fn proto_shown(data: &[i32]) -> ProtoShown {
+    ProtoShown {
+        temperature: knob_clamp(
+            Knob::Temperature,
+            screen_datum(data, DATA_PROTO_TEMP, knob_default(Knob::Temperature)),
+        ),
+        hold: knob_clamp(Knob::Hold, screen_datum(data, DATA_PROTO_HOLD, knob_default(Knob::Hold))),
+        state: screen_datum(data, DATA_PROTO_STATE, PROTO_NO_RECIPE),
+        aim: aim_from_code(screen_datum(data, DATA_PROTO_AIM, 0)),
+    }
+}
+
+impl ProtoShown {
+    pub fn setting(&self, knob: Knob) -> i32 {
+        match knob {
+            Knob::Temperature => self.temperature,
+            Knob::Hold => self.hold,
+        }
+    }
+}
+
+/// Две строки панели протокола на экране: по строке на ручку. Панель стоит
+/// под слотом входа и над подписью инвентаря, слева от прибора, — место,
+/// свободное и у ферментера, и у экстрактора.
+pub fn proto_rows() -> [[f32; 4]; 2] {
+    [[4.0, 54.0, 44.0, 8.0], [4.0, 64.0, 44.0, 8.0]]
+}
+
+/// Вся панель: по ней показывается подсказка.
+pub fn proto_panel() -> [f32; 4] {
+    let rows = proto_rows();
+    [rows[0][0], rows[0][1], rows[0][2], rows[1][1] + rows[1][3] - rows[0][1]]
+}
+
+/// Кнопки ручек: в каждой строке слева «−», справа «+».
+pub fn proto_buttons() -> [[f32; 4]; 4] {
+    let r = proto_rows();
+    [
+        [r[0][0], r[0][1], 8.0, 8.0],
+        [r[0][0] + r[0][2] - 8.0, r[0][1], 8.0, 8.0],
+        [r[1][0], r[1][1], 8.0, 8.0],
+        [r[1][0] + r[1][2] - 8.0, r[1][1], 8.0, 8.0],
+    ]
+}
+
+/// Что делает кнопка по порядку: ручка и в какую сторону.
+pub fn proto_button(index: usize) -> Option<(Knob, bool)> {
+    let knob = Knob::from_id(index / 2)?;
+    Some((knob, index % 2 == 1))
+}
+
+/// Кнопка под курсором.
+pub fn proto_button_at(at: [f32; 2]) -> Option<(Knob, bool)> {
+    proto_buttons().iter().position(|r| inside(*r, at)).and_then(proto_button)
+}
+
+/// Номера кнопок меню для ручек: после номеров режимов секвенатора, чтобы
+/// чужая кнопка ни на одной машине не совпала со своей.
+pub const PROTO_BUTTON_BASE: i32 = 10;
+
+pub fn proto_button_id(knob: Knob, up: bool) -> i32 {
+    PROTO_BUTTON_BASE + knob.id() as i32 * 2 + i32::from(up)
+}
+
+/// Нажатие кнопки меню на сервере: какая ручка и куда. None — кнопка чужая.
+pub fn proto_press(id: i32) -> Option<(Knob, bool)> {
+    let index = id.checked_sub(PROTO_BUTTON_BASE).filter(|i| *i >= 0)?;
+    proto_button(usize::try_from(index).ok()?)
+}
+
+/// Подпись положения ручки на панели: число и единица.
+pub fn proto_reading(knob: Knob, value: i32) -> String {
+    match knob {
+        Knob::Temperature => format!("{value}°"),
+        Knob::Hold => format!("{value}с"),
+    }
+}
+
+/// Подсказка кнопки ручки.
+pub fn proto_button_tooltip(knob: Knob, up: bool, shown: &ProtoShown) -> Vec<String> {
+    let value = shown.setting(knob);
+    let next = knob_turn(knob, value, up);
+    let mut lines = vec![format!("{}: {} {}", knob.title(), value, knob.unit())];
+    if next == value {
+        lines.push("§7Дальше не идёт".to_string());
+    } else {
+        lines.push(format!("§7ЛКМ — {} ({} {})", knob.way(up), next, knob.unit()));
+    }
+    lines
+}
+
+/// Подсказка панели протокола: что стоит, что известно про окно и что
+/// сказала прошлая попытка.
+pub fn proto_tooltip(shown: &ProtoShown) -> Vec<String> {
+    let mut lines = vec!["Режим работы".to_string()];
+    for knob in Knob::ALL {
+        lines.push(format!("§7{}: {} {}", knob.title(), shown.setting(knob), knob.unit()));
+    }
+    lines.push(
+        match shown.state {
+            PROTO_NO_RECIPE => "§7Сырья нет: положите вход".to_string(),
+            PROTO_FOUND => "§aОкно этого сырья найдено: ПКМ картой — записать".to_string(),
+            _ => "§7Окно этого сырья ещё не найдено".to_string(),
+        },
+    );
+    match shown.aim {
+        Some((t, h)) => lines.push(format!(
+            "§7Прошлая попытка: {}, {}",
+            aim_text(Knob::Temperature, t),
+            aim_text(Knob::Hold, h)
+        )),
+        None => lines.push("§7Запустите рецепт — машина скажет направление".to_string()),
+    }
+    lines
+}
+
+// Карта протокола: предмет с найденным окном.
+
+/// Карта протокола: записанный режим, который ставится одним кликом.
+pub const PROTOCOL_CARD: &str = "biolab:protocol_card";
+/// Запись карты в `custom_data`: `машина|сырьё|температура|выдержка`.
+pub const CARD_KEY: &str = "biolab_protocol";
+/// Найденные окна машины в её сейве: `сырьё=t,h` через `;`.
+pub const FOUND_KEY: &str = "biolab_protocols";
+/// Положения ручек в сейве машины.
+pub const KNOB_TEMP_KEY: &str = "biolab_knob_temperature";
+pub const KNOB_HOLD_KEY: &str = "biolab_knob_hold";
+/// Подсказка прошлой попытки в сейве машины: числа меню не сохраняются.
+pub const AIM_KEY: &str = "biolab_knob_aim";
+
+/// Что записано в карте.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Card {
+    pub machine: String,
+    pub recipe: String,
+    pub temperature: i32,
+    pub hold: i32,
+}
+
+pub fn card_to_text(card: &Card) -> String {
+    format!("{}|{}|{}|{}", card.machine, card.recipe, card.temperature, card.hold)
+}
+
+pub fn card_from_text(text: &str) -> Option<Card> {
+    let mut parts = text.split('|');
+    let machine = parts.next()?.trim().to_string();
+    let recipe = parts.next()?.trim().to_string();
+    let temperature = parts.next()?.trim().parse::<i32>().ok()?;
+    let hold = parts.next()?.trim().parse::<i32>().ok()?;
+    if machine.is_empty() || recipe.is_empty() || !has_protocol(&machine) {
+        return None;
+    }
+    Some(Card {
+        machine,
+        recipe,
+        temperature: knob_clamp(Knob::Temperature, temperature),
+        hold: knob_clamp(Knob::Hold, hold),
+    })
+}
+
+/// Имя записанной карты: что она ставит и куда.
+pub fn card_label(card: &Card) -> String {
+    format!(
+        "Карта протокола: {}, {} {}, {} {}",
+        machine_title(&card.machine),
+        card.temperature,
+        Knob::Temperature.unit(),
+        card.hold,
+        Knob::Hold.unit()
+    )
+}
+
+/// Строки подсказки карты. Пустая карта говорит, как её заполнить.
+pub fn card_tooltip(text: &str) -> Vec<String> {
+    match card_from_text(text) {
+        Some(card) => vec![
+            format!(
+                "{}: {} {}, {} {}",
+                machine_title(&card.machine),
+                card.temperature,
+                Knob::Temperature.unit(),
+                card.hold,
+                Knob::Hold.unit()
+            ),
+            "Ставит режим своему сырью".to_string(),
+        ],
+        None => vec!["Пустая карта".to_string()],
+    }
+}
+
+/// Записать окно сырья в сейв машины.
+pub fn found_put(saved: &str, recipe: &str, temperature: i32, hold: i32) -> String {
+    let mut out: Vec<String> = saved
+        .split(';')
+        .filter(|part| !part.is_empty())
+        .filter(|part| part.split('=').next() != Some(recipe))
+        .map(str::to_string)
+        .collect();
+    out.push(format!("{recipe}={temperature},{hold}"));
+    out.sort();
+    out.join(";")
+}
+
+/// Окно сырья из сейва машины.
+pub fn found_get(saved: &str, recipe: &str) -> Option<(i32, i32)> {
+    for part in saved.split(';') {
+        let (key, value) = part.split_once('=')?;
+        if key != recipe {
+            continue;
+        }
+        let (t, h) = value.split_once(',')?;
+        return Some((
+            knob_clamp(Knob::Temperature, t.trim().parse().ok()?),
+            knob_clamp(Knob::Hold, h.trim().parse().ok()?),
+        ));
+    }
+    None
+}
+
+/// Что сказать игроку, приложившему карту к машине.
+pub fn card_message(card: Option<&Card>, machine: &str, recipe: Option<&str>) -> String {
+    match card {
+        None => "Пустая карта: нужен найденный режим этой машины".to_string(),
+        Some(card) if card.machine != machine => {
+            format!("Карта от другой машины: {}", machine_title(&card.machine))
+        }
+        Some(card) if recipe.is_some_and(|r| r != card.recipe) => {
+            "Карта от другого сырья: режим не поставлен".to_string()
+        }
+        Some(card) => format!(
+            "Режим с карты: {} {}, {} {}",
+            card.temperature,
+            Knob::Temperature.unit(),
+            card.hold,
+            Knob::Hold.unit()
+        ),
+    }
+}
+
+/// Побочные продукты брака: вещества из `KNOWN`, которые проверки хорошо
+/// различают, — чтобы брак был не только потерей, но и загадкой.
+pub const SPOILS: [&str; 10] =
+    ["H2O", "C2H6O", "H3N", "H2S", "CH2O", "C2H4O2", "H2O2", "CH4", "O2S", "C3H8O3"];
+
+/// Что вышло из брака: вещество побочного продукта.
+pub fn spoil_compound(seed: u64) -> &'static str {
+    SPOILS[(seed % SPOILS.len() as u64) as usize]
+}
+
+// Опознание пробы по частям (GDD 4.23 п. 4).
+
+/// Колба-проба: состав не прочитан. `custom_data` — `biolab_sealed = 1`.
+pub const SEALED_KEY: &str = "biolab_sealed";
+/// Какую проверку заказал игрок — в сейве спектрометра (`номер + 1`).
+pub const PROBE_KEY: &str = "biolab_probe";
+
+/// Дешёвая проверка образца.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Probe {
+    /// Микроскоп: что видно в капле.
+    Microscope,
+    /// Нагрев на горелке: что происходит.
+    Heat,
+    /// Окраска пламени.
+    Flame,
+    /// Капля реактива.
+    Reagent,
+}
+
+impl Probe {
+    pub const ALL: [Probe; 4] = [Probe::Microscope, Probe::Heat, Probe::Flame, Probe::Reagent];
+
+    pub fn id(self) -> usize {
+        Probe::ALL.iter().position(|p| *p == self).unwrap_or(0)
+    }
+
+    pub fn from_id(id: usize) -> Option<Probe> {
+        Probe::ALL.get(id).copied()
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Probe::Microscope => "Микроскоп",
+            Probe::Heat => "Нагрев",
+            Probe::Flame => "Пламя",
+            Probe::Reagent => "Реактив",
+        }
+    }
+
+    /// Короткая подпись на кнопке.
+    pub fn mark(self) -> &'static str {
+        match self {
+            Probe::Microscope => "Микр",
+            Probe::Heat => "Нагр",
+            Probe::Flame => "Плам",
+            Probe::Reagent => "Реак",
+        }
+    }
+
+    /// Сколько тиков идёт: все дешёвые, но не одинаковые.
+    pub fn ticks(self) -> i32 {
+        match self {
+            Probe::Flame => 20,
+            Probe::Microscope => 30,
+            Probe::Reagent => 40,
+            Probe::Heat => 60,
+        }
+    }
+
+    /// Бит проверки в маске сделанного.
+    pub fn bit(self) -> u8 {
+        1 << self.id()
+    }
+}
+
+/// Все проверки сделаны.
+pub const PROBES_ALL: u8 = 0b1111;
+
+// Числа экрана спектрометра — после полос спектра.
+/// Маска сделанных проверок **плюс один**; 0 — во входе не проба, а обычная
+/// колба, и прибор показывает спектр, как раньше. Со сдвигом потому, что
+/// пустой массив чисел — это нули, и нулевая маска читалась бы как «проба,
+/// проверок нет» на любом экране, который сервер ещё не заполнил.
+pub const DATA_PROBE_DONE: usize = DATA_SPECTRUM + ELEMENTS.len();
+/// Ответы проверок, по четыре бита на проверку (`pack_probes`).
+pub const DATA_PROBE_RESULTS: usize = DATA_PROBE_DONE + 1;
+/// Какая проверка идёт: номер + 1, 0 — никакая.
+pub const DATA_PROBE_RUN: usize = DATA_PROBE_DONE + 2;
+pub const DATA_PROBE_END: usize = DATA_PROBE_DONE + 3;
+
+/// Металлы для правил проверок: они плавятся и красят пламя.
+fn has_metal(formula: &Formula) -> bool {
+    ["Na", "K", "Ca", "Mg", "Fe", "Cu", "Au"].iter().any(|s| count_of(formula, s) > 0)
+}
+
+/// Что ответит проверка на этом составе. Правила игровые: важно не то, что
+/// так ведёт себя настоящее вещество, а то, что ответ делит таблицу.
+pub fn probe_result(probe: Probe, formula: &Formula) -> u8 {
+    let (c, h, n, o, s) = (
+        count_of(formula, "C"),
+        count_of(formula, "H"),
+        count_of(formula, "N"),
+        count_of(formula, "O"),
+        count_of(formula, "S"),
+    );
+    let metal = has_metal(formula);
+    match probe {
+        Probe::Microscope => match state_of(formula) {
+            State::Gas if c == 0 => 0,
+            State::Gas => 1,
+            State::Solid if metal => 2,
+            State::Solid => 3,
+            State::Liquid if c > 0 => 4,
+            State::Liquid => 5,
+        },
+        Probe::Heat => {
+            if c > 0 && h > 0 && o < c {
+                0
+            } else if n > 0 && c == 0 {
+                1
+            } else if formula_mass(formula) <= 30 {
+                2
+            } else if s > 0 && o == 0 {
+                3
+            } else if s > 0 && h == 0 {
+                4
+            } else if c > 0 && o >= 2 {
+                5
+            } else if n > 0 || s > 0 || (o >= 2 && c == 0 && !metal) {
+                6
+            } else if metal {
+                7
+            } else {
+                8
+            }
+        }
+        Probe::Flame => {
+            for (k, symbol) in ["Na", "K", "Cu", "Ca", "Mg", "Fe", "Au"].iter().enumerate() {
+                if count_of(formula, symbol) > 0 {
+                    return k as u8 + 1;
+                }
+            }
+            if count_of(formula, "Gl") > 0 || count_of(formula, "Rs") > 0 {
+                return 8;
+            }
+            for (k, symbol) in ["I", "P", "S", "Si", "Cl"].iter().enumerate() {
+                if count_of(formula, symbol) > 0 {
+                    return k as u8 + 9;
+                }
+            }
+            0
+        }
+        Probe::Reagent => {
+            if count_of(formula, "Cu") > 0 || count_of(formula, "Fe") > 0 {
+                5
+            } else if count_of(formula, "I") > 0 {
+                3
+            } else if count_of(formula, "Cl") > 0 {
+                2
+            } else if ["Na", "K", "Ca", "Mg"].iter().any(|x| count_of(formula, x) > 0)
+                && o > 0
+                && h > 0
+            {
+                4
+            } else if s > 0 || (c > 0 && o >= 3) {
+                1
+            } else if c >= 2 && h > 0 {
+                6
+            } else if o >= 2 && c == 0 && !metal {
+                7
+            } else {
+                0
+            }
+        }
+    }
+}
+
+/// Ответ проверки словами.
+pub fn probe_result_text(probe: Probe, result: u8) -> &'static str {
+    match (probe, result) {
+        (Probe::Microscope, 0) => "ничего не видно",
+        (Probe::Microscope, 1) => "мутная дымка",
+        (Probe::Microscope, 2) => "игольчатые кристаллы",
+        (Probe::Microscope, 3) => "стекловидные зёрна",
+        (Probe::Microscope, 4) => "маслянистые капли",
+        (Probe::Microscope, _) => "прозрачный раствор",
+        (Probe::Heat, 0) => "вспыхивает",
+        (Probe::Heat, 1) => "резкий запах",
+        (Probe::Heat, 2) => "вскипает без остатка",
+        (Probe::Heat, 3) => "едкий дым",
+        (Probe::Heat, 4) => "белые пары",
+        (Probe::Heat, 5) => "обугливается",
+        (Probe::Heat, 6) => "пузырится, идёт газ",
+        (Probe::Heat, 7) => "плавится",
+        (Probe::Heat, _) => "не меняется",
+        (Probe::Flame, 1) => "жёлтое",
+        (Probe::Flame, 2) => "сиреневое",
+        (Probe::Flame, 3) => "зелёное",
+        (Probe::Flame, 4) => "кирпичное",
+        (Probe::Flame, 5) => "белое",
+        (Probe::Flame, 6) => "рыжие искры",
+        (Probe::Flame, 7) => "золотые блёстки",
+        (Probe::Flame, 8) => "светится само",
+        (Probe::Flame, 9) => "фиолетовый дым",
+        (Probe::Flame, 10) => "зеленоватые языки",
+        (Probe::Flame, 11) => "синее",
+        (Probe::Flame, 12) => "стеклянные искры",
+        (Probe::Flame, 13) => "по краям зелень",
+        (Probe::Flame, _) => "без окраски",
+        (Probe::Reagent, 1) => "шипит, идёт газ",
+        (Probe::Reagent, 2) => "белый осадок",
+        (Probe::Reagent, 3) => "бурый осадок",
+        (Probe::Reagent, 4) => "мылкое на вид",
+        (Probe::Reagent, 5) => "синеет",
+        (Probe::Reagent, 6) => "буреет",
+        (Probe::Reagent, 7) => "вспенивается",
+        (Probe::Reagent, _) => "ничего не происходит",
+    }
+}
+
+/// Ответы всех четырёх проверок на этом составе.
+pub fn probe_results(formula: &Formula) -> [u8; 4] {
+    let mut out = [0; 4];
+    for probe in Probe::ALL {
+        out[probe.id()] = probe_result(probe, formula);
+    }
+    out
+}
+
+/// Ответы по записи состава. Пусто, если в колбе не формула.
+pub fn probe_results_of(contents: &str) -> Option<[u8; 4]> {
+    formula_from_text(contents).map(|f| probe_results(&f))
+}
+
+/// Ответы — одним числом экрану: по четыре бита на проверку.
+pub fn pack_probes(results: &[u8; 4]) -> i32 {
+    results.iter().enumerate().fold(0, |acc, (i, r)| acc | ((i32::from(*r) & 0xF) << (i * 4)))
+}
+
+pub fn unpack_probes(code: i32) -> [u8; 4] {
+    let mut out = [0; 4];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = ((code >> (i * 4)) & 0xF) as u8;
+    }
+    out
+}
+
+/// Какие известные вещества ещё подходят под сделанные проверки. Порядок —
+/// как в `KNOWN`: так список на экране не прыгает.
+pub fn probe_candidates(done: u8, results: &[u8; 4]) -> Vec<(&'static str, &'static str)> {
+    KNOWN
+        .iter()
+        .filter(|(text, _)| {
+            let Some(formula) = formula_from_text(text) else {
+                return false;
+            };
+            Probe::ALL.iter().all(|probe| {
+                done & probe.bit() == 0 || probe_result(*probe, &formula) == results[probe.id()]
+            })
+        })
+        .map(|(text, name)| (*text, *name))
+        .collect()
+}
+
+/// Какая из несделанных проверок лучше всех разделит остаток: та, после
+/// которой самая большая группа меньше. Равные — по времени, потом по
+/// порядку. None — делить нечего или проверок не осталось.
+pub fn probe_best(done: u8, results: &[u8; 4]) -> Option<Probe> {
+    let left = probe_candidates(done, results);
+    if left.len() < 2 {
+        return None;
+    }
+    let formulas: Vec<Formula> = left.iter().filter_map(|(text, _)| formula_from_text(text)).collect();
+    let mut best: Option<((usize, i32, usize), Probe)> = None;
+    for probe in Probe::ALL {
+        if done & probe.bit() != 0 {
+            continue;
+        }
+        let mut groups: Vec<(u8, usize)> = Vec::new();
+        for formula in &formulas {
+            let answer = probe_result(probe, formula);
+            match groups.iter_mut().find(|(a, _)| *a == answer) {
+                Some(entry) => entry.1 += 1,
+                None => groups.push((answer, 1)),
+            }
+        }
+        let largest = groups.iter().map(|(_, n)| *n).max().unwrap_or(formulas.len());
+        let key = (largest, probe.ticks(), probe.id());
+        if best.is_none_or(|(current, _)| key < current) {
+            best = Some((key, probe));
+        }
+    }
+    best.map(|(_, probe)| probe)
+}
+
+/// К чему пришли проверки.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Guess {
+    /// Вариантов ещё много, и есть чем делить.
+    Narrowing(usize),
+    /// Остался один вариант: его формула.
+    One(&'static str),
+    /// Ни одно известное вещество не подходит.
+    Unknown,
+    /// Варианты остались, а проверок больше нет: не различить.
+    Ambiguous(usize),
+}
+
+pub fn probe_guess(done: u8, results: &[u8; 4]) -> Guess {
+    let left = probe_candidates(done, results);
+    match left.len() {
+        0 => Guess::Unknown,
+        1 => Guess::One(left[0].0),
+        n if probe_best(done, results).is_some() => Guess::Narrowing(n),
+        n => Guess::Ambiguous(n),
+    }
+}
+
+/// Что показывает панель опознания.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProbeShown {
+    pub done: u8,
+    pub results: [u8; 4],
+    /// Какая проверка идёт сейчас.
+    pub running: Option<Probe>,
+    pub candidates: Vec<(&'static str, &'static str)>,
+    pub guess: Guess,
+    pub best: Option<Probe>,
+}
+
+pub fn probe_shown(data: &[i32]) -> Option<ProbeShown> {
+    let done = screen_datum(data, DATA_PROBE_DONE, 0);
+    if done <= 0 {
+        return None;
+    }
+    let done = ((done - 1) as u8) & PROBES_ALL;
+    let results = unpack_probes(screen_datum(data, DATA_PROBE_RESULTS, 0));
+    let running = usize::try_from(screen_datum(data, DATA_PROBE_RUN, 0) - 1)
+        .ok()
+        .and_then(Probe::from_id);
+    Some(ProbeShown {
+        done,
+        results,
+        running,
+        candidates: probe_candidates(done, &results),
+        guess: probe_guess(done, &results),
+        best: probe_best(done, &results),
+    })
+}
+
+/// Нижняя строка панели: к чему пришли и что делать дальше.
+pub fn probe_status_text(shown: &ProbeShown) -> String {
+    if let Some(probe) = shown.running {
+        return format!("Идёт: {}", probe.title().to_lowercase());
+    }
+    match &shown.guess {
+        Guess::One(text) => {
+            let name = KNOWN.iter().find(|(k, _)| k == text).map_or(*text, |(_, name)| *name);
+            format!("Это {name}")
+        }
+        Guess::Unknown => "Ни один вариант не подошёл".to_string(),
+        Guess::Ambiguous(n) => format!("{n} варианта не различить"),
+        Guess::Narrowing(n) => match shown.best {
+            Some(probe) => format!("Осталось {n}: различит {}", probe.title().to_lowercase()),
+            None => format!("Осталось {n}"),
+        },
+    }
+}
+
+/// Цвет нижней строки панели.
+pub fn probe_status_ink(shown: &ProbeShown) -> u32 {
+    match shown.guess {
+        Guess::One(_) => SCREEN_GREEN,
+        Guess::Unknown | Guess::Ambiguous(_) => 0xE8_5A4A,
+        Guess::Narrowing(_) => SCREEN_TEXT_DIM,
+    }
+}
+
+/// Строки панели опознания: ответы проверок, остаток вариантов, итог. Не
+/// больше `rows` строк: итог виден всегда.
+pub fn probe_lines(shown: &ProbeShown, rows: usize) -> Vec<(String, u32)> {
+    let mut out: Vec<(String, u32)> = Vec::new();
+    let room = rows.saturating_sub(1);
+    for probe in Probe::ALL {
+        if out.len() >= room || shown.done & probe.bit() == 0 {
+            continue;
+        }
+        out.push((
+            format!("{}: {}", probe.title(), probe_result_text(probe, shown.results[probe.id()])),
+            SCREEN_TEXT,
+        ));
+    }
+    if out.len() < room && matches!(shown.guess, Guess::Narrowing(_) | Guess::Ambiguous(_)) {
+        let names: Vec<&str> = shown.candidates.iter().map(|(_, name)| *name).collect();
+        let room_left = room - out.len();
+        for chunk in names.chunks(2).take(room_left) {
+            out.push((chunk.join(", "), 0x3F_D8C4));
+        }
+    }
+    out.push((probe_status_text(shown), probe_status_ink(shown)));
+    out
+}
+
+/// Подсказка панели опознания: что уже знаем и какие варианты остались.
+pub fn probe_tooltip(shown: &ProbeShown) -> Vec<String> {
+    let mut lines = vec!["Опознание пробы".to_string()];
+    for probe in Probe::ALL {
+        if shown.done & probe.bit() == 0 {
+            continue;
+        }
+        lines.push(format!(
+            "§7{}: {}",
+            probe.title(),
+            probe_result_text(probe, shown.results[probe.id()])
+        ));
+    }
+    if shown.candidates.len() <= 6 {
+        for (_, name) in &shown.candidates {
+            lines.push(format!("§b{name}"));
+        }
+    } else {
+        lines.push(format!("§7Вариантов: {}", shown.candidates.len()));
+    }
+    lines.push(probe_status_text(shown));
+    lines
+}
+
+/// Кнопки проверок: в ряд по низу прибора спектрометра.
+pub fn probe_buttons() -> [[f32; 4]; 4] {
+    let mut out = [[0.0; 4]; 4];
+    for (k, slot) in out.iter_mut().enumerate() {
+        *slot = [36.0 + k as f32 * 33.0, 59.0, 30.0, 11.0];
+    }
+    out
+}
+
+/// Кнопка под курсором.
+pub fn probe_button_at(at: [f32; 2]) -> Option<Probe> {
+    probe_buttons().iter().position(|r| inside(*r, at)).and_then(Probe::from_id)
+}
+
+/// Номера кнопок меню для проверок: после ручек протокола.
+pub const PROBE_BUTTON_BASE: i32 = 20;
+
+pub fn probe_button_id(probe: Probe) -> i32 {
+    PROBE_BUTTON_BASE + probe.id() as i32
+}
+
+/// Нажатие кнопки меню на сервере: какую проверку заказали.
+pub fn probe_press(id: i32) -> Option<Probe> {
+    let index = id.checked_sub(PROBE_BUTTON_BASE).filter(|i| *i >= 0)?;
+    Probe::from_id(usize::try_from(index).ok()?)
+}
+
+/// Подсказка кнопки проверки.
+pub fn probe_button_tooltip(probe: Probe, shown: &ProbeShown) -> Vec<String> {
+    let mut lines = vec![probe.title().to_string()];
+    if shown.done & probe.bit() != 0 {
+        lines.push(format!("§7Уже сделана: {}", probe_result_text(probe, shown.results[probe.id()])));
+        return lines;
+    }
+    lines.push(format!("§7{} тиков", probe.ticks()));
+    if shown.best == Some(probe) {
+        lines.push("§aРазделит остаток лучше всех".to_string());
+    } else {
+        lines.push("§7ЛКМ — проверить".to_string());
+    }
+    lines
+}
+
+// Сделанные проверки — знание мира, рядом с журналом веществ.
+
+/// Файл сделанных проверок: `формула<таб>маска`.
+pub fn probes_path(world: &std::path::Path) -> std::path::PathBuf {
+    world.join("biolab").join("probes.txt")
+}
+
+pub fn probe_line(contents: &str, done: u8) -> String {
+    format!("{contents}\t{done}")
+}
+
+pub fn probe_from_line(line: &str) -> Option<(String, u8)> {
+    let (contents, done) = line.split_once('\t')?;
+    let contents = contents.trim();
+    if contents.is_empty() {
+        return None;
+    }
+    Some((contents.to_string(), done.trim().parse::<u8>().ok()? & PROBES_ALL))
+}
+
+fn probe_entries(world: &std::path::Path) -> Vec<(String, u8)> {
+    std::fs::read_to_string(probes_path(world))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(probe_from_line)
+        .collect()
+}
+
+/// Какие проверки этого вещества в мире уже сделаны.
+pub fn probes_done(world: &std::path::Path, contents: &str) -> u8 {
+    probe_entries(world)
+        .into_iter()
+        .find(|(text, _)| text == contents)
+        .map_or(0, |(_, done)| done)
+}
+
+/// Отметить проверку сделанной; вернёт новую маску.
+pub fn remember_probe(world: &std::path::Path, contents: &str, probe: Probe) -> u8 {
+    let mut entries = probe_entries(world);
+    let done = match entries.iter_mut().find(|(text, _)| text == contents) {
+        Some(entry) => {
+            entry.1 |= probe.bit();
+            entry.1
+        }
+        None => {
+            entries.push((contents.to_string(), probe.bit()));
+            probe.bit()
+        }
+    };
+    let path = probes_path(world);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let text: String = entries.iter().map(|(c, d)| probe_line(c, *d) + "\n").collect();
+    let _ = std::fs::write(&path, text);
+    done
+}
+
+/// Имя колбы-пробы: сколько в ней и что она ещё не прочитана.
+pub fn sample_label(ml: i32) -> String {
+    format!("Проба: неизвестное вещество, {ml} мл")
+}
+
+/// Строки подсказки на пробе: состав не называется, только то, что уже
+/// показали проверки, и сколько вариантов осталось.
+pub fn sample_tooltip(ml: i32, done: u8, results: &[u8; 4]) -> Vec<String> {
+    let mut lines = vec![format!("Проба, {ml} мл")];
+    for probe in Probe::ALL {
+        if done & probe.bit() == 0 {
+            continue;
+        }
+        lines.push(format!("{}: {}", probe.title(), probe_result_text(probe, results[probe.id()])));
+    }
+    let left = probe_candidates(done, results).len();
+    lines.push(match left {
+        0 => "Не из таблицы мода".to_string(),
+        1 => "Вариант остался один".to_string(),
+        n => format!("Подходит вариантов: {n}"),
+    });
+    lines
+}
+
+#[cfg(test)]
+mod machine9_tests {
+    use super::*;
+
+    /// Пересекаются ли два прямоугольника экрана.
+    fn overlap(a: [f32; 4], b: [f32; 4]) -> bool {
+        a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+    }
+
+    #[test]
+    fn knobs_stay_on_their_grid() {
+        assert_eq!(knob_clamp(Knob::Temperature, 0), TEMP_LOW);
+        assert_eq!(knob_clamp(Knob::Temperature, 999), TEMP_HIGH);
+        assert_eq!(knob_clamp(Knob::Temperature, 97), 95, "щёлкает по шагу");
+        assert_eq!(knob_turn(Knob::Temperature, TEMP_HIGH, true), TEMP_HIGH, "у края стоит");
+        assert_eq!(knob_turn(Knob::Temperature, 50, true), 55);
+        assert_eq!(knob_turn(Knob::Hold, HOLD_LOW, false), HOLD_LOW);
+        for knob in Knob::ALL {
+            let (low, high) = knob.range();
+            assert_eq!(low + (knob.steps() - 1) * KNOB_STEP, high, "{}", knob.title());
+            let middle = knob_default(knob);
+            assert!(middle > low && middle < high);
+            assert_eq!(knob_clamp(knob, middle), middle);
+        }
+    }
+
+    #[test]
+    fn the_window_is_the_world_seed_and_the_recipe() {
+        let a = protocol_window(42, FERMENTER, "biolab:mold");
+        assert_eq!(a, protocol_window(42, FERMENTER, "biolab:mold"), "в одном мире то же");
+        assert_ne!(a, protocol_window(43, FERMENTER, "biolab:mold"), "другой мир");
+        assert_ne!(a, protocol_window(42, EXTRACTOR, "biolab:mold"), "другая машина");
+        assert_ne!(a, protocol_window(42, FERMENTER, "minecraft:wheat"), "другое сырьё");
+        // Окно всегда внутри пределов и на сетке шага.
+        for seed in [-7_i64, 0, 1, 1_234_567] {
+            for recipe in ["biolab:mold", "minecraft:wheat", "minecraft:cocoa_beans"] {
+                let w = protocol_window(seed, FERMENTER, recipe);
+                assert_eq!(knob_clamp(Knob::Temperature, w.temperature), w.temperature);
+                assert_eq!(knob_clamp(Knob::Hold, w.hold), w.hold);
+            }
+        }
+    }
+
+    #[test]
+    fn the_grade_follows_the_knobs() {
+        let w = Window { temperature: 60, hold: 50 };
+        assert_eq!(protocol_grade(60, 50, &w), Grade::Exact);
+        assert_eq!(protocol_grade(65, 45, &w), Grade::Exact, "край окна — ещё окно");
+        assert_eq!(protocol_grade(70, 50, &w), Grade::Partial, "рядом");
+        assert_eq!(protocol_grade(75, 60, &w), Grade::Partial);
+        assert_eq!(protocol_grade(80, 50, &w), Grade::Spoiled, "далеко");
+        assert_eq!(protocol_grade(60, 120, &w), Grade::Spoiled);
+        // Время и выход по оценке.
+        assert_eq!(protocol_time(100, Grade::Exact), 100);
+        assert_eq!(protocol_time(100, Grade::Partial), 200);
+        assert_eq!(protocol_time(30, Grade::Spoiled), 20, "брак быстро, но не мгновенно");
+        assert_eq!(protocol_count(4, Grade::Exact), 4);
+        assert_eq!(protocol_count(4, Grade::Partial), 2);
+        assert_eq!(protocol_count(1, Grade::Partial), 1, "половина от одного — один");
+        assert_eq!(protocol_count(4, Grade::Spoiled), 0);
+    }
+
+    #[test]
+    fn the_hint_points_the_right_way() {
+        assert_eq!(knob_aim(60, 60), Aim::In);
+        assert_eq!(knob_aim(50, 60), Aim::NearLow);
+        assert_eq!(knob_aim(40, 60), Aim::FarLow);
+        assert_eq!(knob_aim(70, 60), Aim::NearHigh);
+        assert_eq!(knob_aim(80, 60), Aim::FarHigh);
+        // Ручка ниже окна — подсказка просит поднять.
+        assert!(aim_text(Knob::Temperature, Aim::NearLow).contains("выше"));
+        assert!(aim_text(Knob::Temperature, Aim::FarHigh).contains("ниже"));
+        assert!(aim_text(Knob::Hold, Aim::NearLow).contains("больше"));
+        assert!(aim_text(Knob::Hold, Aim::In).contains("в окне"));
+        let w = Window { temperature: 60, hold: 50 };
+        let report = protocol_report(40, 50, &w);
+        assert!(report.starts_with("Брак"), "{report}");
+        assert!(report.contains("намного выше") && report.contains("в окне"), "{report}");
+        assert!(protocol_report(60, 50, &w).contains("60 °C"));
+        // Подсказка ходит экрану числом и возвращается той же парой.
+        for t in Aim::ALL {
+            for h in Aim::ALL {
+                assert_eq!(aim_from_code(aim_code(t, h)), Some((t, h)));
+            }
+        }
+        assert_eq!(aim_from_code(0), None, "попыток ещё не было");
+    }
+
+    #[test]
+    fn the_panel_fits_both_machines() {
+        for id in PROTOCOL_MACHINES {
+            let screen = machine_screen(id).expect("машина со своим экраном");
+            assert_eq!(machine_data_slots(id), DATA_PROTO_END, "{id}: числа панели");
+            let panel = proto_panel();
+            // Панель не лезет ни на слоты, ни на прибор, ни на шкалу, ни на
+            // подпись инвентаря.
+            for taken in [screen.gauge, screen.progress] {
+                assert!(!overlap(panel, taken), "{id}: панель на приборе");
+            }
+            for slot in screen.slots.iter().flatten() {
+                assert!(!overlap(panel, slot_frame(*slot)), "{id}: панель на слоте");
+            }
+            assert!(panel[1] + panel[3] <= screen.inventory[1] - 11.0, "{id}: панель на подписи");
+            assert!(panel[0] >= 4.0 && panel[0] + panel[2] <= screen.width - 4.0);
+        }
+        // Кнопки лежат в панели и не пересекаются.
+        let buttons = proto_buttons();
+        for (i, a) in buttons.iter().enumerate() {
+            assert!(overlap(proto_panel(), *a));
+            for b in buttons.iter().skip(i + 1) {
+                assert!(!overlap(*a, *b), "кнопки наложились");
+            }
+            let (knob, up) = proto_button(i).expect("кнопка знает ручку");
+            assert_eq!(proto_press(proto_button_id(knob, up)), Some((knob, up)));
+            let centre = [a[0] + a[2] / 2.0, a[1] + a[3] / 2.0];
+            assert_eq!(proto_button_at(centre), Some((knob, up)));
+        }
+        assert_eq!(proto_button_at([100.0, 100.0]), None);
+        // Чужие номера кнопок панель не берёт, а свои не путаются с режимами
+        // секвенатора и с проверками спектрометра.
+        assert_eq!(proto_press(0), None);
+        for mode in SeqMode::ALL {
+            assert_eq!(proto_press(mode.id()), None, "номер режима секвенатора");
+        }
+        for probe in Probe::ALL {
+            assert_eq!(proto_press(probe_button_id(probe)), None);
+            assert_eq!(probe_press(proto_button_id(Knob::Hold, true)), None);
+        }
+    }
+
+    #[test]
+    fn the_card_carries_the_window() {
+        let card = Card {
+            machine: FERMENTER.to_string(),
+            recipe: "biolab:mold".to_string(),
+            temperature: 95,
+            hold: 40,
+        };
+        let text = card_to_text(&card);
+        assert_eq!(card_from_text(&text).as_ref(), Some(&card));
+        assert_eq!(card_from_text(""), None);
+        assert_eq!(card_from_text("minecraft:furnace|x|20|20"), None, "чужая машина");
+        assert!(card_label(&card).contains("Ферментер"));
+        assert!(card_tooltip(&text)[0].contains("95 °C"));
+        assert_eq!(card_tooltip("")[0], "Пустая карта");
+        // Что машина скажет на карту.
+        assert!(card_message(None, FERMENTER, None).contains("Пустая"));
+        assert!(card_message(Some(&card), EXTRACTOR, None).contains("другой машины"));
+        assert!(card_message(Some(&card), FERMENTER, Some("minecraft:wheat")).contains("другого сырья"));
+        assert!(card_message(Some(&card), FERMENTER, Some("biolab:mold")).contains("95 °C"));
+        // Найденные окна в сейве машины.
+        let saved = found_put("", "biolab:mold", 95, 40);
+        assert_eq!(found_get(&saved, "biolab:mold"), Some((95, 40)));
+        assert_eq!(found_get(&saved, "minecraft:wheat"), None);
+        let saved = found_put(&saved, "minecraft:wheat", 30, 80);
+        assert_eq!(found_get(&saved, "biolab:mold"), Some((95, 40)), "старое не затёрлось");
+        assert_eq!(found_get(&saved, "minecraft:wheat"), Some((30, 80)));
+        let saved = found_put(&saved, "biolab:mold", 60, 60);
+        assert_eq!(found_get(&saved, "biolab:mold"), Some((60, 60)), "запись обновилась");
+        assert_eq!(saved.split(';').count(), 2, "дубля нет");
+    }
+
+    #[test]
+    fn four_probes_tell_every_known_compound_apart() {
+        let mut seen: Vec<([u8; 4], &str)> = Vec::new();
+        for (text, _) in &KNOWN {
+            let formula = formula_from_text(text).unwrap_or_else(|| panic!("{text}"));
+            let results = probe_results(&formula);
+            if let Some((_, other)) = seen.iter().find(|(r, _)| *r == results) {
+                panic!("{text} и {other} отвечают одинаково на все четыре проверки");
+            }
+            seen.push((results, text));
+            // Каждый ответ влезает в четыре бита слота данных.
+            for probe in Probe::ALL {
+                assert!(results[probe.id()] < 16, "{text}: {} вне четырёх бит", probe.title());
+                assert_ne!(
+                    probe_result_text(probe, results[probe.id()]),
+                    "",
+                    "{text}: ответу нет слов"
+                );
+            }
+            assert_eq!(unpack_probes(pack_probes(&results)), results);
+        }
+        assert_eq!(seen.len(), KNOWN.len());
+    }
+
+    #[test]
+    fn probes_narrow_the_list_down_to_one() {
+        for (text, name) in &KNOWN {
+            let results = probe_results_of(text).expect("формула");
+            let mut done = 0u8;
+            let mut steps = 0;
+            // Игрок идёт по подсказке экрана — и доходит до одного варианта.
+            while let Some(probe) = probe_best(done, &results) {
+                done |= probe.bit();
+                steps += 1;
+                assert!(steps <= Probe::ALL.len(), "{text}: проверки кончились");
+            }
+            assert_eq!(probe_guess(done, &results), Guess::One(text), "{text} / {name}");
+            assert!(steps <= 4, "{text}: {steps} проверок");
+        }
+        // Без проверок подходит вся таблица, и делить есть чем.
+        let none = probe_candidates(0, &[0; 4]);
+        assert_eq!(none.len(), KNOWN.len());
+        assert!(probe_best(0, &[0; 4]).is_some());
+        assert!(matches!(probe_guess(0, &[0; 4]), Guess::Narrowing(n) if n == KNOWN.len()));
+        // Ответ, которого не даёт ни одно вещество, оставляет ноль вариантов.
+        assert_eq!(probe_guess(Probe::Flame.bit(), &[0, 0, 15, 0]), Guess::Unknown);
+    }
+
+    #[test]
+    fn the_probe_panel_reads_its_own_numbers() {
+        let water = probe_results_of("H2O").expect("формула");
+        let mut data = vec![0; DATA_PROBE_END];
+        data[DATA_PROBE_DONE] = 0;
+        assert!(probe_shown(&data).is_none(), "обычная колба — без панели");
+        assert!(probe_shown(&[]).is_none(), "пустые числа — без панели");
+        data[DATA_PROBE_DONE] = i32::from(Probe::Microscope.bit() | Probe::Heat.bit()) + 1;
+        data[DATA_PROBE_RESULTS] = pack_probes(&water);
+        data[DATA_PROBE_RUN] = probe_button_id(Probe::Flame) - PROBE_BUTTON_BASE + 1;
+        let shown = probe_shown(&data).expect("панель");
+        assert_eq!(shown.done, Probe::Microscope.bit() | Probe::Heat.bit());
+        assert_eq!(shown.results, water);
+        assert_eq!(shown.running, Some(Probe::Flame));
+        assert!(shown.candidates.iter().any(|(text, _)| *text == "H2O"));
+        assert!(probe_status_text(&shown).contains("Идёт"));
+        let lines = probe_lines(&shown, 5);
+        assert!(lines.len() <= 5 && !lines.is_empty());
+        assert!(lines.last().expect("итог").0.contains("Идёт"));
+        // Кнопки лежат в приборе спектрометра и не пересекаются.
+        let gauge = machine_screen(SPECTROMETER).expect("экран").gauge;
+        let buttons = probe_buttons();
+        for (i, a) in buttons.iter().enumerate() {
+            assert!(inside(gauge, [a[0], a[1]]) && inside(gauge, [a[0] + a[2] - 1.0, a[1] + a[3] - 1.0]));
+            for b in buttons.iter().skip(i + 1) {
+                assert!(!overlap(*a, *b));
+            }
+            let probe = Probe::from_id(i).expect("проверка");
+            assert_eq!(probe_press(probe_button_id(probe)), Some(probe));
+            let centre = [a[0] + a[2] / 2.0, a[1] + a[3] / 2.0];
+            assert_eq!(probe_button_at(centre), Some(probe));
+            assert!(!probe_button_tooltip(probe, &shown).is_empty());
+        }
+        assert_eq!(machine_data_slots(SPECTROMETER), DATA_PROBE_END);
+        // Подсказка пробы состав не называет.
+        let lines = sample_tooltip(250, Probe::Heat.bit(), &water);
+        assert!(lines.iter().all(|line| !line.contains("H2O")), "{lines:?}");
+        assert!(lines.iter().any(|line| line.starts_with("Нагрев")));
+        assert!(sample_label(250).contains("250"));
+    }
+
+    #[test]
+    fn spoils_are_known_and_different() {
+        let mut seen: Vec<&str> = Vec::new();
+        for seed in 0..SPOILS.len() as u64 * 3 {
+            let text = spoil_compound(seed);
+            assert!(KNOWN.iter().any(|(k, _)| *k == text), "{text} нет в таблице");
+            if !seen.contains(&text) {
+                seen.push(text);
+            }
+        }
+        assert_eq!(seen.len(), SPOILS.len(), "брак выдаёт все побочные продукты");
+        // Побочные продукты различимы проверками — иначе брак не загадка.
+        for text in SPOILS {
+            let results = probe_results_of(text).expect("формула");
+            assert_eq!(probe_candidates(PROBES_ALL, &results).len(), 1, "{text}");
+        }
+    }
+
+    #[test]
+    fn the_probe_file_keeps_what_was_checked() {
+        let dir = std::env::temp_dir().join(format!("biolab-probe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(probes_done(&dir, "H2O"), 0);
+        assert_eq!(remember_probe(&dir, "H2O", Probe::Heat), Probe::Heat.bit());
+        assert_eq!(
+            remember_probe(&dir, "H2O", Probe::Flame),
+            Probe::Heat.bit() | Probe::Flame.bit()
+        );
+        assert_eq!(remember_probe(&dir, "C2H6O", Probe::Microscope), Probe::Microscope.bit());
+        assert_eq!(probes_done(&dir, "H2O"), Probe::Heat.bit() | Probe::Flame.bit());
+        assert_eq!(probes_done(&dir, "C2H6O"), Probe::Microscope.bit());
+        assert_eq!(probe_from_line(&probe_line("H2O", 3)), Some(("H2O".to_string(), 3)));
+        assert_eq!(probe_from_line("мусор"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 // ---- M9: контракт параллельной работы (GDD 4.23, 4.25) ----
 //
 // Доза заразы (4.23 п. 1) идёт игроку по каналам; спецодежда (4.25) режет
@@ -20457,6 +21881,29 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
         && let Some(mode) = seq_button_at(at)
     {
         return seq_button_tooltip(mode, seq_shown(data).mode);
+    }
+    // Панель режима ферментера и экстрактора (GDD 4.23 п. 3): она тоже вне
+    // прибора и шкалы.
+    if has_protocol(id) {
+        let shown = proto_shown(data);
+        if let Some((knob, up)) = proto_button_at(at) {
+            return proto_button_tooltip(knob, up, &shown);
+        }
+        if inside(proto_panel(), at) {
+            return proto_tooltip(&shown);
+        }
+    }
+    // Панель опознания пробы (GDD 4.23 п. 4) рисуется вместо спектра, и её
+    // кнопки лежат внутри прибора — спрашиваем их раньше спектра.
+    if id == SPECTROMETER
+        && let Some(shown) = probe_shown(data)
+    {
+        if let Some(probe) = probe_button_at(at) {
+            return probe_button_tooltip(probe, &shown);
+        }
+        if inside(screen.gauge, at) {
+            return probe_tooltip(&shown);
+        }
     }
     if inside(screen.progress, at) {
         // Шкала фильтра — остаток патрона, а не ход работы.

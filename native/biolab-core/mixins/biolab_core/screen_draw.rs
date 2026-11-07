@@ -858,4 +858,92 @@ fn biolab_core_screen_draw(
         }
         _ => {}
     }
+
+    // Панель режима (GDD 4.23 п. 3): две ручки с кнопками «−» и «+», под
+    // ними лампа «окно найдено». Рисуется поверх прибора машины, в свободном
+    // углу под входом — одинаково у ферментера и экстрактора.
+    if m::has_protocol(block) {
+        let shown = m::proto_shown(data);
+        let buttons = m::proto_buttons();
+        for (k, row) in m::proto_rows().iter().enumerate() {
+            let Some(knob) = m::Knob::from_id(k) else {
+                continue;
+            };
+            pen.fill(*row, m::SCREEN_EDGE);
+            pen.fill([row[0] + 1.0, row[1] + 1.0, row[2] - 2.0, row[3] - 2.0], m::SCREEN_GLASS);
+            let reading = m::proto_reading(knob, shown.setting(knob));
+            let rw = pen.width(&reading);
+            let ink = match shown.state {
+                m::PROTO_FOUND => m::SCREEN_GREEN,
+                m::PROTO_NO_RECIPE => m::SCREEN_TEXT_DIM,
+                _ => m::SCREEN_TEXT,
+            };
+            pen.text(&reading, [row[0] + (row[2] - rw) / 2.0, row[1]], ink, false);
+            for (half, mark) in [(0usize, "-"), (1, "+")] {
+                let b = buttons[k * 2 + half];
+                pen.fill(b, m::SCREEN_EDGE);
+                pen.fill([b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0], m::SCREEN_STEEL_DARK);
+                pen.fill([b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, 1.0], m::SCREEN_STEEL);
+                let mw = pen.width(mark);
+                pen.text(mark, [b[0] + ((b[2] - mw) / 2.0).floor(), b[1]], m::SCREEN_TEXT, false);
+            }
+        }
+        // Куда двигать ручку: стрелка у края строки по прошлой попытке.
+        if let Some(aims) = shown.aim {
+            let rows = m::proto_rows();
+            for (k, aim) in [aims.0, aims.1].into_iter().enumerate() {
+                let row = rows[k];
+                let (colour, dx) = match aim {
+                    m::Aim::In => (m::SCREEN_GREEN, 0.0),
+                    m::Aim::NearLow => (m::SCREEN_AMBER, 1.0),
+                    m::Aim::FarLow => (m::SCREEN_RED, 1.0),
+                    m::Aim::NearHigh => (m::SCREEN_AMBER, -1.0),
+                    m::Aim::FarHigh => (m::SCREEN_RED, -1.0),
+                };
+                let x = if dx >= 0.0 { row[0] + row[2] - 11.0 } else { row[0] + 10.0 };
+                pen.fill([x, row[1] + 3.0, 2.0, 2.0], colour);
+            }
+        }
+    }
+
+    // Панель опознания пробы (GDD 4.23 п. 4): вместо спектра — ответы
+    // проверок, остаток вариантов и четыре кнопки под ними.
+    if block == m::SPECTROMETER
+        && let Some(shown) = m::probe_shown(data)
+    {
+        pen.glass(g);
+        let inner = g[2] - 6.0;
+        let buttons = m::probe_buttons();
+        let rows = (((buttons[0][1] - g[1] - 4.0) / 9.0).floor().max(1.0)) as usize;
+        for (k, (line, ink)) in m::probe_lines(&shown, rows).iter().enumerate() {
+            let line = pen.fit(line, inner);
+            pen.text(&line, [g[0] + 3.0, g[1] + 3.0 + k as f32 * 9.0], *ink, false);
+        }
+        for (k, b) in buttons.iter().enumerate() {
+            let Some(probe) = m::Probe::from_id(k) else {
+                continue;
+            };
+            let done = shown.done & probe.bit() != 0;
+            let best = shown.best == Some(probe);
+            let body = if done {
+                m::SCREEN_TEAL_DIM
+            } else if best {
+                0xFF_2A5A54
+            } else {
+                m::SCREEN_STEEL_DARK
+            };
+            pen.fill(*b, m::SCREEN_EDGE);
+            pen.fill([b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, b[3] - 2.0], body);
+            pen.fill([b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, 1.0], if best { m::SCREEN_TEAL } else { m::SCREEN_STEEL });
+            let mark = pen.fit(probe.mark(), b[2] - 4.0);
+            let mw = pen.width(&mark);
+            let ink = if done { m::SCREEN_TEXT_DIM } else { m::SCREEN_TEXT };
+            pen.text(&mark, [b[0] + ((b[2] - mw) / 2.0).floor(), b[1] + 2.0], ink, best);
+            // Идущая проверка — бегущая полоска по низу кнопки.
+            if shown.running == Some(probe) {
+                let lw = ((b[2] - 2.0) * progress).floor();
+                pen.fill([b[0] + 1.0, b[1] + b[3] - 2.0, lw, 1.0], m::SCREEN_TEAL);
+            }
+        }
+    }
 }

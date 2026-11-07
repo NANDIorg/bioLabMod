@@ -140,6 +140,27 @@ fn biolab_core_tooltip(
             }
             return;
         }
+        // Карта протокола (GDD 4.23 п. 3): какой режим в ней записан.
+        if &*stack.item == m::PROTOCOL_CARD {
+            let text = stack
+                .extra
+                .as_ref()
+                .and_then(|extra| {
+                    extra
+                        .other
+                        .iter()
+                        .find(|(key, _)| key == "minecraft:custom_data")
+                        .and_then(|(_, data)| match data.get(m::CARD_KEY) {
+                            Some(Tag::String(s)) => Some(s.to_string_lossy()),
+                            _ => None,
+                        })
+                })
+                .unwrap_or_default();
+            for line in m::card_tooltip(&text) {
+                lines.push((horizon_client::text::Text::literal(&line), 0xAA_AAAA));
+            }
+            return;
+        }
         if &*stack.item != m::FLASK_ID {
             return;
         }
@@ -161,8 +182,20 @@ fn biolab_core_tooltip(
             Some(Tag::Int(v)) => *v,
             _ => 0,
         };
-        // Имя, которое вещество получило в журнале этого мира, главнее формулы.
+        // Проба (GDD 4.23 п. 4): состав не прочитан — формулу не называем,
+        // только то, что уже показали проверки. Опознанная проба снова
+        // обычная колба (`probe.rs`, `unseal`).
         let world = game.world_root.clone();
+        let sealed = matches!(data.get(m::SEALED_KEY), Some(Tag::Int(1)));
+        if sealed && !m::is_identified(&world, &contents) {
+            let done = m::probes_done(&world, &contents);
+            let results = m::probe_results_of(&contents).unwrap_or([0; 4]);
+            for line in m::sample_tooltip(ml, done, &results) {
+                lines.push((horizon_client::text::Text::literal(&line), 0xAA_AAAA));
+            }
+            return;
+        }
+        // Имя, которое вещество получило в журнале этого мира, главнее формулы.
         if let Some(name) = m::compound_display(&world, &contents) {
             lines.push((horizon_client::text::Text::literal(&name), 0xAA_AAAA));
         }
