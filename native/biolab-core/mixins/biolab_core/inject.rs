@@ -266,6 +266,21 @@ fn biolab_core_interact_entity(
         for line in m::genome_lines(&genes) {
             crate::game::biolab_say::say(game, &line);
         }
+        // Известные пары в этом геноме (GDD 4.23 п. 5) и срок предохранителей.
+        let world = game.world_root.clone();
+        let known = m::known_pairs(&world);
+        for line in m::genome_pair_lines(&genes, known) {
+            crate::game::biolab_say::say(game, &line);
+        }
+        if let Ok(id) = u32::try_from(entity) {
+            let clock = crate::game::biolab_core_data::clock(game, id);
+            if let Some(left) = m::inductor_left(&genes, &clock, game.world.game_time) {
+                crate::game::biolab_say::say(
+                    game,
+                    &format!("  Генный выключатель: до дозы {left:.1} дн."),
+                );
+            }
+        }
         m::remember_injection(game.ticks);
         *claimed = true;
         return;
@@ -282,7 +297,11 @@ fn biolab_core_interact_entity(
             return;
         };
         let have = read_genome(game, entity);
-        let result = m::splice_mob(&have, name, strength);
+        // Сочетания генов (GDD 4.23 п. 5): пары складывает `combine`, и она
+        // же решает, выживет ли образец.
+        let seed = (entity as u64) ^ game.ticks;
+        let (results, combined) = m::splice_mob_paired(&have, &[(name, strength)], seed);
+        let result = results.first().copied().unwrap_or(m::Splice::Already);
         // Клик по мобу ловят оба хука: без этой отметки фрагмент достанется
         // ещё и самому игроку (проверено в игре — ген вживлялся обоим).
         m::remember_injection(game.ticks);
@@ -292,13 +311,12 @@ fn biolab_core_interact_entity(
             .find(|mob| mob.id as i32 == entity && mob.alive())
             .map(|mob| mob.id);
         if result == m::Splice::Done
+            && combined.lethal.is_none()
             && let Some(id) = target
         {
-            // Усиление того же гена заменяет его силу: строка данных держит
-            // по гену одну, сильнейшую (`genome_data`).
-            let mut genes = have.clone();
-            genes.push((name, strength));
-            crate::game::biolab_core_data::set_genes(game, id, &genes);
+            // Геном пишется целиком: пары могли ослабить ген или дорастить
+            // лишний (`combine`), а строка данных держит по гену одну силу.
+            crate::game::biolab_core_data::set_genes(game, id, &combined.genes);
             let slot = game.selected as i32;
             if let Some(carried) = game.native_carried_stack(slot)
                 && &*carried.item == m::FRAGMENT_ID
@@ -307,6 +325,35 @@ fn biolab_core_interact_entity(
             }
         }
         crate::game::biolab_say::say(game, &m::splice_message(result, name, strength));
+        // Что сделали пары и какие из них стали известны лаборатории.
+        let world = game.world_root.clone();
+        for line in m::learn_pairs(&world, &combined) {
+            crate::game::biolab_say::say(game, &line);
+        }
+        // Несовместимость: образец не выживает. Фрагмент всё равно потрачен —
+        // опыт сделан, и он идёт в очки знания (GDD 4.23 п. 7).
+        if let Some(pair) = combined.lethal {
+            crate::game::biolab_say::say(game, &m::lethal_mob_message(pair));
+            if let Some(id) = target {
+                let dimension = game.dim.id().to_string();
+                let at = game
+                    .mobs
+                    .iter()
+                    .find(|mob| mob.id == id)
+                    .map(|mob| [mob.position.x, mob.position.y + 0.5, mob.position.z])
+                    .unwrap_or_default();
+                game.native_kill_mob(&dimension, id);
+                m::note_lab_event(&dimension, at, "mutant_died", &m::pair_title(pair));
+            }
+            let slot = game.selected as i32;
+            if let Some(carried) = game.native_carried_stack(slot)
+                && &*carried.item == m::FRAGMENT_ID
+            {
+                carried.count = carried.count.saturating_sub(1);
+            }
+            *claimed = true;
+            return;
+        }
         // M9 (GDD 4.24): ген рук корове или ног слизню прижился, но спит.
         if result == m::Splice::Done
             && let Some(note) = target
@@ -371,6 +418,9 @@ fn biolab_core_interact_entity(
             return;
         };
         let have = crate::game::biolab_core_data::genes(game, id);
+        // Сочетания генов (GDD 4.23 п. 5): вектор кладётся теми же парами,
+        // что и фрагмент, — все его гены приходят разом.
+        let mut pairs: Option<m::Combined> = None;
         let (genome, message) = if antisense {
             match m::gene(&text) {
                 Some(g) => {
@@ -384,12 +434,34 @@ fn biolab_core_interact_entity(
             if genes.is_empty() {
                 (None, "Вектор пустой: генов нет".to_string())
             } else {
-                let (after, results) = m::splice_vector_mob(&have, &genes);
-                let done = results.contains(&m::Splice::Done);
+                let seed = u64::from(id) ^ game.ticks;
+                let (results, combined) = m::splice_mob_paired(&have, &genes, seed);
+                let done = results.contains(&m::Splice::Done) && combined.lethal.is_none();
+                let after = combined.genes.clone();
+                pairs = Some(combined);
                 (done.then_some(after), m::vector_message(&genes, &results))
             }
         };
         crate::game::biolab_say::say(game, &message);
+        let world = game.world_root.clone();
+        if let Some(combined) = &pairs {
+            for line in m::learn_pairs(&world, combined) {
+                crate::game::biolab_say::say(game, &line);
+            }
+            if let Some(pair) = combined.lethal {
+                crate::game::biolab_say::say(game, &m::lethal_mob_message(pair));
+                let dimension = game.dim.id().to_string();
+                game.native_kill_mob(&dimension, id);
+                m::note_lab_event(&dimension, at, "mutant_died", &m::pair_title(pair));
+                let slot = game.selected as i32;
+                if let Some(carried) = game.native_carried_stack(slot)
+                    && &*carried.item == &*stack.item
+                {
+                    carried.count = carried.count.saturating_sub(1);
+                }
+                return;
+            }
+        }
         let Some(genome) = genome else {
             return;
         };
@@ -433,6 +505,43 @@ fn biolab_core_interact_entity(
         if give_back && let Some(left) = leftover {
             let _ = game.native_give(left, 1);
         }
+    }
+
+    // Индуктор (GDD 4.23 п. 10): доза для генного выключателя. Срок идёт от
+    // последней дозы, и укол пускает его заново (`safeguard_verdict`).
+    if &*stack.item == m::INDUCTOR_SYRINGE {
+        let Some((id, kind, at)) = game
+            .mobs
+            .iter()
+            .find(|mob| mob.id as i32 == entity && mob.alive())
+            .map(|mob| (mob.id, mob.kind.id.to_string(), [mob.position.x, mob.position.y + 0.9, mob.position.z]))
+        else {
+            return;
+        };
+        *claimed = true;
+        // Клик по мобу ловят оба хука: без отметки шприц достался бы ещё и
+        // самому игроку (`remedy.rs`).
+        m::remember_injection(game.ticks);
+        let genes = crate::game::biolab_core_data::genes(game, id);
+        let (message, dosed) = m::inductor_message(&genes);
+        crate::game::biolab_say::say(game, &message);
+        if dosed {
+            let now = game.world.game_time;
+            let mut clock = crate::game::biolab_core_data::clock(game, id);
+            if clock.set == 0 {
+                clock.set = now;
+            }
+            if clock.host.is_empty() {
+                clock.host = m::full_kind(&kind);
+            }
+            clock.dose = now;
+            crate::game::biolab_core_data::set_clock(game, id, &clock);
+            play_at(game, m::Cue::SyringeMob, at);
+            let world = game.world_root.clone();
+            m::record_trial(&world, &m::trial_record(&stack.item, &kind));
+            use_up(game, &stack.item);
+        }
+        return;
     }
 
     // Снотворное (GDD 4.20, M5): шприц, отвар и тряпка с хлороформом —

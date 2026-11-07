@@ -147,10 +147,23 @@ fn biolab_core_use_item(
             *claimed = true;
             return;
         };
-        let Some(result) = m::splice_world_player(&world, uuid, name, strength) else {
+        // Сочетания генов (GDD 4.23 п. 5) работают и в человеке: пара может
+        // ослабить ген, дорастить уродство, а несовместимая — отторгнуться.
+        let seed = game.ticks ^ (uuid as u64);
+        let Some((results, combined)) = m::splice_paired_world_player(&world, uuid, &[(name, strength)], seed)
+        else {
             return;
         };
+        let result = results.first().copied().unwrap_or(m::Splice::Already);
         crate::game::biolab_say::say(game, &m::splice_message(result, name, strength));
+        for line in m::learn_pairs(&world, &combined) {
+            crate::game::biolab_say::say(game, &line);
+        }
+        if let Some(pair) = combined.lethal {
+            crate::game::biolab_say::say(game, &m::lethal_player_message(pair));
+            *claimed = true;
+            return;
+        }
         if result == m::Splice::Done {
             play(game, m::Cue::GeneTherapy);
             let slot = game.selected as i32;
@@ -190,6 +203,7 @@ fn biolab_core_use_item(
                     })
             })
             .unwrap_or_default();
+        let mut pairs: Option<m::Combined> = None;
         let (message, used) = if antisense {
             match m::gene(&text) {
                 Some(g) => match m::unsplice_world_player(&world, uuid, g.name) {
@@ -203,13 +217,26 @@ fn biolab_core_use_item(
             if genes.is_empty() {
                 ("Вектор пустой: генов нет".to_string(), false)
             } else {
-                let Some(results) = m::splice_vector_world_player(&world, uuid, &genes) else {
+                let seed = game.ticks ^ (uuid as u64);
+                let Some((results, combined)) = m::splice_paired_world_player(&world, uuid, &genes, seed) else {
                     return;
                 };
-                (m::vector_message(&genes, &results), results.contains(&m::Splice::Done))
+                let used = results.contains(&m::Splice::Done) && combined.lethal.is_none();
+                let message = m::vector_message(&genes, &results);
+                pairs = Some(combined);
+                (message, used)
             }
         };
         crate::game::biolab_say::say(game, &message);
+        if let Some(combined) = &pairs {
+            for line in m::learn_pairs(&world, combined) {
+                crate::game::biolab_say::say(game, &line);
+            }
+            if let Some(pair) = combined.lethal {
+                crate::game::biolab_say::say(game, &m::lethal_player_message(pair));
+                return;
+            }
+        }
         if used {
             play(game, m::Cue::GeneTherapy);
             let slot = game.selected as i32;

@@ -1,0 +1,11 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "biolab:element_redstonium",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "gene": "kill_switch",
+ "strength": 1,
+ "time": 140
+}

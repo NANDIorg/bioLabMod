@@ -177,24 +177,32 @@ fn biolab_core_machine_tick(
                     entity.data.resize(slots, 0);
 
         // Фрагмент ДНК на входе и питательный раствор в слоте топлива.
+        // Во входе фрагмент (один ген) или генный вектор (несколько): клон
+        // выходит со всей строкой, и пары генов (GDD 4.23 п. 5) работают
+        // уже в чане.
         let gene = entity
             .items
             .get(m::SLOT_INPUT)
             .and_then(|s| s.as_ref())
-            .filter(|stack| &*stack.item == m::FRAGMENT_ID)
+            .filter(|stack| &*stack.item == m::FRAGMENT_ID || &*stack.item == m::GENE_VECTOR)
             .and_then(|stack| {
+                let field = if &*stack.item == m::GENE_VECTOR { m::VECTOR_KEY } else { m::GENE_KEY };
                 let extra = stack.extra.as_ref()?;
                 let (_, data) = extra
                     .other
                     .iter()
                     .find(|(key, _)| key == "minecraft:custom_data")?;
-                match data.get(m::GENE_KEY) {
+                match data.get(field) {
                     Some(Tag::String(s)) => Some(s.to_string_lossy()),
                     _ => None,
                 }
             });
-        // Экрану чана — ген во входе: его клон и получит.
-        let (index, strength) = m::gene_data(gene.as_deref());
+        // Экрану чана — первый ген во входе: по нему игрок узнаёт заказ.
+        let first = gene
+            .as_deref()
+            .map(m::genes_of_data)
+            .and_then(|list| list.first().map(|(n, s)| m::gene_text(n, *s)));
+        let (index, strength) = m::gene_data(first.as_deref());
         entity.data[m::DATA_GENE] = index;
         entity.data[m::DATA_GENE_STRENGTH] = strength;
         let broth = entity
@@ -740,14 +748,26 @@ fn biolab_core_machine_tick(
         };
         // Клон готов: звук рождения.
         machine_sound(game, pos, entity, m::Step::Finish);
-        let Some((name, strength)) = m::gene_from_text(&text) else {
+        // Пары генов (GDD 4.23 п. 5): несовместимая пара — и клон не выходит.
+        let world = game.world_root.clone();
+        let seed = (pos[0] as i64 * 23 + pos[2] as i64 * 11 + game.ticks as i64) as u64;
+        let combined = m::combine(&[], &m::genes_of_data(&text), seed);
+        let at = [pos[0] as f64 + 0.5, pos[1] as f64 + 1.0, pos[2] as f64 + 0.5];
+        let dim = game.dim.id().to_string();
+        for line in m::learn_pairs(&world, &combined) {
+            m::note_gene_news(&dim, at, &line);
+        }
+        if let Some(pair) = combined.lethal {
+            m::note_gene_news(&dim, at, &format!("Клон не вышел: {}", m::pair_title(pair)));
+            m::note_lab_event(&dim, at, "mutant_died", &m::pair_title(pair));
             return;
-        };
+        }
+        if combined.genes.is_empty() {
+            return;
+        }
         // Клон выходит над чаном, чтобы не застрять в блоке.
-        let spot = [pos[0] as f64 + 0.5, pos[1] as f64 + 1.0, pos[2] as f64 + 0.5];
-        let dimension = game.dim.id().to_string();
         let options = crate::game::native_mobs::NativeSpawn::default();
-        let Some(id) = game.native_spawn_mob(&dimension, m::CLONE_SPECIES, spot, &options) else {
+        let Some(id) = game.native_spawn_mob(&dim, m::CLONE_SPECIES, at, &options) else {
             return;
         };
         // Геном клона — данные на нём (`biolab:genome`, M11): по ним
@@ -756,7 +776,7 @@ fn biolab_core_machine_tick(
         // геном раньше, чем чан впишет заказанный (проверено в игре: клон
         // выходил с лишним геном) — запись данных его просто заменяет, а
         // прибавок бросок не ставит.
-        crate::game::biolab_core_data::set_genes(game, id, &[(name, strength)]);
+        crate::game::biolab_core_data::set_genes(game, id, &combined.genes);
         return;
     }
 
@@ -997,6 +1017,19 @@ fn biolab_core_machine_tick(
     // Что лежит на входе и на выходе.
     let input = entity.items.get(m::SLOT_INPUT).and_then(|s| s.clone());
     let output = entity.items.get(output_slot).and_then(|s| s.clone());
+    // Праймер экстрактора (GDD 4.23 п. 6, средний шаг лестницы контроля):
+    // фрагмент в боковом слоте называет ген, который достанут из ткани.
+    // Он не тратится — это матрица, а не сырьё.
+    let primer = (entity.id == m::EXTRACTOR)
+        .then(|| {
+            entity
+                .items
+                .get(m::SLOT_PRIMER)
+                .and_then(|s| s.as_ref())
+                .filter(|s| &*s.item == m::FRAGMENT_ID)
+                .and_then(|s| custom_text(s, m::GENE_KEY))
+        })
+        .flatten();
 
     // Подходящий рецепт: вход совпал и результат влезает в выход. Третье
     // поле — ген фрагмента, если его выбрал рецепт, а не случай.
@@ -1121,7 +1154,10 @@ fn biolab_core_machine_tick(
             let mut result = result;
             if &*result.item == m::FRAGMENT_ID {
                 let seed = (pos[0] as i64 * 31 + pos[2] as i64 * 17 + game.ticks as i64) as u64;
-                let (name, strength) = gene.unwrap_or_else(|| m::roll_gene(seed));
+                // Ген выбрал рецепт (животные, урожай) — берём его; иначе
+                // решает праймер, а без праймера — случай (GDD 4.23 п. 6).
+                let (name, strength) =
+                    gene.unwrap_or_else(|| m::extracted_gene(primer.as_deref(), seed));
                 let text = m::gene_text(name, strength);
                 entity.nbt.insert(
                     m::LAST_GENE_KEY.into(),

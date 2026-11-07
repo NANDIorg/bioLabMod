@@ -81,6 +81,36 @@ pub static SURGERY: AttachmentType<u8> = AttachmentType {
     sync: true,
 };
 
+fn encode_clock(text: &String) -> Result<Compound, AttachmentError> {
+    let mut out = Compound::new();
+    out.insert(JavaString::from(m::CLOCK_FIELD), Tag::String(JavaString::from(text.as_str())));
+    Ok(out)
+}
+
+/// Часы приводим к виду разбора: кто бы их ни записал, «изменилось ли» —
+/// сравнение строк.
+fn decode_clock(data: &Compound) -> Result<String, AttachmentError> {
+    match data.get(&JavaString::from(m::CLOCK_FIELD)) {
+        Some(Tag::String(text)) => Ok(m::clock_to_text(&m::clock_from_text(&text.to_string_lossy()))),
+        _ => Err(AttachmentError::Decode),
+    }
+}
+
+/// Часы гена моба (`biolab:gene_clock`, GDD 4.23 п. 10): срок
+/// предохранителей, последняя доза индуктора и вид кассеты. Окну не нужны —
+/// без `sync`; `biolab-deep` о них не знает.
+pub static GENE_CLOCK: AttachmentType<String> = AttachmentType {
+    namespace: m::DATA_NAMESPACE,
+    name: m::CLOCK_DATA,
+    default: String::new,
+    codec: Some(AttachmentCodec {
+        encode: encode_clock,
+        decode: decode_clock,
+    }),
+    copy_on_death: false,
+    sync: false,
+};
+
 /// Гены игрока (`biolab:player_genes`): копия `PlayerState.genes` для окна.
 pub static PLAYER_GENES: AttachmentType<String> = AttachmentType {
     namespace: m::DATA_NAMESPACE,
@@ -140,6 +170,35 @@ pub fn set_genes(game: &mut crate::game::Game<'_>, id: u32, genes: &[(&'static s
         return true;
     }
     GENOME.set(host, holder, text).is_ok()
+}
+
+/// Часы гена моба; пустые — часы не пущены (`GeneClock::default`).
+pub fn clock(game: &mut crate::game::Game<'_>, id: u32) -> m::GeneClock {
+    let host: &mut dyn Host = game;
+    match GENE_CLOCK.get_existing(host, Holder::Entity(id)) {
+        Ok(Some(text)) => m::clock_from_text(&text),
+        _ => m::GeneClock::default(),
+    }
+}
+
+/// Записать часы гена; пустые (`set` и `dose` по нулям, вида нет) — снять
+/// данные. Пишем только если изменилось. Ложь — носителя нет.
+pub fn set_clock(game: &mut crate::game::Game<'_>, id: u32, clock: &m::GeneClock) -> bool {
+    let host: &mut dyn Host = game;
+    let holder = Holder::Entity(id);
+    let now = match GENE_CLOCK.get_existing(&mut *host, holder) {
+        Ok(now) => now,
+        Err(AttachmentError::MissingHolder) => return false,
+        Err(_) => None,
+    };
+    if *clock == m::GeneClock::default() {
+        return now.is_none() || GENE_CLOCK.remove(host, holder).is_ok();
+    }
+    let text = m::clock_to_text(clock);
+    if now.as_deref() == Some(text.as_str()) {
+        return true;
+    }
+    GENE_CLOCK.set(host, holder, text).is_ok()
 }
 
 /// Биты операционной моба; 0 — обычный моб.

@@ -320,12 +320,20 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             items: &items,
             discovered: entries.len() as u32,
             identified: entries.iter().filter(|e| e.identified).count() as u32,
+            // Пары генов (GDD 4.23 п. 5) узнаёт лаборатория мира, а узел
+            // карты загорается у того, кто это видел.
+            pairs: m::known_pair_count(&world),
         };
         // Опыты машин рядом (перегрев, скисшая партия, селекция — GDD 4.23
         // п. 7): очки узлам, сами узлы откроет `research_tick` ниже.
         if let Some(player) = game.native_player() {
             let (dimension, at) = (player.dimension, [player.x, player.y, player.z]);
             for line in m::credit_lab_events(&world, uuid, dimension, at) {
+                crate::game::biolab_say::say(game, &line);
+            }
+            // Новости генетики от машин и тика мира (GDD 4.23 пп. 5, 10):
+            // что сделали пары, кто погас и кто погиб без индуктора.
+            for line in m::take_gene_news(uuid, dimension, at) {
                 crate::game::biolab_say::say(game, &line);
             }
         }

@@ -187,5 +187,6 @@
  "item.biolab.hazmat_respirator": "Respirator",
  "item.biolab.hazmat_suit": "Hazmat Suit",
  "item.biolab.hazmat_pants": "Hazmat Trousers",
- "item.biolab.hazmat_boots": "Hazmat Boots"
+ "item.biolab.hazmat_boots": "Hazmat Boots",
+ "item.biolab.syringe_inductor": "Inducer Syringe"
 }
