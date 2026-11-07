@@ -5591,7 +5591,7 @@ pub struct GeneKind {
     pub side: Option<&'static str>,
 }
 
-pub const GENES: [GeneKind; 41] = [
+pub const GENES: [GeneKind; 50] = [
     GeneKind { name: "gigantism", title: "Гигантизм", cost: 2, about: "крупнее, живучее и сильнее", player: Some("health_boost"), side: Some("slowness") },
     GeneKind { name: "dwarfism", title: "Карликовость", cost: 1, about: "мельче и шустрее, но слабее", player: Some("speed"), side: Some("weakness") },
     GeneKind { name: "hypermetabolism", title: "Гиперметаболизм", cost: 2, about: "быстрее и злее, но хрупче", player: Some("speed"), side: Some("hunger") },
@@ -5634,6 +5634,18 @@ pub const GENES: [GeneKind; 41] = [
     GeneKind { name: "membranes", title: "Перепонки", cost: 2, about: "медленно падает и планирует", player: Some("slow_falling"), side: None },
     // M5 (GDD 4.20): снотворное берёт такого хуже — масса +1 за силу.
     GeneKind { name: "sedation_resistance", title: "Устойчивость к снотворному", cost: 2, about: "снотворное берёт хуже: масса +1 за силу", player: None, side: None },
+    // M9: пропорции (GDD 4.24) — гены формы частей тела: руки, голова, ноги,
+    // корпус, асимметрия. Вид рисует `biolab-deep` (`biolab_proportions`),
+    // числа и поведение — раздел «M9: пропорции» ниже.
+    GeneKind { name: "long_arms", title: "Долгорукость", cost: 2, about: "длинные руки: достаёт издали, но замах реже", player: Some("haste"), side: Some("weakness") },
+    GeneKind { name: "heavy_arms", title: "Тяжёлые руки", cost: 2, about: "толстые руки: бьёт сильнее, ходит медленнее", player: Some("strength"), side: Some("slowness") },
+    GeneKind { name: "macrocephaly", title: "Большеголовость", cost: 1, about: "большая голова: замечает дальше, но сам на виду", player: Some("night_vision"), side: Some("glowing") },
+    GeneKind { name: "microcephaly", title: "Микроцефалия", cost: 1, about: "маленькая голова: замечает хуже, но в неё не попасть", player: Some("resistance"), side: Some("blindness") },
+    GeneKind { name: "short_legs", title: "Коротконогость", cost: 1, about: "короткие ноги: медленнее, но с ног не сбить", player: Some("resistance"), side: Some("slowness") },
+    GeneKind { name: "stilt_legs", title: "Ходульные ноги", cost: 2, about: "длинные ноги: быстрее и прыгает выше, но хрупче", player: Some("jump_boost"), side: Some("weakness") },
+    GeneKind { name: "bloated_torso", title: "Раздутый торс", cost: 2, about: "широкий корпус: живучее, но крупная мишень", player: Some("health_boost"), side: Some("hunger") },
+    GeneKind { name: "sunken_chest", title: "Впалая грудь", cost: 1, about: "узкий корпус: хрупче, но в него трудно попасть", player: Some("speed"), side: Some("weakness") },
+    GeneKind { name: "asymmetry", title: "Асимметрия", cost: 1, about: "правая сторона крупнее левой: ходит боком", player: None, side: None },
 ];
 
 /// Природный предел: сколько генов бывает у мутанта, родившегося в мире, и
@@ -5647,13 +5659,16 @@ pub const STABILITY: i32 = 6;
 /// Гены, которые приживаются в человеке без ванильного эффекта: их действие —
 /// механика хуков (`thorns.rs`, `infection.rs`), а не статус. Для подсказок
 /// и журнала: что ген даёт человеку.
-pub const PLAYER_MECHANICS: [(&str, &str); 5] = [
+pub const PLAYER_MECHANICS: [(&str, &str); 6] = [
     ("dicephaly", "подсвечивает мобов вокруг"),
     ("horns", "удар отбрасывает сильнее"),
     ("tail", "хвост бьёт тех, кто ударил сзади"),
     ("tentacles", "подтягивают предметы с земли"),
     // Вдох газа меньше на четверть за силу (`gas_dose`, `sleep_tick.rs`).
     ("sedation_resistance", "газ снотворного действует слабее"),
+    // M9: пропорции (GDD 4.24): ванильного эффекта у асимметрии нет — она
+    // только видна на модели (F5) и в инвентаре.
+    ("asymmetry", "только вид: правая сторона тела крупнее"),
 ];
 
 /// Что ген-механика даёт человеку; None — у гена ванильный эффект или он
@@ -5671,7 +5686,7 @@ pub fn takes_in_humans(kind: &GeneKind) -> bool {
 /// с нулевой прибавкой, чьё имя и есть ген. Мод их больше не ставит и не
 /// читает — старые миры переносит в данные `biolab-deep` (`data.rs`,
 /// `migrate`). Список остаётся для подсказок и сверки двух бандлов.
-pub const GENE_MARKERS: [&str; 123] = [
+pub const GENE_MARKERS: [&str; 150] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -5795,6 +5810,34 @@ pub const GENE_MARKERS: [&str; 123] = [
     "biolab:gene/sedation_resistance/1",
     "biolab:gene/sedation_resistance/2",
     "biolab:gene/sedation_resistance/3",
+    // M9: пропорции (GDD 4.24)
+    "biolab:gene/long_arms/1",
+    "biolab:gene/long_arms/2",
+    "biolab:gene/long_arms/3",
+    "biolab:gene/heavy_arms/1",
+    "biolab:gene/heavy_arms/2",
+    "biolab:gene/heavy_arms/3",
+    "biolab:gene/macrocephaly/1",
+    "biolab:gene/macrocephaly/2",
+    "biolab:gene/macrocephaly/3",
+    "biolab:gene/microcephaly/1",
+    "biolab:gene/microcephaly/2",
+    "biolab:gene/microcephaly/3",
+    "biolab:gene/short_legs/1",
+    "biolab:gene/short_legs/2",
+    "biolab:gene/short_legs/3",
+    "biolab:gene/stilt_legs/1",
+    "biolab:gene/stilt_legs/2",
+    "biolab:gene/stilt_legs/3",
+    "biolab:gene/bloated_torso/1",
+    "biolab:gene/bloated_torso/2",
+    "biolab:gene/bloated_torso/3",
+    "biolab:gene/sunken_chest/1",
+    "biolab:gene/sunken_chest/2",
+    "biolab:gene/sunken_chest/3",
+    "biolab:gene/asymmetry/1",
+    "biolab:gene/asymmetry/2",
+    "biolab:gene/asymmetry/3",
 ];
 
 /// Ген по имени.
@@ -6785,7 +6828,7 @@ pub fn daylight(day_time: i64) -> bool {
 /// Что ген делает, кроме чисел. Та же таблица, что в `biolab-deep`: обе
 /// собираются из одного описания, а тест ниже следит, чтобы в core не
 /// осталось гена без строки поведения.
-pub const GENE_BEHAVIOUR: [&[&str]; 41] = [
+pub const GENE_BEHAVIOUR: [&[&str]; 50] = [
     &[],
     &[],
     &[],
@@ -6828,6 +6871,18 @@ pub const GENE_BEHAVIOUR: [&[&str]; 41] = [
     &["glide"],
     // Устойчивость к снотворному — только масса (`mob_mass`), поведения нет.
     &[],
+    // M9: пропорции (GDD 4.24). Числа (здоровье, скорость, урон, броня,
+    // отбрасывание, дальность взгляда, прыжок) ставит `biolab-deep`
+    // (`biolab_proportions`); здесь — то, что видно только всем мобам разом.
+    &["long_reach"],
+    &[],
+    &["big_head"],
+    &["small_head"],
+    &[],
+    &["stilts"],
+    &[],
+    &[],
+    &["lopsided"],
 ];
 
 /// Сила поведения в наборе генов; 0 — такого гена нет.
@@ -17304,6 +17359,140 @@ mod dose_tests {
         }
         assert_eq!(sound(Cue::DosimeterClick).map(|s| s.event), Some("biolab:item.dosimeter.click"));
         assert!(!RESERVED_SOUNDS.contains(&"biolab:item.dosimeter.click"));
+    }
+}
+
+// ---- M9: пропорции (GDD 4.24) ----
+//
+// Девять генов формы частей тела (в конце `GENES`). Вид (масштаб частей
+// модели) и числа (прибавки к атрибутам) — в `biolab-deep`
+// (`biolab_proportions`). Здесь — то, что видно только всем мобам разом, в
+// тике мира (`proportions.rs`): дальний удар длинных рук и глаз большой
+// головы, плюс подсказка «у этого вида нет рук» при уколе. Хитбокс моба от
+// генов не меняется — дальность удара считается числом.
+
+/// Гены пропорций в порядке таблицы — тот же список, что в `biolab-deep`
+/// (`PROPORTION_GENES`, `biolab_proportions::GENES`).
+pub const PROPORTION_GENES: [&str; 9] = [
+    "long_arms",
+    "heavy_arms",
+    "macrocephaly",
+    "microcephaly",
+    "short_legs",
+    "stilt_legs",
+    "bloated_torso",
+    "sunken_chest",
+    "asymmetry",
+];
+
+/// Виды с руками (без `minecraft:`) — те же, что `biolab_proportions::ARMED_KINDS`.
+pub const ARMED_KINDS: [&str; 30] = [
+    "player", "zombie", "husk", "drowned", "zombie_villager", "skeleton", "stray",
+    "bogged", "parched", "wither_skeleton", "piglin", "piglin_brute", "zombified_piglin",
+    "enderman", "iron_golem", "snow_golem", "copper_golem", "witch", "villager",
+    "wandering_trader", "pillager", "vindicator", "evoker", "illusioner", "vex", "allay",
+    "creaking", "warden", "giant", "biolab:infected",
+];
+
+/// Виды без ног — те же, что `biolab_proportions::LEGLESS_KINDS`.
+pub const LEGLESS_KINDS: [&str; 26] = [
+    "slime", "magma_cube", "sulfur_cube", "ghast", "happy_ghast", "squid", "glow_squid",
+    "cod", "salmon", "tropical_fish", "pufferfish", "tadpole", "dolphin", "guardian",
+    "elder_guardian", "shulker", "phantom", "bat", "silverfish", "endermite", "blaze",
+    "breeze", "nautilus", "zombie_nautilus", "vex", "allay",
+];
+
+/// Есть ли у вида руки (вид — как его пишет игра, с `minecraft:` или без).
+pub fn kind_has_arms(kind: &str) -> bool {
+    ARMED_KINDS.contains(&kind.strip_prefix("minecraft:").unwrap_or(kind))
+}
+
+/// Есть ли у вида ноги.
+pub fn kind_has_legs(kind: &str) -> bool {
+    !LEGLESS_KINDS.contains(&kind.strip_prefix("minecraft:").unwrap_or(kind))
+}
+
+/// Что сказать после укола гена пропорций виду, у которого такой части нет:
+/// ген прижился, но ничего не делает (GDD 4.24). None — часть есть или ген
+/// не про руки и ноги.
+pub fn proportion_note(kind: &str, gene: &str) -> Option<&'static str> {
+    match gene {
+        "long_arms" | "heavy_arms" if !kind_has_arms(kind) => {
+            Some("У этого вида нет рук: ген прижился, но спит")
+        }
+        "short_legs" | "stilt_legs" if !kind_has_legs(kind) => {
+            Some("У этого вида нет ног: ген прижился, но спит")
+        }
+        _ => None,
+    }
+}
+
+/// Долгорукость: ближе этого бьёт сам ванильный удар — длинной руке
+/// работа начинается дальше (блоки по горизонтали, центр к центру).
+pub const LONG_ARM_FROM: f64 = 1.6;
+/// Долгорукость: докуда дотягивается рука по силе гена (3 / 3,5 / 4 блока).
+pub fn long_arm_reach(strength: i32) -> f64 {
+    MELEE_REACH + 0.5 * f64::from(strength.clamp(1, 3))
+}
+/// Долгорукость: замах длинной руки — раз в 2 с, реже обычного удара (побочка
+/// GDD 4.24: «медленнее замах»). Кратно `BEHAVIOUR_EVERY`.
+pub const LONG_ARM_EVERY: u64 = 40;
+
+/// Большеголовость: в каком радиусе враждебный моб замечает игрока сам
+/// (12 / 16 / 20 блоков) — и сам светится сквозь стены: большая голова
+/// видна издалека, прятаться ей некуда.
+pub fn big_head_radius(strength: i32) -> f64 {
+    8.0 + 4.0 * f64::from(strength.clamp(1, 3))
+}
+/// Сколько тиков держится свечение большой головы (дольше прохода тика мира).
+pub const BIG_HEAD_GLOW_TICKS: i32 = 40;
+
+#[cfg(test)]
+mod proportion_tests {
+    use super::*;
+
+    #[test]
+    fn proportion_genes_close_the_table() {
+        // Дописаны блоком: номера старых генов (сейвы, данные машин) на месте.
+        assert_eq!(gene("sedation_resistance").map(|_| ()), Some(()));
+        for name in PROPORTION_GENES {
+            let kind = gene(name).expect(name);
+            assert!(takes_in_humans(kind), "{name}: на игроке тоже работает (GDD 4.24)");
+            assert!(marker_for(name, 3).is_some());
+            assert!(kind.cost <= 2);
+        }
+        let first = GENES.iter().position(|g| g.name == "long_arms").unwrap();
+        for (i, name) in PROPORTION_GENES.iter().enumerate() {
+            assert_eq!(GENES[first + i].name, *name);
+        }
+        // Асимметрия — только вид, без ванильного эффекта.
+        assert!(gene("asymmetry").unwrap().player.is_none());
+        assert!(player_mechanic("asymmetry").is_some());
+        assert_eq!(behaviour_strength(&[("long_arms", 2)], "long_reach"), 2);
+        assert_eq!(behaviour_strength(&[("macrocephaly", 3)], "big_head"), 3);
+    }
+
+    #[test]
+    fn long_arms_reach_past_the_vanilla_blow() {
+        assert!(LONG_ARM_FROM < MELEE_REACH);
+        assert!(long_arm_reach(1) > MELEE_REACH);
+        assert!(long_arm_reach(3) > long_arm_reach(1));
+        assert_eq!(long_arm_reach(3), 4.0);
+        assert_eq!(LONG_ARM_EVERY % BEHAVIOUR_EVERY, 0, "замах ловится тиком мира");
+        assert!(LONG_ARM_EVERY > 20, "замах реже ванильного удара");
+        assert!(big_head_radius(1) < big_head_radius(3));
+        assert!(big_head_radius(3) < far_sight_radius(1), "многоглазие видит дальше головы");
+        assert!(BIG_HEAD_GLOW_TICKS as u64 > BEHAVIOUR_EVERY);
+    }
+
+    #[test]
+    fn missing_parts_are_named() {
+        assert_eq!(proportion_note("minecraft:cow", "long_arms"), Some("У этого вида нет рук: ген прижился, но спит"));
+        assert_eq!(proportion_note("minecraft:zombie", "long_arms"), None);
+        assert_eq!(proportion_note("slime", "stilt_legs"), Some("У этого вида нет ног: ген прижился, но спит"));
+        assert_eq!(proportion_note("minecraft:cow", "stilt_legs"), None);
+        assert_eq!(proportion_note("minecraft:cow", "macrocephaly"), None, "голова есть у всех");
+        assert!(kind_has_arms("biolab:infected") && kind_has_arms("player"));
     }
 }
 

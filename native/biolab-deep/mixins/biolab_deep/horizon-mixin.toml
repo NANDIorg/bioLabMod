@@ -394,3 +394,28 @@ id = "infected-look"
 file = "crates/horizon-client/src/client_lib.rs"
 name = "biolab_infected_look"
 source = "infected_look.rs"
+
+# ---- M9: пропорции тела (GDD 4.24) ----
+# Масштаб частей модели по генам пропорций и прибавки к атрибутам с учётом
+# того, есть ли у вида руки и ноги. Модуль — в lib-крейте: там поза модели
+# (`anim::Poses`) и мост `biolab_bridge`, который зовёт `apply` и `tick`.
+[[module]]
+id = "proportions"
+file = "crates/horizon-client/src/client_lib.rs"
+name = "biolab_proportions"
+source = "proportions.rs"
+
+# Поза частей по генам пропорций: HEAD на ту же `anim::setup`, что и прятки
+# срезанных конечностей (`surgery-hide-flayed`). Анимация крутит части, но
+# масштаб не перезаписывает (ключевые кадры его прибавляют), так что
+# множители и сдвиг ступней на землю доживают до отрисовки. Сверено с пином
+# `66f3981`: `pub fn setup(m: &Mob, s: &State, p: &mut Poses, w_anims: &HashMap<String, Animation>)`.
+[[injection]]
+id = "proportions-pose"
+kind = "HEAD"
+target = "horizon_client_lib::mobs::anim::setup"
+helper = "proportions_pose.rs"
+bindings = [
+  { name = "m", ty = "&crate::mobs::Mob", value = "&*m" },
+  { name = "p", ty = "&mut crate::mobs::anim::Poses", value = "&mut *p" },
+]

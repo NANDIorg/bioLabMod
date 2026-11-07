@@ -346,3 +346,43 @@ fn core_and_deep_know_the_infected() {
         assert_eq!(biolab_deep::hook_kind(kind), kind);
     }
 }
+
+// ---- M9: пропорции (GDD 4.24) ----
+#[path = "../mixins/biolab_deep/proportions.rs"]
+mod proportions;
+
+/// Гены пропорций и виды с руками и ногами одни и те же в трёх местах:
+/// core (дальний удар, подсказка при уколе), бинарник deep (природный
+/// бросок) и lib (вид, числа). Гены — в конце общей таблицы, по порядку.
+#[test]
+fn proportions_agree_across_bundles() {
+    assert_eq!(biolab_core::PROPORTION_GENES, proportions::GENES);
+    assert_eq!(biolab_deep::PROPORTION_GENES, proportions::GENES);
+    assert_eq!(biolab_core::ARMED_KINDS, proportions::ARMED_KINDS);
+    assert_eq!(biolab_core::LEGLESS_KINDS, proportions::LEGLESS_KINDS);
+    let first = mutants::gene_index("long_arms").expect("long_arms");
+    for (i, name) in proportions::GENES.iter().enumerate() {
+        assert_eq!(mutants::GENE_NAMES[first + i], *name);
+        // Числа пропорций — свои модификаторы (по виду), не общая таблица.
+        assert_eq!(mutants::GENE_STATS[first + i], [0.0; 5], "{name}");
+        assert_eq!(mutants::tint_rgb(&mutants::genome_of(&[(first + i, 3)])), None, "{name}: форма, а не цвет");
+        // Метки поведения — те же, что в core.
+        let core_flags = biolab_core::GENE_BEHAVIOUR[first + i];
+        assert_eq!(mutants::GENE_FLAGS[first + i], core_flags, "{name}");
+    }
+    // Размер всего тела пропорции не меняют: хитбокс тот же (GDD 4.24).
+    let all: Vec<(usize, u8)> = (0..proportions::GENES.len()).map(|i| (first + i, 3)).collect();
+    assert_eq!(mutants::scale(&mutants::genome_of(&all)), 1.0);
+    // Гены, которые core называет «нет рук / нет ног», — те, что lib не
+    // применяет к такому виду.
+    for kind in ["minecraft:cow", "minecraft:slime", "minecraft:zombie", "minecraft:spider", "player"] {
+        for (i, name) in proportions::GENES.iter().enumerate() {
+            let note = biolab_core::proportion_note(kind, name);
+            assert_eq!(note.is_some(), !proportions::works_on(i, kind), "{kind} {name}");
+        }
+    }
+    // Сила гена приходит из генома так же, как её читает отрисовка.
+    let genome = mutants::genome_of(&[(first, 2), (first + 8, 1)]);
+    let st = proportions::strengths(&|name: &str| genome.strength_of(name));
+    assert_eq!(st, [2, 0, 0, 0, 0, 0, 0, 0, 1]);
+}

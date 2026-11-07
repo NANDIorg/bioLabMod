@@ -1403,6 +1403,10 @@ pub fn draw_growths(
                 arm.pose[0] = 0.0;
                 arm.pose[1] = 0.0;
                 arm.pose[2] = 0.0;
+                // M9 (GDD 4.24): третья рука копирует пропорции своей —
+                // длинные руки дают длинную третью (масштаб из позы кадра).
+                let shaped = poses.pose(part);
+                arm.pose[6..9].copy_from_slice(&shaped[6..9]);
                 let mat = body_m * glam::Mat4::from_cols_array(&to_cols(&xf, scale));
                 crate::mobs::render::draw(&arm, mat, &still, uv, tint, light, overlay, out);
             }

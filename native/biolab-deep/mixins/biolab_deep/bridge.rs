@@ -57,6 +57,8 @@ pub fn paralysed(m: &crate::mobs::Mob) -> bool {
 pub fn apply_genome(m: &mut crate::mobs::Mob, genes: &[(usize, u8)], fill: bool) {
     use crate::biolab_mutants as mut_;
     use crate::mobs::finalize::{Attr, Op, add_modifier, has_modifier, modifier_amount, remove_modifier};
+    // M9: пропорции (GDD 4.24) — свои модификаторы, с учётом рук и ног вида.
+    crate::biolab_proportions::apply(m, genes, fill);
     let rows = [
         (Attr::MaxHealth, Op::AddValue),
         (Attr::MovementSpeed, Op::AddMultipliedBase),
@@ -135,4 +137,6 @@ pub fn mutant_tick(m: &mut crate::mobs::Mob, genes: &[(usize, u8)]) {
     if heal > 0.0 && i64::from(m.age) % 20 == 0 {
         m.health = (m.health + heal).min(m.attrs.max_health);
     }
+    // M9: пропорции (GDD 4.24): асимметричный ходит боком.
+    crate::biolab_proportions::tick(m, &genome);
 }
