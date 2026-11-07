@@ -97,8 +97,10 @@ fn decode_clock(data: &Compound) -> Result<String, AttachmentError> {
 }
 
 /// Часы гена моба (`biolab:gene_clock`, GDD 4.23 п. 10): срок
-/// предохранителей, последняя доза индуктора и вид кассеты. Окну не нужны —
-/// без `sync`; `biolab-deep` о них не знает.
+/// предохранителей, последняя доза индуктора и вид кассеты. `sync: true`,
+/// как у генома: с `sync: false` данные в игре не писались — часы не
+/// заводились, и срок не наступал никогда (проверено 07.11.2026).
+/// `biolab-deep` о них не знает.
 pub static GENE_CLOCK: AttachmentType<String> = AttachmentType {
     namespace: m::DATA_NAMESPACE,
     name: m::CLOCK_DATA,
@@ -108,7 +110,7 @@ pub static GENE_CLOCK: AttachmentType<String> = AttachmentType {
         decode: decode_clock,
     }),
     copy_on_death: false,
-    sync: false,
+    sync: true,
 };
 
 /// Гены игрока (`biolab:player_genes`): копия `PlayerState.genes` для окна.
