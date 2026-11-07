@@ -1092,6 +1092,9 @@ id = "proportions-tick"
 kind = "HEAD"
 target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
 helper = "proportions.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
 
 # ---- M9: спецодежда и загрязнение (GDD 4.25, 4.23 п. 13) ----
 # Исполнение на живой игре (`crate::game::biolab_suit`): данные стека

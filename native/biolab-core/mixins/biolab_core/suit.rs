@@ -162,25 +162,54 @@ pub fn tick(game: &mut crate::game::Game<'_>) {
     let mut news: Vec<String> = Vec::new();
 
     // Детали: цвет слоя на теле (`dyed_color` стека) и фильтр респиратора.
-    for slot in 100..=103 {
-        let Some(stack) = game.native_carried_stack(slot) else {
+    // Известный недочёт (07.11.2026): в игре слой на теле остаётся цвета
+    // кожи — ни этот путь, ни прямая правка стека до клиента цвет не
+    // доносят. Защита, рамка маски и вес костюма работают.
+    //
+    // Пишем снаряжение помощником `living_set_equipment` (API 382), а не
+    // прямой правкой стека в `native_carried_stack`: прямая правка видна
+    // только в памяти и до клиента не доходит — слой брони оставался
+    // некрашеным (проверено в игре 07.11.2026). Компонентом данных цвет
+    // тоже не задать: `minecraft:dyed_color` контентный мод не знает
+    // («is not a known component type»), и мод с ним не грузится вовсе.
+    let slots = [
+        (103, horizon_client::mod_api::EquipmentSlot::Head),
+        (102, horizon_client::mod_api::EquipmentSlot::Chest),
+        (101, horizon_client::mod_api::EquipmentSlot::Legs),
+        (100, horizon_client::mod_api::EquipmentSlot::Feet),
+    ];
+    let living = game
+        .player
+        .as_ref()
+        .map(|p| p.entity_id)
+        .and_then(|id| u32::try_from(id).ok())
+        .and_then(|id| game.native_entity(id))
+        .and_then(|e| game.native_living(e));
+    for (slot, equipment) in slots {
+        let Some(mut stack) = game.native_carried_stack(slot).cloned() else {
             continue;
         };
         let Some(piece) = m::suit_piece(&stack.item) else {
             continue;
         };
         let filter = (piece.id == m::RESPIRATOR_ID)
-            .then(|| m::respirator_filter(custom_text(stack, m::SUIT_KEY).as_deref()));
+            .then(|| m::respirator_filter(custom_text(&stack, m::SUIT_KEY).as_deref()));
+        let mut changed = false;
         let data = stack.extra.get_or_insert_with(Default::default);
         if data.dyed_color != Some(piece.colour) {
             data.dyed_color = Some(piece.colour);
+            changed = true;
         }
         if let Some(left) = filter {
             let (next, said) = m::filter_tick(left);
             if next != left {
-                set_custom_text(stack, m::SUIT_KEY, Some(&m::suit_text(next)));
+                set_custom_text(&mut stack, m::SUIT_KEY, Some(&m::suit_text(next)));
+                changed = true;
             }
             news.extend(said.map(str::to_string));
+        }
+        if changed && let Some(living) = living {
+            game.native_living_set_equipment(living, equipment, Some(stack));
         }
     }
 
