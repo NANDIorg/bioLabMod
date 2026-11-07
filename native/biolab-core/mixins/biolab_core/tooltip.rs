@@ -175,6 +175,10 @@ fn biolab_core_tooltip(
         return;
     }
     data_lines(game, stack, lines);
+    // Свежесть образца (GDD 4.23 п. 9): сколько осталось до порчи.
+    for line in crate::game::biolab_lab::freshness_lines(game, stack) {
+        lines.push((horizon_client::text::Text::literal(&line), m::FRESH_INK));
+    }
     for line in m::item_hint(&*stack.item) {
         lines.push((horizon_client::text::Text::literal(&line), m::HINT_INK));
     }

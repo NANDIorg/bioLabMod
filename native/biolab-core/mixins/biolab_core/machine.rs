@@ -285,6 +285,12 @@ fn biolab_core_machine_tick(
         return;
     }
 
+    // Криобанк (GDD 4.23 п. 9): слоты и холод — образцы внутри не портятся.
+    if entity.id == m::CRYOBANK {
+        crate::game::biolab_lab::cryobank_tick(game, entity);
+        return;
+    }
+
     // Порт установки (GDD 4.18): своей работы нет, только слоты — завести их,
     // чтобы воронка могла положить во входной порт и до сборки установки.
     if m::port(&entity.id).is_some() {
@@ -962,6 +968,12 @@ fn biolab_core_machine_tick(
         entity.data[m::DATA_RANGE_MAX] = 0;
         // Перегрев: содержимое пропадает, реактор остывает рывком.
         if temperature > m::OVERHEAT {
+            // Неудача — тоже опыт (GDD 4.23 п. 7): игроки рядом получат очки
+            // узлу «Ослабленная культура»; подробность — что сгорело.
+            if let Some(burnt) = entity.items.get(m::SLOT_INPUT).and_then(|s| s.as_ref()) {
+                let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5];
+                m::note_lab_event(game.dim.id(), at, "reactor_overheat", &burnt.item);
+            }
             for slot in entity.items.iter_mut() {
                 *slot = None;
             }
@@ -1151,6 +1163,12 @@ fn biolab_core_machine_tick(
                 let strain =
                     m::incubated_strain(input.as_ref().map(|stack| &*stack.item), before, seed);
                 let text = m::strain_to_text(&strain);
+                // Селекция — опыт (GDD 4.23 п. 7): новая линия платит полностью,
+                // та же самая — всё меньше. Мазок (первая культура) — не селекция.
+                if before.is_some() && input.as_ref().is_some_and(|s| &*s.item == m::CULTURE_ID) {
+                    let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5];
+                    m::note_lab_event(game.dim.id(), at, "culture_bred", &text);
+                }
                 let data = result.extra.get_or_insert_with(Default::default);
                 data.other.retain(|(key, _)| key != "minecraft:custom_data");
                 data.other.push((

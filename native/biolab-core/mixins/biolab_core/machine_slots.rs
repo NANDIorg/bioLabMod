@@ -25,6 +25,19 @@ fn biolab_core_block_entity_container(
         });
         return;
     }
+    // Криобанк (GDD 4.23 п. 9): ряд слотов, воронки кладут и забирают с
+    // любой стороны; что принимать — `container_slot_accepts` (только образцы).
+    if block == m::CRYOBANK {
+        let all: Vec<usize> = (0..m::CRYOBANK_SLOTS).collect();
+        *container = Some(horizon_client::chunk::block_entity::ModContainer {
+            slots: m::CRYOBANK_SLOTS,
+            faces: std::array::from_fn(|_| all.clone()),
+            inputs: all.clone(),
+            outputs: all,
+            menu: Some(m::CRYOBANK.to_string()),
+        });
+        return;
+    }
     let Some(machine) = m::machine(block) else {
         return;
     };

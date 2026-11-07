@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {"front": "biolab:block/cryobank_front", "side": "biolab:block/cryobank_side", "top": "biolab:block/cryobank_side", "particle": "biolab:block/cryobank_side"}
+}

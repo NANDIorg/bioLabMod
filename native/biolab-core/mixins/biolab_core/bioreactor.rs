@@ -238,6 +238,9 @@ pub fn work(
             if progress > 0 {
                 spend(entity, &take);
                 remember(entity, m::BATCH_SPOILED);
+                // Неудача — тоже опыт (GDD 4.23 п. 7).
+                let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5];
+                m::note_lab_event(&dimension, at, "bioreactor_overheat", "");
                 play(game, m::sound(m::Cue::Overheat), pos);
             }
             return idle(entity);
@@ -306,6 +309,9 @@ pub fn work(
             }
             remember(entity, if sour { m::BATCH_SOUR } else { m::BATCH_DONE });
             if sour {
+                // Скисшая партия учит карантину (GDD 4.23 п. 7).
+                let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5];
+                m::note_lab_event(&dimension, at, "batch_sour", "");
                 play(game, Some(m::BIOREACTOR_SOUR_SOUND), pos);
             }
             entity.data[m::DATA_PROGRESS] = 0;

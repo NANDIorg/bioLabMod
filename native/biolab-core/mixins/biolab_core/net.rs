@@ -4,6 +4,8 @@ fn biolab_core_net_from_server(channel: &str, data: &[u8]) {
     if channel == m::NET_RESEARCH {
         if let Some(mask) = m::research_from_packet(data) {
             m::remember_research(mask);
+            // Хвост пакета — прогресс очков узлов (GDD 4.23 п. 7).
+            m::remember_research_progress(m::research_progress_from_packet(data));
         }
         return;
     }

@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 112] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 114] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -126,9 +126,9 @@ pub const ITEM_HINTS: [(&str, &[&str]); 112] = [
     ("biolab:column_tray", &["Секция колонны: одна тарелка — одна фракция"]),
     ("biolab:column_condenser", &["Вершина колонны, над тарелками"]),
     // Карантинная камера (GDD 4.18 п. 4).
-    ("biolab:quarantine", &["Фильтр чистой комнаты: ставится в её стену", "Внутри камеры нельзя заразиться"]),
+    ("biolab:quarantine", &["Фильтр чистой комнаты: ставится в её стену", "Экран: герметичность камеры в процентах"]),
     ("biolab:clean_panel", &["Стены, пол и потолок карантинной камеры"]),
-    ("biolab:filter_cartridge", &["Расходник фильтра камеры: ~20 минут", "Без патрона камера не держит"]),
+    ("biolab:filter_cartridge", &["Расходник фильтра камеры: ~20 минут", "Без патрона камера течёт"]),
     // Химия.
     ("biolab:flask", &["Центрифуга разложит, спектрометр опознает"]),
     ("biolab:blueprint", &["В синтезаторе задаёт состав, не тратится"]),
@@ -229,6 +229,9 @@ pub const ITEM_HINTS: [(&str, &[&str]); 112] = [
     ("biolab:antisense_vector", &["ПКМ по мобу — удалить этот ген", "ПКМ в воздух — удалить у себя"]),
     // Биореактор (GDD 4.18, п. 2).
     ("biolab:bioreactor", &["Середина стенки куба 3×3×3, огонь под днищем", "Партия до 8: рецепты ферментера и инкубатора"]),
+    // Криобанк и термобокс (GDD 4.23 п. 9).
+    ("biolab:cryobank", &["Холодильник образцов: внутри не портятся", "Культуры, фрагменты, ткань, векторы"]),
+    ("biolab:thermobox", &["В инвентаре образцы портятся вчетверо медленнее", "Для похода с культурами и фрагментами"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -290,6 +293,8 @@ pub struct PlayerState {
     pub manual: bool,
     /// Изученные узлы карты исследований: бит на узел `RESEARCH`.
     pub research: u128,
+    /// Очки знания узлов и счёт повторов опытов (GDD 4.23 п. 7, «M9: лаборатория»).
+    pub lab: LabProgress,
 }
 
 // `Default` для массивов длиннее 32 сам не выводится, а генов теперь 40.
@@ -306,6 +311,7 @@ impl Default for PlayerState {
             strain: [0; 4],
             manual: false,
             research: 0,
+            lab: LabProgress::default(),
         }
     }
 }
@@ -331,6 +337,7 @@ pub fn state_to_text(s: &PlayerState) -> String {
     if s.research != 0 {
         text.push_str(&format!("research={}\n", research_to_text(s.research)));
     }
+    text.push_str(&lab_to_text(&s.lab));
     // Вещества пишем по имени, а не по номеру: новая версия мода может
     // переставить таблицу, и старый файл всё равно прочитается.
     if s.strain[0] > 0 {
@@ -391,6 +398,10 @@ pub fn state_from_text(text: &str) -> PlayerState {
                 }
             }
             key => {
+                // Очки знания (GDD 4.23 п. 7): `research_points`, `research_repeats`.
+                if lab_from_line(&mut s.lab, key, value) {
+                    continue;
+                }
                 // `drug.<имя>=...`: незнакомое вещество пропускаем молча.
                 if let Some(id) = key.strip_prefix("gene.") {
                     // `gene.<имя>=<сила>`: незнакомый ген пропускаем молча.
@@ -1069,6 +1080,10 @@ pub fn hopper_accepts(machine: &Machine, item: &str) -> bool {
 /// Правило слота своего меню машины: None — меню не наше (решает чужой мод
 /// или игра), иначе можно ли положить предмет.
 pub fn menu_slot_rule(menu: &str, slot: usize, item: &str) -> Option<bool> {
+    // Криобанк (GDD 4.23 п. 9) — не машина: берёт только образцы.
+    if menu == CRYOBANK {
+        return Some(slot < CRYOBANK_SLOTS && cryobank_accepts(item));
+    }
     machine_of_menu(menu).map(|machine| slot_accepts(machine, slot, item))
 }
 
@@ -1420,8 +1435,11 @@ mod automation_tests {
             let results = json.get("results").and_then(Json::arr).map_or(0, |r| r.len());
             assert_eq!(results, if p.kind == PortKind::Output { PORT_SLOTS } else { 0 }, "{name}");
         }
+        // Криобанк (GDD 4.23 п. 9): девять слотов, выходов нет.
+        let cryo = Json::parse(&std::fs::read_to_string(dir.join("cryobank.json")).expect("нет меню криобанка")).unwrap();
+        assert_eq!(cryo.get("slots").and_then(Json::num), Some(CRYOBANK_SLOTS as f64));
         let files = std::fs::read_dir(&dir).unwrap().count();
-        assert_eq!(files, MACHINES.len() + PORTS.len(), "лишний тип меню");
+        assert_eq!(files, MACHINES.len() + PORTS.len() + 1, "лишний тип меню");
     }
 
     #[test]
@@ -7360,6 +7378,8 @@ mod tests {
             CO2_CANISTER_ID,
             // Фильтрующий патрон карантинной камеры: износ — прочность предмета.
             FILTER_CARTRIDGE,
+            // Термобокс (GDD 4.23 п. 9): один на поход, стопка ему ни к чему.
+            THERMOBOX,
         ];
         let mut checked = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -10249,7 +10269,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 67] = [
+pub const RESEARCH: [Research; 68] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10340,6 +10360,9 @@ pub const RESEARCH: [Research; 67] = [
     // Карантинная камера — микробиология, после штамма: она нужна, когда
     // штамм выведен тяжёлым.
     node("quarantine", 2, (3, 0), "biolab:quarantine", "Карантинная камера", &["strain"], Unlock::Item(&["biolab:quarantine", "biolab:clean_panel", "biolab:filter_cartridge"]), "Сделайте фильтр: корпус, решётки, шерсть."),
+    // Криобанк (GDD 4.23 п. 9) — микробиология, под культурой: её первой и
+    // надо беречь.
+    node("cryobank", 2, (1, 2), "biolab:cryobank", "Криобанк", &["culture"], Unlock::Item(&["biolab:cryobank", "biolab:thermobox"]), "Сделайте криобанк: железо, лёд, сундук."),
 ];
 
 /// Номер узла по id.
@@ -10401,7 +10424,8 @@ pub fn research_tick(
         return (0, Vec::new());
     };
     let state = table.entry((world.to_path_buf(), uuid)).or_default();
-    let fresh = research_now(state, facts) & !state.research;
+    // Узел открывает и его условие, и набранный порог очков (GDD 4.23 п. 7).
+    let fresh = (research_now(state, facts) | points_mask(&state.lab)) & !state.research;
     if fresh != 0 {
         state.research |= fresh;
         let path = state_path(world, uuid);
@@ -12097,6 +12121,9 @@ pub fn shown_analyzer_scan() -> Option<std::collections::HashMap<u32, AnalyzerSe
 /// (`native_container_accepts`): None — блок-сущность не наша машина (решает
 /// не мод), иначе — берёт ли слот предмет. Правило то же, что у меню.
 pub fn container_slot_accepts(entity: &str, slot: usize, item: &str) -> Option<bool> {
+    if entity == CRYOBANK {
+        return Some(slot < CRYOBANK_SLOTS && cryobank_accepts(item));
+    }
     machine(entity).map(|machine| slot_accepts(machine, slot, item))
 }
 
@@ -12776,7 +12803,7 @@ pub fn port_faces(port: &Port) -> ([Vec<usize>; 6], Vec<usize>, Vec<usize>) {
 
 /// Нужна ли блоку блок-сущность мода: машинам, грядке и портам.
 pub fn has_block_entity(id: &str) -> bool {
-    is_machine(id) || id == GM_PLOT || port(id).is_some()
+    is_machine(id) || id == GM_PLOT || port(id).is_some() || id == CRYOBANK
 }
 
 /// Куда смотрит лицо контроллера (`facing` шаблона печи: сторона, где лицо).
@@ -15460,6 +15487,11 @@ mod bioreactor_tests {
 // сразу после загрузки). Реестр — в копии `runtime.rs` игрового крейта
 // (`crate::game::biolab_core`): звать из хуков игры, не из lib-копии.
 //
+// *С M9* (GDD 4.23 п. 11, раздел «M9: лаборатория») камера не «держит/нет»:
+// проверка — `seal_room` (пробоины до `MAX_HOLES`, дверь без шлюза и без
+// шлюза вовсе — не отказ, а множитель), в реестре — доля утечки камеры,
+// собранной даже без патрона; `in_quarantine` с этой долей отвечает «нет».
+//
 // *Утечка.* Машина, которая работает (лампа горит) с культурой тяжёлого
 // штамма (тяжесть 4–5) во входе вне камеры, раз в `LEAK_EVERY` тиков
 // заражает скот рядом и отмечает утечку; игрок в радиусе получает штамм на
@@ -15582,6 +15614,8 @@ fn span(min: [i32; 3], max: [i32; 3]) -> [i32; 3] {
 struct Survey<'a> {
     at: BlockAt<'a>,
     seen: std::collections::HashMap<[i32; 3], RoomBlock>,
+    /// Где оболочка — стекло установки (герметичность, «M9: лаборатория»).
+    glass: std::collections::HashSet<[i32; 3]>,
 }
 
 impl Survey<'_> {
@@ -15589,7 +15623,11 @@ impl Survey<'_> {
         if let Some(b) = self.seen.get(&p) {
             return *b;
         }
-        let b = room_block(&(self.at)(p));
+        let id = (self.at)(p);
+        let b = room_block(&id);
+        if id == CASING_GLASS {
+            self.glass.insert(p);
+        }
         self.seen.insert(p, b);
         b
     }
@@ -15720,8 +15758,18 @@ fn door_base(survey: &mut Survey, mut p: [i32; 3]) -> [i32; 3] {
 }
 
 /// Шлюзы закрытой комнаты: сколько дверей ведут в шлюз, или дверь прямо
-/// наружу.
+/// наружу (первая по обходу).
 fn room_airlocks(survey: &mut Survey, cells: &[[i32; 3]], room: &std::collections::HashSet<[i32; 3]>) -> Result<u32, [i32; 3]> {
+    let (locks, open) = room_doors(survey, cells, room);
+    match open.first() {
+        Some(door) => Err(*door),
+        None => Ok(locks),
+    }
+}
+
+/// Двери закрытой комнаты: сколько ведут в шлюз и какие — прямо наружу
+/// (нижние клетки, по порядку обхода).
+fn room_doors(survey: &mut Survey, cells: &[[i32; 3]], room: &std::collections::HashSet<[i32; 3]>) -> (u32, Vec<[i32; 3]>) {
     let mut doors: Vec<([i32; 3], [i32; 3])> = Vec::new();
     for &c in cells {
         for d in ROOM_SIDES {
@@ -15732,6 +15780,7 @@ fn room_airlocks(survey: &mut Survey, cells: &[[i32; 3]], room: &std::collection
         }
     }
     let mut locks: Vec<[i32; 3]> = Vec::new();
+    let mut open: Vec<[i32; 3]> = Vec::new();
     for (door, d) in doors {
         let beyond = add3(door, d);
         if room.contains(&beyond) {
@@ -15748,7 +15797,11 @@ fn room_airlocks(survey: &mut Survey, cells: &[[i32; 3]], room: &std::collection
             RoomBlock::Open => {
                 let hall = flood(survey, beyond, Bound::Span(VESTIBULE_MAX), room);
                 if hall.breach.is_some() {
-                    return Err(door_base(survey, door));
+                    let base = door_base(survey, door);
+                    if !open.contains(&base) {
+                        open.push(base);
+                    }
+                    continue;
                 }
                 let own = door_base(survey, door);
                 let mut exit = false;
@@ -15772,7 +15825,7 @@ fn room_airlocks(survey: &mut Survey, cells: &[[i32; 3]], room: &std::collection
             locks.push(base);
         }
     }
-    Ok(locks.len() as u32)
+    (locks.len() as u32, open)
 }
 
 /// Заливка закрылась: размер и шлюзы.
@@ -15794,7 +15847,7 @@ fn finish_room(survey: &mut Survey, f: Flood) -> Result<Room, RoomFault> {
 /// перед лицом фильтра, потом за ним; закрылась одна — это комната. Не
 /// закрылась ни одна — дыра той, где её нашла пробка (иначе — перед лицом).
 pub fn check_room(site: Site, at: BlockAt) -> Result<Room, RoomFault> {
-    let mut survey = Survey { at, seen: std::collections::HashMap::new() };
+    let mut survey = Survey { at, seen: std::collections::HashMap::new(), glass: std::collections::HashSet::new() };
     let front = place(site.origin, site.facing, [0, 0, -1]);
     let back = place(site.origin, site.facing, [0, 0, 1]);
     let mut holes: Vec<(bool, [i32; 3])> = Vec::new();
@@ -15830,17 +15883,19 @@ pub fn room_verdict(result: &Result<Room, RoomFault>) -> Verdict {
 /// Последние проверки камер по месту фильтра: их подробности (клетки,
 /// точка дыры) в `Verdict` не помещаются. Кладёт `quarantine_check`, сразу
 /// забирает работа фильтра в том же тике (`take_room_check`).
-type RoomChecks = std::collections::HashMap<[i32; 3], Result<Room, RoomFault>>;
+type RoomChecks = std::collections::HashMap<[i32; 3], Result<Sealed, RoomFault>>;
 
 fn room_checks() -> &'static std::sync::Mutex<RoomChecks> {
     static CHECKS: std::sync::OnceLock<std::sync::Mutex<RoomChecks>> = std::sync::OnceLock::new();
     CHECKS.get_or_init(Default::default)
 }
 
-/// Проверка камеры для `Check::Custom`.
+/// Проверка камеры для `Check::Custom`. С M9 пробоины, дверь без шлюза и
+/// отсутствие шлюза камеру не рушат, а делают её негерметичной
+/// (`seal_room`, раздел «M9: лаборатория»).
 pub fn quarantine_check(_mb: &Multiblock, site: Site, at: BlockAt) -> Verdict {
-    let result = check_room(site, at);
-    let verdict = room_verdict(&result);
+    let result = seal_room(site, at);
+    let verdict = seal_verdict(&result);
     if let Ok(mut checks) = room_checks().lock() {
         checks.insert(site.origin, result);
     }
@@ -15849,7 +15904,7 @@ pub fn quarantine_check(_mb: &Multiblock, site: Site, at: BlockAt) -> Verdict {
 
 /// Подробности проверки камеры, сделанной в этом тике; None — проверки не
 /// было.
-pub fn take_room_check(origin: [i32; 3]) -> Option<Result<Room, RoomFault>> {
+pub fn take_room_check(origin: [i32; 3]) -> Option<Result<Sealed, RoomFault>> {
     room_checks().lock().ok()?.remove(&origin)
 }
 
@@ -15906,7 +15961,14 @@ pub const DATA_QR_SIZE: usize = DATA_QR_SPOT + 6;
 pub const DATA_QR_FILTER: usize = DATA_QR_SIZE + 3;
 /// Держит ли камера сейчас: 1 — да.
 pub const DATA_QR_HOLDS: usize = DATA_QR_FILTER + 1;
-pub const DATA_QR_END: usize = DATA_QR_HOLDS + 1;
+/// Герметичность, % (GDD 4.23 п. 11, «M9: лаборатория»).
+pub const DATA_QR_SEAL: usize = DATA_QR_HOLDS + 1;
+/// Пробоин, дверей без шлюза, доля стекла в оболочке (%), шлюзов.
+pub const DATA_QR_HOLES: usize = DATA_QR_SEAL + 1;
+pub const DATA_QR_DOORS: usize = DATA_QR_HOLES + 1;
+pub const DATA_QR_GLASS: usize = DATA_QR_DOORS + 1;
+pub const DATA_QR_LOCKS: usize = DATA_QR_GLASS + 1;
+pub const DATA_QR_END: usize = DATA_QR_LOCKS + 1;
 
 /// Координата двумя 16-битными числами — какими их увидит экран.
 pub fn split_coord(v: i32) -> [i32; 2] {
@@ -15919,21 +15981,44 @@ pub fn join_coord(hi: i32, lo: i32) -> i32 {
 
 /// Записать подробности проверки в числа экрана (`data` длиной не меньше
 /// `DATA_QR_END`).
-pub fn write_room(data: &mut [i32], result: &Result<Room, RoomFault>) {
+pub fn write_room(data: &mut [i32], result: &Result<Sealed, RoomFault>) {
     if data.len() < DATA_QR_END {
         return;
     }
+    // Собранная негерметичная камера показывает первую пробоину, а нет —
+    // первую дверь без шлюза.
     let (spot, size) = match result {
-        Ok(room) => ([0; 3], room.size()),
+        Ok(s) => (s.holes.first().or(s.open_doors.first()).copied().unwrap_or([0; 3]), s.room.size()),
         Err(RoomFault::TooBig(size)) => ([0; 3], *size),
         Err(fault) => (fault.spot(), [0; 3]),
     };
+    let (holes, doors, glass, locks) = match result {
+        Ok(s) => (
+            s.holes.len() as i32,
+            s.open_doors.len() as i32,
+            if s.shell == 0 { 0 } else { (s.glass * 100 / s.shell) as i32 },
+            s.room.airlocks as i32,
+        ),
+        Err(_) => (0, 0, 0, 0),
+    };
+    data[DATA_QR_HOLES] = holes;
+    data[DATA_QR_DOORS] = doors;
+    data[DATA_QR_GLASS] = glass;
+    data[DATA_QR_LOCKS] = locks;
     for i in 0..3 {
         let [hi, lo] = split_coord(spot[i]);
         data[DATA_QR_SPOT + 2 * i] = hi;
         data[DATA_QR_SPOT + 2 * i + 1] = lo;
         data[DATA_QR_SIZE + i] = size[i];
     }
+}
+
+/// Записать герметичность в числа экрана.
+pub fn write_seal(data: &mut [i32], f: &SealFactors) {
+    if data.len() < DATA_QR_END {
+        return;
+    }
+    data[DATA_QR_SEAL] = seal_percent(f);
 }
 
 /// Записать патрон и «держит ли» в числа экрана.
@@ -15988,7 +16073,7 @@ pub fn quarantine_fault_hint(need: usize) -> &'static str {
 /// Строка о патроне.
 pub fn filter_line(data: &[i32]) -> String {
     match screen_datum(data, DATA_QR_FILTER, -1) {
-        p if p < 0 => "Нет патрона: камера не держит".to_string(),
+        p if p < 0 => "Нет патрона: камера течёт".to_string(),
         p => format!("Патрон: {p}%"),
     }
 }
@@ -16012,10 +16097,15 @@ pub fn quarantine_board(data: &[i32]) -> QuarantineBoard {
         }
         MultiblockShown::Formed { sections, .. } => {
             let room = format!("Комната {}, {sections} {}", size_text(room_size(data)), plural(sections, "клетка", "клетки", "клеток"));
+            let seal = format!("Герметичность {}%", screen_datum(data, DATA_QR_SEAL, 100));
             if screen_datum(data, DATA_QR_HOLDS, 0) > 0 {
-                QuarantineBoard { head: "Камера держит", ink: BOARD_GREEN, lines: vec![room, filter_line(data)] }
+                QuarantineBoard { head: "Камера держит", ink: BOARD_GREEN, lines: vec![room, seal, filter_line(data)] }
             } else {
-                QuarantineBoard { head: "Не держит", ink: BOARD_AMBER, lines: vec![filter_line(data), room] }
+                // Подтекает (GDD 4.23 п. 11): работает, но не герметична.
+                let mut lines = vec![seal];
+                lines.extend(leak_reason(data));
+                lines.push(filter_line(data));
+                QuarantineBoard { head: "Подтекает", ink: BOARD_AMBER, lines }
             }
         }
         MultiblockShown::Broken { rows, .. } => QuarantineBoard {
@@ -16043,10 +16133,17 @@ pub fn quarantine_tooltip(data: &[i32]) -> Vec<String> {
         }
         MultiblockShown::Formed { .. } => {
             lines.extend(board.lines);
+            lines.extend(seal_lines(data));
             if screen_datum(data, DATA_QR_HOLDS, 0) > 0 {
-                lines.push("§7Внутри нельзя заразиться".to_string());
-            } else {
+                lines.push("§7Внутри почти нельзя заразиться".to_string());
+            } else if screen_datum(data, DATA_QR_HOLES, 0) > 0 {
+                lines.push(format!("§7{}", quarantine_fault_hint(0)));
+            } else if screen_datum(data, DATA_QR_DOORS, 0) > 0 {
+                lines.push(format!("§7{}", quarantine_fault_hint(3)));
+            } else if screen_datum(data, DATA_QR_FILTER, -1) < 0 {
                 lines.push("§7Вставьте фильтрующий патрон: уголь и шерсть".to_string());
+            } else {
+                lines.push("§7Смените патрон или замените стекло панелями".to_string());
             }
         }
         MultiblockShown::Unknown => {}
@@ -16071,6 +16168,8 @@ struct HeldRoom {
     max: [i32; 3],
     cells: std::collections::HashSet<[i32; 3]>,
     seen: u64,
+    /// Доля утечки камеры 0–1 (GDD 4.23 п. 11).
+    leak: f32,
 }
 
 /// Реестр держащих камер. Время — миллисекунды монотонных часов (`now`),
@@ -16082,7 +16181,7 @@ pub struct QuarantineRooms {
 
 impl QuarantineRooms {
     /// Камера фильтра `filter` держит комнату `room` (после проверки).
-    pub fn hold(&mut self, dimension: &str, filter: [i32; 3], room: &Room, now: u64) {
+    pub fn hold(&mut self, dimension: &str, filter: [i32; 3], room: &Room, leak: f32, now: u64) {
         self.rooms.retain(|r| !(r.dimension == dimension && r.filter == filter) && now.saturating_sub(r.seen) < 12 * ROOM_STALE_MS);
         self.rooms.push(HeldRoom {
             dimension: dimension.to_string(),
@@ -16091,6 +16190,7 @@ impl QuarantineRooms {
             max: room.max,
             cells: room.cells.iter().copied().collect(),
             seen: now,
+            leak: leak.clamp(0.0, 1.0),
         });
     }
 
@@ -16111,14 +16211,24 @@ impl QuarantineRooms {
         self.rooms.retain(|r| !(r.dimension == dimension && r.filter == filter));
     }
 
-    /// Точка внутри держащей камеры.
+    /// Точка внутри собранной камеры (любой герметичности).
     pub fn contains(&self, dimension: &str, pos: [i32; 3], now: u64) -> bool {
-        self.rooms.iter().any(|r| {
-            r.dimension == dimension
-                && now.saturating_sub(r.seen) < ROOM_STALE_MS
-                && (0..3).all(|i| r.min[i] <= pos[i] && pos[i] <= r.max[i])
-                && r.cells.contains(&pos)
-        })
+        self.rooms.iter().any(|r| r.has(dimension, pos, now))
+    }
+
+    /// Доля утечки в точке: самая герметичная камера, где она лежит; вне
+    /// камер — 1.
+    pub fn leak_at(&self, dimension: &str, pos: [i32; 3], now: u64) -> f32 {
+        self.rooms.iter().filter(|r| r.has(dimension, pos, now)).map(|r| r.leak).fold(1.0, f32::min)
+    }
+}
+
+impl HeldRoom {
+    fn has(&self, dimension: &str, pos: [i32; 3], now: u64) -> bool {
+        self.dimension == dimension
+            && now.saturating_sub(self.seen) < ROOM_STALE_MS
+            && (0..3).all(|i| self.min[i] <= pos[i] && pos[i] <= self.max[i])
+            && self.cells.contains(&pos)
     }
 }
 
@@ -16133,10 +16243,11 @@ fn quarantine_clock() -> u64 {
     START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64
 }
 
-/// Фильтр в `filter` держит комнату `room` (после проверки).
-pub fn hold_room(dimension: &str, filter: [i32; 3], room: &Room) {
+/// Фильтр в `filter` держит комнату `room` (после проверки) с долей утечки
+/// `leak`.
+pub fn hold_room(dimension: &str, filter: [i32; 3], room: &Room, leak: f32) {
     if let Ok(mut rooms) = quarantine_rooms().lock() {
-        rooms.hold(dimension, filter, room, quarantine_clock());
+        rooms.hold(dimension, filter, room, leak, quarantine_clock());
     }
 }
 
@@ -16479,12 +16590,18 @@ mod quarantine_tests {
         assert_eq!(data.len(), DATA_QR_END);
         write_verdict(&mut data, &verdict);
         write_room(&mut data, &detail);
+        let sealed = detail.as_ref().expect("камера");
+        write_seal(&mut data, &seal_factors(sealed, Some(96)));
         write_filter(&mut data, Some(96), true);
         let board = quarantine_board(&data);
         assert_eq!(board.head, "Камера держит");
-        assert_eq!(board.lines, vec!["Комната 5×3×5, 75 клеток", "Патрон: 80%"]);
+        assert_eq!(board.lines, vec!["Комната 5×3×5, 75 клеток", "Герметичность 98%", "Патрон: 80%"]);
+        // Без патрона камера собрана, но течёт (GDD 4.23 п. 11).
+        write_seal(&mut data, &seal_factors(sealed, None));
         write_filter(&mut data, None, false);
-        assert_eq!(quarantine_board(&data).lines[0], "Нет патрона: камера не держит");
+        let board = quarantine_board(&data);
+        assert_eq!(board.head, "Подтекает");
+        assert_eq!(board.lines, vec!["Герметичность 20%", "Нет патрона: камера течёт"]);
 
         // Дыра далеко от нуля — координаты доходят до экрана целыми.
         let far = [-1_234_567, 70, 2_000_001];
@@ -16495,14 +16612,28 @@ mod quarantine_tests {
         w.remove(&hole);
         let verdict = check_multiblock(mb, site, &reader(&w));
         write_verdict(&mut data, &verdict);
-        write_room(&mut data, &take_room_check(site.origin).unwrap());
+        let detail = take_room_check(site.origin).unwrap();
+        write_room(&mut data, &detail);
+        write_seal(&mut data, &seal_factors(detail.as_ref().expect("с пробоиной — собрана"), Some(FILTER_DURABILITY)));
+        write_filter(&mut data, Some(FILTER_DURABILITY), false);
         // Экран получает числа 16-битными.
         let wire: Vec<i32> = data.iter().map(|v| *v as i16 as i32).collect();
         let board = quarantine_board(&wire);
-        assert_eq!(board.head, "Не закрыта");
-        assert_eq!(board.lines, vec![format!("Дыра в стене: {} {} {}", hole[0], hole[1], hole[2])]);
+        assert_eq!(board.head, "Подтекает");
+        assert_eq!(board.lines[1], format!("Пробоина: {} {} {}", hole[0], hole[1], hole[2]));
         let tip = quarantine_tooltip(&wire);
         assert!(tip.iter().any(|l| l.contains("чистой панелью")), "{tip:?}");
+        // Дыр больше, чем камера терпит, — «Не закрыта», как раньше.
+        for d in [[-3, 1, 0], [0, 1, -3], [0, -1, 0], [0, 3, 0], [-3, 0, 1]] {
+            w.remove(&add3(far, d));
+        }
+        let verdict = check_multiblock(mb, site, &reader(&w));
+        write_verdict(&mut data, &verdict);
+        write_room(&mut data, &take_room_check(site.origin).unwrap());
+        let wire: Vec<i32> = data.iter().map(|v| *v as i16 as i32).collect();
+        let board = quarantine_board(&wire);
+        assert_eq!(board.head, "Не закрыта");
+        assert!(board.lines[0].starts_with("Дыра в стене: "), "{:?}", board.lines);
         for v in [0, 1, -1, 65_535, 65_536, -65_536, 29_999_999, -29_999_999] {
             let [hi, lo] = split_coord(v);
             assert_eq!(join_coord(hi as i16 as i32, lo as i16 as i32), v, "{v}");
@@ -16552,7 +16683,7 @@ mod quarantine_tests {
         let mut rooms = QuarantineRooms::default();
         let ow = "minecraft:overworld";
         assert!(!rooms.contains(ow, [2, 64, 2], 0));
-        rooms.hold(ow, FILTER.origin, &room, 1_000);
+        rooms.hold(ow, FILTER.origin, &room, 0.0, 1_000);
         assert!(rooms.contains(ow, [2, 64, 2], 1_500));
         assert!(!rooms.contains("minecraft:the_nether", [2, 64, 2], 1_500), "другое измерение");
         assert!(!rooms.contains(ow, [-1, 64, 2], 1_500), "дверь — не комната");
@@ -17496,6 +17627,1195 @@ mod proportion_tests {
     }
 }
 
+// ---- M9: лаборатория (GDD 4.23 п. 7, 9, 11) ----
+//
+// Три куска, у каждого чистые правила здесь и исполнение в `lab.rs`
+// (`crate::game::biolab_lab`):
+// - *Очки знания* (п. 7): узел карты открывается не только своим условием
+//   («главный опыт» — как раньше, сразу), но и очками от побочных опытов и
+//   провалов: перегрев реактора, скисшая партия, сорванный курс. Повтор того
+//   же опыта платит меньше: 1 → 0,5 → 0,25 → 0,1 от базы. Очки и счёт
+//   повторов живут в состоянии игрока рядом с маской изученного (`LabProgress`
+//   в `PlayerState`), клиенту уходят процентами в хвосте пакета
+//   `biolab_core:research`.
+// - *Криобанк* (п. 9): образцы (культура, фрагмент ДНК, ткань, векторы) вне
+//   холода портятся по игровым часам — у стака срок `SPOIL_KEY` (игровое
+//   время следующей ступени порчи). Криобанк сдвигает срок вперёд, пока
+//   образец лежит в нём, термобокс в инвентаре — на три четверти.
+// - *Герметичность числом* (п. 11): карантинная камера — не «держит/нет», а
+//   произведение множителей (стены, двери, фильтр, пробоины). Комната с
+//   пробоинами до `MAX_HOLES` собирается и подтекает: `quarantine_leak`
+//   отдаёт долю утечки в точке, `in_quarantine` — «защищает ли сейчас»,
+//   с этой долей вероятности не защищает.
+
+// == Очки знания (GDD 4.23 п. 7) ==
+
+/// Сколько очков нужно узлу, чтобы открыться. Главный опыт узла (его
+/// условие в `RESEARCH`) даёт сразу всё — узел открывается как раньше.
+pub const RESEARCH_THRESHOLD: u32 = 100;
+/// Доля базы за повтор того же опыта, процентов: первый раз, второй,
+/// третий, дальше (13-BALANCE §8 у друга).
+pub const REPEAT_SHARE: [u32; 4] = [100, 50, 25, 10];
+
+/// Очков за опыт, который делают в `times`-й раз (0 — впервые).
+pub fn repeat_points(base: u32, times: u32) -> u32 {
+    base * REPEAT_SHARE[(times as usize).min(REPEAT_SHARE.len() - 1)] / 100
+}
+
+/// Опыт, который приносит узлу очки.
+pub struct Experiment {
+    pub id: &'static str,
+    /// Узел, которому идут очки.
+    pub node: &'static str,
+    /// Очков за первый раз.
+    pub base: u32,
+    /// Неудача: «это тоже знание».
+    pub failure: bool,
+    pub title: &'static str,
+}
+
+/// Побочные опыты и провалы. Узел — тот, чья запись объясняет, как сделать
+/// правильно: перегрев учит окну температур ослабления, скисание —
+/// карантину, сорванный курс — сыворотке. «Тот же опыт» — тот же id и та же
+/// подробность (что сгорело, какой штамм), поэтому разные культуры платят
+/// полностью, а одна и та же — всё меньше.
+pub const EXPERIMENTS: [Experiment; 6] = [
+    Experiment { id: "reactor_overheat", node: "weakened", base: 40, failure: true, title: "Перегрев реактора" },
+    Experiment { id: "bioreactor_overheat", node: "weakened", base: 30, failure: true, title: "Перегрев биореактора" },
+    Experiment { id: "batch_sour", node: "quarantine", base: 50, failure: true, title: "Скисшая партия" },
+    Experiment { id: "course_broken", node: "remedy", base: 50, failure: true, title: "Сорванный курс лечения" },
+    // Нежизнеспособный мутант (конфликт генов, 4.23 п. 5) — источник ставит
+    // агент «логика генов» (`note_lab_event` / `research_credit`).
+    Experiment { id: "mutant_died", node: "sequencer", base: 40, failure: true, title: "Нежизнеспособный мутант" },
+    // Успех тоже повторяется: каждая новая линия культуры — знание о
+    // штаммах, а прогон той же самой — почти ничего.
+    Experiment { id: "culture_bred", node: "strain", base: 25, failure: false, title: "Селекция культуры" },
+];
+
+pub fn experiment_index(id: &str) -> Option<usize> {
+    EXPERIMENTS.iter().position(|e| e.id == id)
+}
+
+/// Сколько разных опытов помнит игрок для затухания; дальше вытесняется
+/// самый редкий (он и платит меньше всего).
+pub const REPEAT_SLOTS: usize = 64;
+/// Узлов, для которых хранятся очки: по биту маски.
+pub const POINT_SLOTS: usize = 128;
+
+/// Очки узлов и счёт повторов опытов. Лежит в `PlayerState` (он `Copy`,
+/// поэтому массивы): очки — по номеру узла, повтор — `ключ << 8 | раз`,
+/// ключ — 24 бита от «опыт + подробность», 0 — пусто. В файле — по id
+/// узла и шестнадцатеричным ключом, так что перестановка таблицы узлов
+/// сейвы не путает.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LabProgress {
+    pub points: [u16; POINT_SLOTS],
+    pub repeats: [u32; REPEAT_SLOTS],
+}
+
+impl Default for LabProgress {
+    fn default() -> Self {
+        Self { points: [0; POINT_SLOTS], repeats: [0; REPEAT_SLOTS] }
+    }
+}
+
+/// Ключ опыта: FNV-1a от «id/подробность», 24 бита, не ноль.
+pub fn experiment_key(id: &str, detail: &str) -> u32 {
+    let mut h: u32 = 0x811C_9DC5;
+    for b in id.bytes().chain([b'/']).chain(detail.bytes()) {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    (h ^ (h >> 24)) & 0xFF_FFFF | 1
+}
+
+impl LabProgress {
+    /// Сколько раз опыт уже делали.
+    pub fn times(&self, key: u32) -> u32 {
+        self.repeats.iter().find(|r| **r >> 8 == key && **r != 0).map_or(0, |r| *r & 0xFF)
+    }
+
+    /// Отметить ещё один раз.
+    pub fn bump(&mut self, key: u32) {
+        if let Some(r) = self.repeats.iter_mut().find(|r| **r != 0 && **r >> 8 == key) {
+            *r = (key << 8) | ((*r & 0xFF) + 1).min(0xFF);
+            return;
+        }
+        let slot = match self.repeats.iter().position(|r| *r == 0) {
+            Some(i) => i,
+            None => (0..REPEAT_SLOTS).min_by_key(|i| self.repeats[*i] & 0xFF).unwrap_or(0),
+        };
+        self.repeats[slot] = (key << 8) | 1;
+    }
+
+    /// Очки узла.
+    pub fn of(&self, node: usize) -> u32 {
+        self.points.get(node).map_or(0, |p| u32::from(*p))
+    }
+}
+
+/// Что принёс опыт.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Credit {
+    pub experiment: usize,
+    pub node: usize,
+    pub gained: u32,
+    pub points: u32,
+}
+
+/// Засчитать опыт: очки узлу с затуханием за повтор. None — узла нет или
+/// он уже изучен (повтор всё равно считается: изученное не копит).
+pub fn credit_experiment(lab: &mut LabProgress, research: u128, experiment: usize, detail: &str) -> Option<Credit> {
+    let e = EXPERIMENTS.get(experiment)?;
+    let node = research_index(e.node)?;
+    let key = experiment_key(e.id, detail);
+    let times = lab.times(key);
+    lab.bump(key);
+    if research & research_bit(node) != 0 || node >= POINT_SLOTS {
+        return None;
+    }
+    let gained = repeat_points(e.base, times);
+    let points = (lab.of(node) + gained).min(u32::from(u16::MAX));
+    lab.points[node] = points as u16;
+    Some(Credit { experiment, node, gained, points })
+}
+
+/// Узлы, набравшие порог очков.
+pub fn points_mask(lab: &LabProgress) -> u128 {
+    (0..RESEARCH.len().min(POINT_SLOTS))
+        .filter(|i| lab.of(*i) >= RESEARCH_THRESHOLD)
+        .fold(0, |mask, i| mask | research_bit(i))
+}
+
+/// Сообщение в чат об опыте.
+pub fn credit_message(c: &Credit) -> String {
+    let e = &EXPERIMENTS[c.experiment];
+    let head = if e.failure { "Неудача — тоже знание" } else { "Опыт" };
+    let shown = c.points.min(RESEARCH_THRESHOLD);
+    if c.gained == 0 {
+        return format!("{head}: «{}» уже ничему не учит", e.title);
+    }
+    format!(
+        "{head}: «{}» +{} к «{}» ({shown} из {RESEARCH_THRESHOLD})",
+        e.title, c.gained, RESEARCH[c.node].title
+    )
+}
+
+/// Прогресс узлов для клиента: процент порога по узлу, изученные — 100.
+pub fn research_progress_bytes(lab: &LabProgress, mask: u128) -> Vec<u8> {
+    (0..RESEARCH.len())
+        .map(|i| {
+            if mask & research_bit(i) != 0 {
+                100
+            } else {
+                (lab.of(i) * 100 / RESEARCH_THRESHOLD).min(100) as u8
+            }
+        })
+        .collect()
+}
+
+/// Пакет карты с прогрессом: 16 байт маски, затем байт процента на узел.
+/// Старый клиент читает первые 16 байт и хвост не видит.
+pub fn research_packet_with(mask: u128, progress: &[u8]) -> Vec<u8> {
+    let mut out = research_packet(mask);
+    out.extend_from_slice(progress);
+    out
+}
+
+/// Прогресс узлов из пакета (пусто — пакет старый).
+pub fn research_progress_from_packet(data: &[u8]) -> Vec<u8> {
+    data.get(16..).map(<[u8]>::to_vec).unwrap_or_default()
+}
+
+fn known_progress() -> &'static std::sync::Mutex<Vec<u8>> {
+    static KNOWN: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+    &KNOWN
+}
+
+/// Клиент запомнил прогресс узлов.
+pub fn remember_research_progress(progress: Vec<u8>) {
+    *known_progress().lock().unwrap_or_else(|e| e.into_inner()) = progress;
+}
+
+/// Процент порога узла, как его знает клиент.
+pub fn shown_node_progress(index: usize) -> u8 {
+    known_progress().lock().unwrap_or_else(|e| e.into_inner()).get(index).copied().unwrap_or(0)
+}
+
+/// Подсказка узла с прогрессом очков: у неизученного, начатого узла —
+/// строка «Знание: 40 из 100».
+pub fn research_tooltip_with(mask: u128, progress: u8, index: usize) -> Vec<String> {
+    let mut lines = research_tooltip(mask, index);
+    if mask & research_bit(index) == 0 && progress > 0 {
+        let points = u32::from(progress) * RESEARCH_THRESHOLD / 100;
+        lines.push(format!("Знание: {points} из {RESEARCH_THRESHOLD} — опыты и неудачи"));
+    }
+    lines
+}
+
+/// Очки в файле: `research_points=weakened:40,remedy:25`,
+/// `research_repeats=1a2b3c:2,…` (ключ — шестнадцатеричный).
+pub fn lab_to_text(lab: &LabProgress) -> String {
+    let mut text = String::new();
+    let points: Vec<String> = (0..RESEARCH.len().min(POINT_SLOTS))
+        .filter(|i| lab.of(*i) > 0)
+        .map(|i| format!("{}:{}", RESEARCH[i].id, lab.of(i)))
+        .collect();
+    if !points.is_empty() {
+        text.push_str(&format!("research_points={}\n", points.join(",")));
+    }
+    let repeats: Vec<String> = lab
+        .repeats
+        .iter()
+        .filter(|r| **r != 0)
+        .map(|r| format!("{:x}:{}", r >> 8, r & 0xFF))
+        .collect();
+    if !repeats.is_empty() {
+        text.push_str(&format!("research_repeats={}\n", repeats.join(",")));
+    }
+    text
+}
+
+/// Строка файла про очки; false — строка не про них.
+pub fn lab_from_line(lab: &mut LabProgress, key: &str, value: &str) -> bool {
+    match key {
+        "research_points" => {
+            for part in value.split(',') {
+                if let Some((id, n)) = part.trim().split_once(':')
+                    && let Some(i) = research_index(id)
+                    && i < POINT_SLOTS
+                    && let Ok(n) = n.parse::<u16>()
+                {
+                    lab.points[i] = n;
+                }
+            }
+            true
+        }
+        "research_repeats" => {
+            let mut slot = 0;
+            for part in value.split(',') {
+                if slot >= REPEAT_SLOTS {
+                    break;
+                }
+                if let Some((k, n)) = part.trim().split_once(':')
+                    && let Ok(k) = u32::from_str_radix(k, 16)
+                    && let Ok(n) = n.parse::<u32>()
+                    && k != 0
+                    && k <= 0xFF_FFFF
+                {
+                    lab.repeats[slot] = (k << 8) | n.min(0xFF);
+                    slot += 1;
+                }
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Засчитать опыт игроку мира и сохранить. Вернёт строку для чата.
+/// Только сервер (состояния игроков — его).
+pub fn research_credit(world: &std::path::Path, uuid: u128, experiment: &str, detail: &str) -> Option<String> {
+    let experiment = experiment_index(experiment)?;
+    let mut table = states().lock().ok()?;
+    let state = table.entry((world.to_path_buf(), uuid)).or_insert_with(|| {
+        std::fs::read_to_string(state_path(world, uuid)).map(|t| state_from_text(&t)).unwrap_or_default()
+    });
+    let credit = credit_experiment(&mut state.lab, state.research, experiment, detail);
+    let path = state_path(world, uuid);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, state_to_text(state));
+    credit.map(|c| credit_message(&c))
+}
+
+/// Прогресс узлов игрока для пакета клиенту.
+pub fn research_progress_of(world: &std::path::Path, uuid: u128) -> Vec<u8> {
+    let Ok(table) = states().lock() else {
+        return Vec::new();
+    };
+    match table.get(&(world.to_path_buf(), uuid)) {
+        Some(state) => research_progress_bytes(&state.lab, state.research),
+        None => Vec::new(),
+    }
+}
+
+// Опыты машин: у машины нет игрока, поэтому она отмечает событие в точке, а
+// засчитывает его каждый игрок, который был рядом (на своём шаге карты, раз
+// в секунду). Отметка живёт `LAB_EVENT_HOLD_MS`.
+
+/// Радиус, в котором игрок «видел» опыт машины, блоков.
+pub const LAB_EVENT_RADIUS: f64 = 8.0;
+/// Сколько живёт отметка опыта.
+pub const LAB_EVENT_HOLD_MS: u64 = 3_000;
+
+struct LabEvent {
+    dimension: String,
+    at: [f64; 3],
+    experiment: usize,
+    detail: String,
+    seq: u64,
+    until: u64,
+}
+
+/// Отметки опытов машин и что из них каждый игрок уже засчитал.
+#[derive(Default)]
+pub struct LabEvents {
+    list: Vec<LabEvent>,
+    next: u64,
+    seen: std::collections::HashMap<u128, u64>,
+}
+
+impl LabEvents {
+    pub fn note(&mut self, dimension: &str, at: [f64; 3], experiment: usize, detail: &str, now: u64) {
+        self.list.retain(|e| e.until > now);
+        if self.list.len() >= 64 {
+            return;
+        }
+        self.next += 1;
+        self.list.push(LabEvent {
+            dimension: dimension.to_string(),
+            at,
+            experiment,
+            detail: detail.to_string(),
+            seq: self.next,
+            until: now + LAB_EVENT_HOLD_MS,
+        });
+    }
+
+    /// Опыты рядом с игроком, которых он ещё не засчитывал.
+    pub fn take(&mut self, player: u128, dimension: &str, at: [f64; 3], now: u64) -> Vec<(usize, String)> {
+        let seen = self.seen.get(&player).copied().unwrap_or(0);
+        let mine = self
+            .list
+            .iter()
+            .filter(|e| e.seq > seen && e.until > now && e.dimension == dimension && within(e.at, at, LAB_EVENT_RADIUS))
+            .map(|e| (e.experiment, e.detail.clone()))
+            .collect();
+        self.seen.insert(player, self.next);
+        mine
+    }
+}
+
+fn lab_events() -> &'static std::sync::Mutex<LabEvents> {
+    static EVENTS: std::sync::OnceLock<std::sync::Mutex<LabEvents>> = std::sync::OnceLock::new();
+    EVENTS.get_or_init(Default::default)
+}
+
+/// Машина в точке `at` поставила опыт `experiment` (id из `EXPERIMENTS`).
+pub fn note_lab_event(dimension: &str, at: [f64; 3], experiment: &str, detail: &str) {
+    let Some(index) = experiment_index(experiment) else {
+        return;
+    };
+    if let Ok(mut events) = lab_events().lock() {
+        events.note(dimension, at, index, detail, quarantine_clock());
+    }
+}
+
+/// Засчитать игроку опыты машин рядом; строки — в чат.
+pub fn credit_lab_events(world: &std::path::Path, uuid: u128, dimension: &str, at: [f64; 3]) -> Vec<String> {
+    let taken = match lab_events().lock() {
+        Ok(mut events) => events.take(uuid, dimension, at, quarantine_clock()),
+        Err(_) => return Vec::new(),
+    };
+    taken
+        .into_iter()
+        .filter_map(|(i, detail)| research_credit(world, uuid, EXPERIMENTS[i].id, &detail))
+        .collect()
+}
+
+// == Криобанк и порча образцов (GDD 4.23 п. 9) ==
+//
+// Образец без холода портится ступенями: раз в `SAMPLE_SHELF` тиков игрового
+// времени (`world.game_time`, идёт в сейве мира) — культура дичает на шаг к
+// дикому штамму, фрагмент и вектор теряют единицу силы гена (до пустого),
+// антисмысл выдыхается, ткань сгнивает. Срок следующей ступени — `SPOIL_KEY`
+// в `custom_data` (игровое время, Long): отсчёт идёт и в сундуке, и на
+// земле, где стак никто не тикает, — считается по часам при следующем
+// взгляде. Криобанк каждую секунду сдвигает срок на прошедшее время (внутри
+// не портится), термобокс в инвентаре — на три четверти (вчетверо
+// медленнее). Без срока образец свежий: срок ставится, когда он впервые
+// попал в инвентарь или в криобанк.
+
+/// Криобанк: холодильник со слотами, без рецептов.
+pub const CRYOBANK: &str = "biolab:cryobank";
+/// Термобокс: в инвентаре замедляет порчу образцов.
+pub const THERMOBOX: &str = "biolab:thermobox";
+/// Слотов криобанка: ряд, как у сундука.
+pub const CRYOBANK_SLOTS: usize = 9;
+/// Срок следующей ступени порчи в `custom_data`, игровое время.
+pub const SPOIL_KEY: &str = "biolab_spoil_at";
+/// Тиков в тепле до ступени порчи: двое игровых суток.
+pub const SAMPLE_SHELF: i64 = 48_000;
+/// Доля времени, которую термобокс снимает, из четырёх: 3 — вчетверо
+/// медленнее.
+pub const THERMOBOX_SAVES: i64 = 3;
+/// Раз в сколько тиков инвентарь и криобанк учитывают время.
+pub const SPOIL_EVERY: i64 = 20;
+/// Во что сгнивает ткань.
+pub const ROTTEN_TISSUE: &str = "minecraft:rotten_flesh";
+
+/// Образец: то, что портится вне холода.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sample {
+    Culture,
+    Fragment,
+    Tissue,
+    Vector,
+    Antisense,
+}
+
+pub fn sample_kind(item: &str) -> Option<Sample> {
+    match item {
+        CULTURE_ID => Some(Sample::Culture),
+        FRAGMENT_ID => Some(Sample::Fragment),
+        TISSUE_ID => Some(Sample::Tissue),
+        GENE_VECTOR => Some(Sample::Vector),
+        ANTISENSE_VECTOR => Some(Sample::Antisense),
+        _ => None,
+    }
+}
+
+pub fn is_sample(item: &str) -> bool {
+    sample_kind(item).is_some()
+}
+
+/// Ключ данных, в котором образец держит то, что портится.
+pub fn sample_key(kind: Sample) -> Option<&'static str> {
+    match kind {
+        Sample::Culture => Some(STRAIN_KEY),
+        Sample::Fragment => Some(GENE_KEY),
+        Sample::Vector => Some(VECTOR_KEY),
+        Sample::Antisense => Some(ANTISENSE_KEY),
+        Sample::Tissue => None,
+    }
+}
+
+/// Сколько ступеней порчи прошло к часу `now` при сроке `deadline`.
+pub fn spoil_steps(deadline: i64, now: i64) -> u32 {
+    if now < deadline {
+        return 0;
+    }
+    (1 + (now - deadline) / SAMPLE_SHELF).min(16) as u32
+}
+
+/// Срок после того, как прошло `steps` ступеней: следующая — через полный
+/// срок от просроченного.
+pub fn next_deadline(deadline: i64, steps: u32) -> i64 {
+    deadline + SAMPLE_SHELF * i64::from(steps)
+}
+
+/// Свежесть, процентов: сколько осталось до следующей ступени.
+pub fn freshness(deadline: i64, now: i64) -> i32 {
+    (((deadline - now).max(0) * 100 + SAMPLE_SHELF - 1) / SAMPLE_SHELF).clamp(0, 100) as i32
+}
+
+/// Насколько холод сдвигает срок за `elapsed` тиков: криобанк — целиком,
+/// термобокс — на три четверти, тепло — нисколько.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cold {
+    Warm,
+    Thermobox,
+    Cryobank,
+}
+
+pub fn cold_push(cold: Cold, elapsed: i64) -> i64 {
+    match cold {
+        Cold::Warm => 0,
+        Cold::Thermobox => elapsed * THERMOBOX_SAVES / 4,
+        Cold::Cryobank => elapsed,
+    }
+}
+
+/// Культура дичает: за ступень одна характеристика, дальше всех ушедшая от
+/// дикой, делает шаг к ней (при равенстве — первая по порядку).
+pub fn strain_goes_wild(strain: &Strain, steps: u32) -> Strain {
+    let mut v = strain.values();
+    let w = WILD.values();
+    for _ in 0..steps {
+        let far = (0..4).filter(|i| v[*i] != w[*i]).max_by_key(|i| ((v[*i] - w[*i]).abs(), std::cmp::Reverse(*i)));
+        let Some(i) = far else { break };
+        v[i] += (w[i] - v[i]).signum();
+    }
+    Strain::of(v)
+}
+
+/// Что стало с образцом за `steps` ступеней порчи.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Spoiled {
+    /// Данные образца теперь такие (пусто — пустой фрагмент/вектор).
+    Data(String),
+    /// Образец сгнил: теперь это другой предмет без данных.
+    Item(&'static str),
+}
+
+pub fn spoil_sample(kind: Sample, data: Option<&str>, steps: u32) -> Spoiled {
+    let s = steps as i32;
+    match kind {
+        Sample::Tissue => Spoiled::Item(ROTTEN_TISSUE),
+        Sample::Culture => {
+            let strain = data.and_then(strain_from_text).unwrap_or(WILD);
+            Spoiled::Data(strain_to_text(&strain_goes_wild(&strain, steps)))
+        }
+        Sample::Fragment => match data.and_then(gene_from_text) {
+            Some((name, strength)) if strength > s => Spoiled::Data(gene_text(name, strength - s)),
+            _ => Spoiled::Data(String::new()),
+        },
+        Sample::Vector => {
+            let genes: Vec<(&'static str, i32)> = data
+                .map(vector_genes)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(_, strength)| *strength > s)
+                .map(|(name, strength)| (name, strength - s))
+                .collect();
+            Spoiled::Data(genome_to_text(&genes))
+        }
+        Sample::Antisense => Spoiled::Data(String::new()),
+    }
+}
+
+/// Строка свежести для подсказки образца.
+pub fn freshness_line(deadline: Option<i64>, now: i64) -> String {
+    match deadline {
+        None => "Свежий образец · вне холода портится".to_string(),
+        Some(d) => {
+            let p = freshness(d, now);
+            let hours = ((d - now).max(0) + 999) / 1000;
+            format!("Свежесть: {p}% · до порчи ~{hours} ч игрового времени")
+        }
+    }
+}
+
+/// Цвет строк свежести в подсказке предмета: холодный голубой.
+pub const FRESH_INK: u32 = 0xFF_7FC8E0;
+
+/// Экран криобанка: табло сверху, ряд слотов, инвентарь как у печи.
+pub fn cryobank_screen() -> MachineScreen {
+    MachineScreen {
+        width: SCREEN_WIDTH,
+        height: SCREEN_HEIGHT,
+        slots: (0..CRYOBANK_SLOTS).map(|i| Some([8.0 + i as f32 * 18.0, 52.0])).collect(),
+        inventory: [8.0, SCREEN_INVENTORY_Y],
+        gauge: [8.0, 19.0, 160.0, 30.0],
+        progress: [0.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// Что делать, чтобы образец не портился.
+pub const FRESHNESS_HINT: &str = "Храните в криобанке; в поход — термобокс";
+
+/// Что примет слот криобанка: только образцы.
+pub fn cryobank_accepts(item: &str) -> bool {
+    is_sample(item)
+}
+
+/// Подсказка над прибором криобанка.
+pub fn cryobank_tooltip() -> Vec<String> {
+    vec![
+        "Криобанк: −80 °C".to_string(),
+        "§7Культуры, фрагменты, ткань и векторы здесь не портятся".to_string(),
+        "§7Вне холода образец портится за двое игровых суток".to_string(),
+    ]
+}
+
+// == Герметичность камеры числом (GDD 4.23 п. 11) ==
+//
+// Заливка та же, что в M8 (`check_room`), но пробоины не рушат камеру:
+// заливка дошла до края — ищем дыру (клетку пути с ≥ 4 соседями-стенами),
+// затыкаем её мысленно и льём снова, до `MAX_HOLES` раз. Закрылась —
+// камера собрана с пробоинами и подтекает. Дверь без шлюза и отсутствие
+// шлюза — тоже не отказ, а множитель. Отказ остаётся у «нет комнаты»,
+// «комната больше 9×9×5» и дыры шире клетки или больше `MAX_HOLES` дыр —
+// с тем же текстом, что раньше.
+
+/// Сколько пробоин камера терпит (дальше — «Не закрыта»).
+pub const MAX_HOLES: usize = 4;
+/// Множитель стен, сплошь из стекла установки (панели — 1).
+pub const GLASS_SEAL: f32 = 0.9;
+/// Множитель за каждую дверь прямо наружу.
+pub const OPEN_DOOR_SEAL: f32 = 0.7;
+/// Множитель за каждую пробоину.
+pub const HOLE_SEAL: f32 = 0.6;
+/// Фильтр: без патрона и у изношенного до нуля.
+pub const NO_FILTER_SEAL: f32 = 0.2;
+pub const WORN_FILTER_SEAL: f32 = 0.9;
+/// С какой герметичности камера «держит» (зелёная лампа).
+pub const SEAL_HOLDS: f32 = 0.9;
+
+/// Комната с подробностями герметичности.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sealed {
+    pub room: Room,
+    /// Пробоины, по порядку нахождения.
+    pub holes: Vec<[i32; 3]>,
+    /// Двери прямо наружу (нижняя клетка).
+    pub open_doors: Vec<[i32; 3]>,
+    /// Блоков оболочки вокруг комнаты и сколько из них стекло.
+    pub shell: u32,
+    pub glass: u32,
+}
+
+/// Множители герметичности.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SealFactors {
+    pub glass: u32,
+    pub shell: u32,
+    pub airlocks: u32,
+    pub open_doors: u32,
+    pub holes: u32,
+    /// Остаток патрона, %; None — патрона нет.
+    pub filter: Option<i32>,
+}
+
+/// Стены, двери, фильтр, пробоины — по множителю.
+pub fn seal_parts(f: &SealFactors) -> [f32; 4] {
+    let glass = if f.shell == 0 { 0.0 } else { f.glass as f32 / f.shell as f32 };
+    let walls = 1.0 - (1.0 - GLASS_SEAL) * glass.clamp(0.0, 1.0);
+    let doors = OPEN_DOOR_SEAL.powi(f.open_doors as i32);
+    let filter = match f.filter {
+        None => NO_FILTER_SEAL,
+        Some(p) => WORN_FILTER_SEAL + (1.0 - WORN_FILTER_SEAL) * (p.clamp(0, 100) as f32 / 100.0),
+    };
+    let holes = HOLE_SEAL.powi(f.holes as i32);
+    [walls, doors, filter, holes]
+}
+
+/// Герметичность 0–1: произведение множителей.
+pub fn tightness(f: &SealFactors) -> f32 {
+    seal_parts(f).iter().product::<f32>().clamp(0.0, 1.0)
+}
+
+/// Доля утечки 0–1: 0 — герметична.
+pub fn room_leak(f: &SealFactors) -> f32 {
+    // Округление до тысячных: идеальная камера — ровно ноль.
+    ((1.0 - tightness(f)) * 1000.0).round() / 1000.0
+}
+
+/// Герметичность, процентов вниз: 99,9 — ещё не 100.
+pub fn seal_percent(f: &SealFactors) -> i32 {
+    let milli = (room_leak(f) * 1000.0).round() as i32;
+    (1000 - milli) / 10
+}
+
+pub fn seal_factors(sealed: &Sealed, filter: Option<i64>) -> SealFactors {
+    SealFactors {
+        glass: sealed.glass,
+        shell: sealed.shell,
+        airlocks: sealed.room.airlocks,
+        open_doors: sealed.open_doors.len() as u32,
+        holes: sealed.holes.len() as u32,
+        filter: filter.map(filter_percent),
+    }
+}
+
+/// Пробка для пробоины на пути заливки: клетка пути (не старт и не пробка)
+/// с наибольшим числом соседей-стен, не меньше четырёх (сидит в оболочке);
+/// при равенстве — ближе к краю. None — дыра шире клетки.
+fn pick_plug(survey: &mut Survey, start: [i32; 3], f: &Flood, plugs: &std::collections::HashSet<[i32; 3]>) -> Option<[i32; 3]> {
+    let end = f.breach?;
+    let mut path = vec![end];
+    while let Some(p) = f.parent.get(path.last().unwrap_or(&start)) {
+        path.push(*p);
+    }
+    let mut best: Option<(usize, [i32; 3])> = None;
+    for p in path.iter().filter(|p| **p != start && !plugs.contains(*p)) {
+        let walls = ROOM_DIRS
+            .iter()
+            .filter(|d| {
+                let n = add3(*p, **d);
+                plugs.contains(&n) || survey.get(n) != RoomBlock::Open
+            })
+            .count();
+        if walls >= 4 && best.is_none_or(|(w, _)| walls > w) {
+            best = Some((walls, *p));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Заливка закрылась (с пробками `holes`): размер, двери, оболочка.
+fn finish_seal(survey: &mut Survey, f: Flood, holes: Vec<[i32; 3]>) -> Result<Sealed, RoomFault> {
+    let size = span(f.min, f.max);
+    if (0..3).any(|i| size[i] > ROOM_MAX[i]) {
+        return Err(RoomFault::TooBig(size));
+    }
+    let mut cells = f.cells;
+    cells.sort();
+    let (airlocks, open_doors) = room_doors(survey, &cells, &f.set);
+    let plugged: std::collections::HashSet<[i32; 3]> = holes.iter().copied().collect();
+    let mut shell = std::collections::HashSet::new();
+    for &c in &cells {
+        for d in ROOM_DIRS {
+            let n = add3(c, d);
+            if !plugged.contains(&n) && survey.get(n) == RoomBlock::Shell {
+                shell.insert(n);
+            }
+        }
+    }
+    let glass = shell.iter().filter(|p| survey.glass.contains(*p)).count() as u32;
+    Ok(Sealed {
+        room: Room { cells, min: f.min, max: f.max, airlocks },
+        holes,
+        open_doors,
+        shell: shell.len() as u32,
+        glass,
+    })
+}
+
+/// Камера с пробоинами: та же заливка, что `check_room`, но до `MAX_HOLES`
+/// дыр затыкаются мысленно. Ошибка — как у `check_room` (та же точка дыры).
+pub fn seal_room(site: Site, at: BlockAt) -> Result<Sealed, RoomFault> {
+    let mut survey = Survey { at, seen: std::collections::HashMap::new(), glass: std::collections::HashSet::new() };
+    let front = place(site.origin, site.facing, [0, 0, -1]);
+    let back = place(site.origin, site.facing, [0, 0, 1]);
+    let mut faults: Vec<(bool, [i32; 3])> = Vec::new();
+    let mut too_big: Option<RoomFault> = None;
+    let mut best: Option<Sealed> = None;
+    for start in [front, back] {
+        if survey.get(start) != RoomBlock::Open {
+            continue;
+        }
+        let mut plugs = std::collections::HashSet::new();
+        let mut order: Vec<[i32; 3]> = Vec::new();
+        loop {
+            let f = flood(&mut survey, start, room_box(start), &plugs);
+            if f.breach.is_none() {
+                let clean = order.is_empty();
+                match finish_seal(&mut survey, f, order.clone()) {
+                    // Закрылась без пробок — это комната, как у `check_room`.
+                    result if clean => return result,
+                    Ok(s) => {
+                        if best.as_ref().is_none_or(|b| s.holes.len() < b.holes.len()) {
+                            best = Some(s);
+                        }
+                    }
+                    Err(fault) => too_big = too_big.or(Some(fault)),
+                }
+                break;
+            }
+            if order.is_empty() {
+                faults.push(locate_hole(&mut survey, start, &f));
+            }
+            if order.len() >= MAX_HOLES {
+                break;
+            }
+            let Some(p) = pick_plug(&mut survey, start, &f, &plugs) else {
+                break;
+            };
+            plugs.insert(p);
+            order.push(p);
+        }
+    }
+    if let Some(s) = best {
+        return Ok(s);
+    }
+    if let Some(fault) = too_big {
+        return Err(fault);
+    }
+    match faults.iter().find(|(exact, _)| *exact).or(faults.first()) {
+        Some((_, p)) => Err(RoomFault::Hole(*p)),
+        None => Err(RoomFault::NoRoom),
+    }
+}
+
+/// Итог проверки камеры с пробоинами для каркаса.
+pub fn seal_verdict(result: &Result<Sealed, RoomFault>) -> Verdict {
+    room_verdict(&result.as_ref().map(|s| s.room.clone()).map_err(|f| *f))
+}
+
+/// Почему камера подтекает: первая причина строкой (с точкой, где она).
+pub fn leak_reason(data: &[i32]) -> Option<String> {
+    let [x, y, z] = room_spot(data);
+    let holes = screen_datum(data, DATA_QR_HOLES, 0);
+    if holes > 0 {
+        let more = if holes > 1 { format!(" (+{})", holes - 1) } else { String::new() };
+        return Some(format!("Пробоина: {x} {y} {z}{more}"));
+    }
+    if screen_datum(data, DATA_QR_DOORS, 0) > 0 {
+        return Some(format!("Дверь без шлюза: {x} {y} {z}"));
+    }
+    if screen_datum(data, DATA_QR_FILTER, -1) < 0 {
+        return None;
+    }
+    let glass = screen_datum(data, DATA_QR_GLASS, 0);
+    if glass > 0 {
+        return Some(format!("Стекло: {glass}% стен"));
+    }
+    None
+}
+
+/// Подсказка: множители герметичности по строке.
+pub fn seal_lines(data: &[i32]) -> Vec<String> {
+    let f = SealFactors {
+        glass: screen_datum(data, DATA_QR_GLASS, 0).max(0) as u32,
+        shell: 100,
+        airlocks: screen_datum(data, DATA_QR_LOCKS, 0).max(0) as u32,
+        open_doors: screen_datum(data, DATA_QR_DOORS, 0).max(0) as u32,
+        holes: screen_datum(data, DATA_QR_HOLES, 0).max(0) as u32,
+        filter: Some(screen_datum(data, DATA_QR_FILTER, -1)).filter(|p| *p >= 0),
+    };
+    let [walls, doors, filter, holes] = seal_parts(&f);
+    let pct = |v: f32| (v * 100.0).round() as i32;
+    vec![
+        format!("§7Стены ×{}%, двери ×{}%, фильтр ×{}%, пробоины ×{}%", pct(walls), pct(doors), pct(filter), pct(holes)),
+        format!("§7Утечка {}%: заражение проходит в такой доле проверок", 100 - screen_datum(data, DATA_QR_SEAL, 100)),
+    ]
+}
+
+/// Детерминированный бросок «защитила ли камера» в точке: один на секунду,
+/// чтобы все проверки одного мгновения видели одно и то же.
+pub fn sealed_here(leak: f32, pos: [i32; 3], now_ms: u64) -> bool {
+    if leak <= 0.0 {
+        return true;
+    }
+    if leak >= 1.0 {
+        return false;
+    }
+    let mut h = (now_ms / 1000).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    for v in pos {
+        h ^= v as u32 as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    ((h >> 32) % 1000) as f32 >= leak * 1000.0
+}
+
+#[cfg(test)]
+mod lab_tests {
+    use super::*;
+
+    #[test]
+    fn repeating_an_experiment_pays_less_and_less() {
+        let shares: Vec<u32> = (0..6).map(|t| repeat_points(40, t)).collect();
+        assert_eq!(shares, vec![40, 20, 10, 4, 4, 4], "1 → 0,5 → 0,25 → 0,1 от базы");
+        let mut lab = LabProgress::default();
+        let overheat = experiment_index("reactor_overheat").unwrap();
+        let node = research_index("weakened").unwrap();
+        let mask = research_bit(0);
+        let a = credit_experiment(&mut lab, mask, overheat, "biolab:culture").unwrap();
+        assert_eq!((a.node, a.gained, a.points), (node, 40, 40));
+        let b = credit_experiment(&mut lab, mask, overheat, "biolab:culture").unwrap();
+        assert_eq!((b.gained, b.points), (20, 60), "тот же опыт — половина");
+        // Другая подробность — другой опыт: снова полная база.
+        let c = credit_experiment(&mut lab, mask, overheat, "biolab:mold").unwrap();
+        assert_eq!((c.gained, c.points), (40, 100));
+        assert_ne!(points_mask(&lab) & research_bit(node), 0, "порог набран — узел открыт");
+        assert!(credit_message(&a).contains("Неудача — тоже знание"), "{}", credit_message(&a));
+        assert!(credit_message(&a).contains("«Ослабленная культура» (40 из 100)"), "{}", credit_message(&a));
+        // Изученный узел не копит, но повтор считается.
+        let mask = mask | research_bit(node);
+        assert_eq!(credit_experiment(&mut lab, mask, overheat, "biolab:mold"), None);
+        assert_eq!(lab.times(experiment_key("reactor_overheat", "biolab:mold")), 2);
+    }
+
+    #[test]
+    fn every_experiment_points_at_a_node_and_failures_pay() {
+        for e in &EXPERIMENTS {
+            assert!(research_index(e.node).is_some(), "{}: нет узла {}", e.id, e.node);
+            assert!(e.base > 0 && e.base < RESEARCH_THRESHOLD, "{}: опыт не должен открывать узел сразу", e.id);
+        }
+        for id in ["reactor_overheat", "bioreactor_overheat", "batch_sour", "course_broken", "mutant_died"] {
+            assert!(EXPERIMENTS[experiment_index(id).unwrap()].failure, "{id} — провал");
+        }
+        assert!(RESEARCH.len() <= POINT_SLOTS);
+    }
+
+    #[test]
+    fn opened_nodes_stay_opened_and_points_open_new_ones() {
+        // Совместимость: изученное по-старому остаётся изученным, а очки
+        // добавляют узлы к условиям.
+        let mut s = PlayerState::default();
+        let bench = research_index("bench").unwrap();
+        s.research = research_bit(0) | research_bit(bench);
+        let text = state_to_text(&s);
+        assert!(!text.contains("research_points"), "без очков файл прежний");
+        let back = state_from_text(&text);
+        assert_eq!(back.research, s.research);
+        let remedy = research_index("remedy").unwrap();
+        s.lab.points[remedy] = 75;
+        s.lab.bump(experiment_key("course_broken", "2,3,2,1"));
+        let back = state_from_text(&state_to_text(&s));
+        assert_eq!(back.lab, s.lab, "очки и повторы — в файле");
+        assert!(state_to_text(&s).contains("research_points=remedy:75"));
+        assert_eq!(points_mask(&back.lab) & research_bit(remedy), 0, "75 из 100 — ещё нет");
+    }
+
+    #[test]
+    fn the_repeat_memory_is_bounded() {
+        let mut lab = LabProgress::default();
+        for i in 0..(REPEAT_SLOTS as u32 + 10) {
+            lab.bump(experiment_key("culture_bred", &i.to_string()));
+        }
+        assert_eq!(lab.repeats.iter().filter(|r| **r != 0).count(), REPEAT_SLOTS);
+        let key = experiment_key("culture_bred", "fresh");
+        lab.bump(key);
+        lab.bump(key);
+        assert_eq!(lab.times(key), 2);
+        assert_ne!(experiment_key("a", "b"), experiment_key("a", "c"));
+        assert_ne!(experiment_key("a", ""), 0);
+    }
+
+    #[test]
+    fn progress_rides_in_the_research_packet() {
+        let mut lab = LabProgress::default();
+        let weakened = research_index("weakened").unwrap();
+        lab.points[weakened] = 40;
+        let mask = research_bit(0);
+        let bytes = research_progress_bytes(&lab, mask);
+        assert_eq!(bytes.len(), RESEARCH.len());
+        assert_eq!((bytes[0], bytes[weakened]), (100, 40));
+        let packet = research_packet_with(mask, &bytes);
+        assert_eq!(research_from_packet(&packet), Some(mask), "старое чтение маски цело");
+        assert_eq!(research_progress_from_packet(&packet), bytes);
+        assert!(research_progress_from_packet(&research_packet(mask)).is_empty());
+        let tip = research_tooltip_with(mask, 40, weakened);
+        assert!(tip.last().unwrap().starts_with("Знание: 40 из 100"), "{tip:?}");
+        assert_eq!(research_tooltip_with(mask, 0, weakened), research_tooltip(mask, weakened));
+    }
+
+    #[test]
+    fn machine_experiments_reach_players_nearby_once() {
+        let mut events = LabEvents::default();
+        let ow = "minecraft:overworld";
+        events.note(ow, [0.5, 64.5, 0.5], 0, "biolab:culture", 0);
+        assert_eq!(events.take(1, ow, [3.0, 64.0, 3.0], 100), vec![(0, "biolab:culture".to_string())]);
+        assert!(events.take(1, ow, [3.0, 64.0, 3.0], 200).is_empty(), "засчитано один раз");
+        assert_eq!(events.take(2, ow, [1.0, 64.0, 1.0], 200).len(), 1, "второй игрок рядом — тоже");
+        assert!(events.take(3, ow, [30.0, 64.0, 1.0], 200).is_empty(), "далеко");
+        assert!(events.take(4, "minecraft:the_nether", [0.5, 64.0, 0.5], 200).is_empty());
+        assert!(events.take(5, ow, [0.5, 64.0, 0.5], LAB_EVENT_HOLD_MS).is_empty(), "отметка истекла");
+    }
+
+    #[test]
+    fn samples_spoil_in_steps_by_the_game_clock() {
+        assert_eq!(spoil_steps(1_000, 999), 0);
+        assert_eq!(spoil_steps(1_000, 1_000), 1);
+        assert_eq!(spoil_steps(1_000, 1_000 + SAMPLE_SHELF), 2);
+        assert_eq!(next_deadline(1_000, 2), 1_000 + 2 * SAMPLE_SHELF);
+        assert_eq!(freshness(SAMPLE_SHELF, 0), 100);
+        assert_eq!(freshness(SAMPLE_SHELF, SAMPLE_SHELF / 2), 50);
+        assert_eq!(freshness(10, 20), 0);
+        // Криобанк сдвигает срок целиком, термобокс — на три четверти.
+        assert_eq!(cold_push(Cold::Cryobank, 20), 20);
+        assert_eq!(cold_push(Cold::Thermobox, 20), 15);
+        assert_eq!(cold_push(Cold::Warm, 20), 0);
+        // Двое суток в тепле — ступень; в термобоксе — восемь.
+        let warm = SAMPLE_SHELF;
+        let boxed = SAMPLE_SHELF * 4 / (4 - THERMOBOX_SAVES);
+        assert_eq!(boxed, 4 * warm);
+    }
+
+    #[test]
+    fn the_cryobank_screen_fits_and_takes_only_samples() {
+        let s = machine_screen(CRYOBANK).expect("свой экран");
+        assert_eq!(s.slots.len(), CRYOBANK_SLOTS);
+        let label_y = s.inventory[1] - 11.0;
+        for at in s.slots.iter().flatten() {
+            let f = slot_frame(*at);
+            assert!(f[0] >= 3.0 && f[0] + f[2] <= s.width - 3.0, "{f:?} вне панели");
+            assert!(f[1] >= s.gauge[1] + s.gauge[3] && f[1] + f[3] < label_y, "{f:?} налезает на табло или подпись");
+        }
+        assert!(s.gauge[1] >= SCREEN_HEADER);
+        assert_eq!(machine_title(CRYOBANK), "Криобанк");
+        assert!(has_block_entity(CRYOBANK) && !is_machine(CRYOBANK));
+        assert_eq!(menu_slot_rule(CRYOBANK, 0, CULTURE_ID), Some(true));
+        assert_eq!(menu_slot_rule(CRYOBANK, 0, "minecraft:dirt"), Some(false));
+        assert_eq!(container_slot_accepts(CRYOBANK, 8, FRAGMENT_ID), Some(true));
+        assert_eq!(container_slot_accepts(CRYOBANK, 9, FRAGMENT_ID), Some(false));
+        assert!(!screen_tooltip(CRYOBANK, &[], [20.0, 25.0]).is_empty(), "подсказка над табло");
+    }
+
+    #[test]
+    fn spoiling_weakens_each_kind_of_sample() {
+        // Культура дичает к дикому штамму, дальше всего ушедшее — первым.
+        let bred = Strain::of([5, 3, 4, 1]);
+        assert_eq!(strain_goes_wild(&bred, 1), Strain::of([4, 3, 4, 1]));
+        assert_eq!(strain_goes_wild(&bred, 2), Strain::of([3, 3, 4, 1]), "поровну — первая по порядку");
+        assert_eq!(strain_goes_wild(&bred, 10), WILD, "совсем одичала");
+        assert_eq!(strain_goes_wild(&WILD, 3), WILD);
+        assert_eq!(spoil_sample(Sample::Culture, Some("5,3,4,1"), 1), Spoiled::Data("4,3,4,1".into()));
+        // Фрагмент теряет силу гена, потом пустеет.
+        assert_eq!(spoil_sample(Sample::Fragment, Some("chitin:3"), 1), Spoiled::Data("chitin:2".into()));
+        assert_eq!(spoil_sample(Sample::Fragment, Some("chitin:1"), 1), Spoiled::Data(String::new()));
+        assert_eq!(fragment_label(""), "Фрагмент ДНК: пустой");
+        // Вектор — каждый ген на единицу, выдохшиеся уходят.
+        let Spoiled::Data(v) = spoil_sample(Sample::Vector, Some("chitin:2,horns:1"), 1) else { panic!() };
+        assert_eq!(vector_genes(&v), vec![("chitin", 1)]);
+        assert_eq!(spoil_sample(Sample::Antisense, Some("horns"), 1), Spoiled::Data(String::new()));
+        assert_eq!(antisense_label(""), "Антисмысловой вектор: пустой");
+        assert_eq!(spoil_sample(Sample::Tissue, None, 1), Spoiled::Item(ROTTEN_TISSUE));
+        // Что портится и что криобанк принимает.
+        for item in [CULTURE_ID, FRAGMENT_ID, TISSUE_ID, GENE_VECTOR, ANTISENSE_VECTOR] {
+            assert!(is_sample(item) && cryobank_accepts(item), "{item}");
+        }
+        assert!(!is_sample(FLASK_ID) && !cryobank_accepts("minecraft:dirt"));
+        assert!(freshness_line(Some(SAMPLE_SHELF), 0).starts_with("Свежесть: 100%"));
+    }
+
+    type World = std::collections::HashMap<[i32; 3], &'static str>;
+
+    /// Камера 5×3×5, как в `quarantine_tests`: фильтр в южной стене лицом
+    /// на север, шлюз — две двери в западной стене.
+    fn lab_room() -> World {
+        let mut w = World::new();
+        let (lo, hi) = ([0, 64, 0], [4, 66, 4]);
+        for x in lo[0] - 1..=hi[0] + 1 {
+            for y in lo[1] - 1..=hi[1] + 1 {
+                for z in lo[2] - 1..=hi[2] + 1 {
+                    if !(0..3).all(|i| lo[i] <= [x, y, z][i] && [x, y, z][i] <= hi[i]) {
+                        w.insert([x, y, z], CLEAN_PANEL);
+                    }
+                }
+            }
+        }
+        w.insert([2, 64, 5], QUARANTINE);
+        for (x, y) in [(-1, 64), (-1, 65), (-2, 64), (-2, 65)] {
+            w.insert([x, y, 2], "minecraft:oak_door");
+        }
+        w
+    }
+
+    const SITE: Site = Site { origin: [2, 64, 5], facing: Facing::North };
+
+    fn seal(w: &World) -> Result<Sealed, RoomFault> {
+        seal_room(SITE, &|p| w.get(&p).copied().unwrap_or("minecraft:air").to_string())
+    }
+
+    fn strict(w: &World) -> Result<Room, RoomFault> {
+        check_room(SITE, &|p| w.get(&p).copied().unwrap_or("minecraft:air").to_string())
+    }
+
+    #[test]
+    fn a_whole_room_is_tight_and_matches_the_strict_check() {
+        let s = seal(&lab_room()).expect("камера");
+        assert_eq!(Ok(s.room.clone()), strict(&lab_room()));
+        assert!(s.holes.is_empty() && s.open_doors.is_empty());
+        assert_eq!(s.glass, 0);
+        assert!(s.shell >= 100, "оболочка вокруг 5×3×5: {}", s.shell);
+        let f = seal_factors(&s, Some(FILTER_DURABILITY));
+        assert_eq!(room_leak(&f), 0.0, "идеальная камера не течёт");
+        assert_eq!(seal_percent(&f), 100);
+        assert!(tightness(&f) >= SEAL_HOLDS);
+    }
+
+    #[test]
+    fn holes_make_the_room_leak_instead_of_breaking_it() {
+        let mut w = lab_room();
+        w.remove(&[4, 65, -1]);
+        assert_eq!(strict(&w), Err(RoomFault::Hole([4, 65, -1])), "строгая проверка — прежняя");
+        let s = seal(&w).expect("с пробоиной камера собрана");
+        assert_eq!(s.holes, vec![[4, 65, -1]]);
+        assert_eq!(s.room.cells.len(), 75, "дыра — не комната");
+        let one = room_leak(&seal_factors(&s, Some(FILTER_DURABILITY)));
+        assert!((one - (1.0 - HOLE_SEAL)).abs() < 1e-3, "{one}");
+        w.remove(&[0, 63, 0]);
+        w.remove(&[2, 67, 2]);
+        let s = seal(&w).expect("три дыры");
+        assert_eq!(s.holes.len(), 3);
+        let three = room_leak(&seal_factors(&s, Some(FILTER_DURABILITY)));
+        assert!(three > one, "дыр больше — течёт сильнее");
+        // Больше `MAX_HOLES` — уже не камера, с прежним текстом дыры.
+        for p in [[5, 64, 3], [-1, 66, 4], [1, 63, 3]] {
+            w.remove(&p);
+        }
+        assert!(matches!(seal(&w), Err(RoomFault::Hole(_))));
+        // Пол из земли — дыра шире клетки: не камера.
+        let mut dirt = lab_room();
+        for x in 0..=4 {
+            for z in 0..=4 {
+                dirt.insert([x, 63, z], "minecraft:dirt");
+            }
+        }
+        assert!(matches!(seal(&dirt), Err(RoomFault::Hole(_))));
+        // Фильтр посреди поля — тоже.
+        let field = World::from([([2, 64, 5], QUARANTINE)]);
+        assert!(matches!(seal(&field), Err(RoomFault::Hole(_))));
+    }
+
+    #[test]
+    fn doors_glass_and_the_filter_are_factors() {
+        // Дверь прямо наружу: строгая — отказ, здесь — множитель.
+        let mut w = lab_room();
+        w.insert([5, 64, 2], "minecraft:oak_door");
+        w.insert([5, 65, 2], "minecraft:oak_door");
+        assert_eq!(strict(&w), Err(RoomFault::OpenDoor([5, 64, 2])));
+        let s = seal(&w).expect("собрана");
+        assert_eq!(s.open_doors, vec![[5, 64, 2]]);
+        let f = seal_factors(&s, Some(FILTER_DURABILITY));
+        assert!((tightness(&f) - OPEN_DOOR_SEAL).abs() < 1e-3);
+        // Стеклянная стена — чуть хуже панелей.
+        let mut glass = lab_room();
+        for x in 0..=4 {
+            for y in 64..=66 {
+                glass.insert([x, y, -1], CASING_GLASS);
+            }
+        }
+        let s = seal(&glass).unwrap();
+        assert_eq!(s.glass, 15);
+        let t = tightness(&seal_factors(&s, Some(FILTER_DURABILITY)));
+        assert!(t < 1.0 && t > GLASS_SEAL, "{t}");
+        // Фильтр: без патрона камера почти не защищает, износ — понемногу.
+        let s = seal(&lab_room()).unwrap();
+        assert!((tightness(&seal_factors(&s, None)) - NO_FILTER_SEAL).abs() < 1e-3);
+        let half = tightness(&seal_factors(&s, Some(FILTER_DURABILITY / 2)));
+        assert!(half < 1.0 && half >= SEAL_HOLDS, "{half}");
+        // Без дверей вовсе — запечатана: строгая «Нет шлюза», здесь — цела.
+        let mut sealed = lab_room();
+        for (x, y) in [(-1, 64), (-1, 65)] {
+            sealed.insert([x, y, 2], CLEAN_PANEL);
+        }
+        assert_eq!(strict(&sealed), Err(RoomFault::NoAirlock));
+        assert_eq!(room_leak(&seal_factors(&seal(&sealed).unwrap(), Some(FILTER_DURABILITY))), 0.0);
+    }
+
+    #[test]
+    fn the_leak_share_is_the_share_of_unprotected_checks() {
+        assert!(sealed_here(0.0, [1, 2, 3], 5_000));
+        assert!(!sealed_here(1.0, [1, 2, 3], 5_000));
+        let open = (0..2_000u64).filter(|s| !sealed_here(0.3, [*s as i32, 64, 7], s * 1000)).count();
+        assert!((450..750).contains(&open), "≈30 % из 2000: {open}");
+        // В одну секунду в одной точке ответ один.
+        assert_eq!(sealed_here(0.5, [4, 64, 4], 10_100), sealed_here(0.5, [4, 64, 4], 10_900));
+    }
+
+    #[test]
+    fn the_registry_keeps_the_leak_of_each_room() {
+        let s = seal(&lab_room()).unwrap();
+        let mut rooms = QuarantineRooms::default();
+        let ow = "minecraft:overworld";
+        assert_eq!(rooms.leak_at(ow, [2, 64, 2], 0), 1.0, "нет камеры — течёт всё");
+        rooms.hold(ow, SITE.origin, &s.room, 0.25, 1_000);
+        assert_eq!(rooms.leak_at(ow, [2, 64, 2], 1_500), 0.25);
+        assert_eq!(rooms.leak_at(ow, [-1, 64, 2], 1_500), 1.0, "дверь — не комната");
+        assert_eq!(rooms.leak_at(ow, [2, 64, 2], 1_000 + ROOM_STALE_MS), 1.0, "фильтр замолчал");
+        assert_eq!(quarantine_leak(ow, [987_654, 64, 2]), 1.0, "живой реестр пуст");
+    }
+
+    #[test]
+    fn the_filter_screen_shows_tightness() {
+        let mut w = lab_room();
+        w.remove(&[4, 65, -1]);
+        let mb = multiblock(QUARANTINE).unwrap();
+        let verdict = check_multiblock(mb, SITE, &|p| w.get(&p).copied().unwrap_or("minecraft:air").to_string());
+        assert!(matches!(verdict, Verdict::Formed(_)), "с пробоиной камера собрана");
+        let detail = take_room_check(SITE.origin).expect("подробности");
+        let mut data = vec![0; machine_data_slots(QUARANTINE)];
+        write_verdict(&mut data, &verdict);
+        write_room(&mut data, &detail);
+        let s = detail.as_ref().unwrap();
+        let f = seal_factors(s, Some(FILTER_DURABILITY));
+        write_seal(&mut data, &f);
+        write_filter(&mut data, Some(FILTER_DURABILITY), tightness(&f) >= SEAL_HOLDS);
+        let board = quarantine_board(&data);
+        assert_eq!(board.head, "Подтекает");
+        assert_eq!(board.lines[0], "Герметичность 60%");
+        assert_eq!(board.lines[1], "Пробоина: 4 65 -1");
+        let tip = quarantine_tooltip(&data);
+        assert!(tip.iter().any(|l| l.contains("пробоины ×60%")), "{tip:?}");
+    }
+}
+
 // ---- M9: контракт параллельной работы (GDD 4.23, 4.25) ----
 //
 // Доза заразы (4.23 п. 1) идёт игроку по каналам; спецодежда (4.25) режет
@@ -17574,11 +18894,20 @@ pub fn suit_multiplier(worn: &Worn, channel: DoseChannel) -> f32 {
 // Сигнатуру не менять: тело заполняет агент карантина, остальные только
 // вызывают. Пока ни одна камера не держит — нигде не карантин.
 
-/// Точка `pos` уровня `dimension` — внутри собранной карантинной камеры.
+/// Точка `pos` уровня `dimension` — внутри собранной карантинной камеры,
+/// и камера защищает её сейчас. С M9 (GDD 4.23 п. 11) камера бывает
+/// негерметичной: с долей `quarantine_leak` проверок ответ «нет» (бросок —
+/// один на точку в секунду, `sealed_here`). Герметичная — всегда «да».
 pub fn in_quarantine(dimension: &str, pos: [i32; 3]) -> bool {
-    // Реестр держащих камер (раздел «M8: карантинная камера»): фильтр с
-    // живым патроном кладёт туда клетки своей закрытой комнаты.
-    quarantine_rooms().lock().is_ok_and(|rooms| rooms.contains(dimension, pos, quarantine_clock()))
+    // Реестр камер (раздел «M8: карантинная камера»): фильтр кладёт туда
+    // клетки своей закрытой комнаты и её долю утечки.
+    sealed_here(quarantine_leak(dimension, pos), pos, quarantine_clock())
+}
+
+/// Доля утечки камеры в точке: 0 — герметична, 1 — камеры нет. Для тех, кто
+/// режет поток (доза), а не бросает «да/нет».
+pub fn quarantine_leak(dimension: &str, pos: [i32; 3]) -> f32 {
+    quarantine_rooms().lock().map_or(1.0, |rooms| rooms.leak_at(dimension, pos, quarantine_clock()))
 }
 
 // ---- Экраны машин ----
@@ -17619,7 +18948,7 @@ pub const SCREEN_HEADER: f32 = 16.0;
 
 /// Название машины на экране, если сервер не прислал своё, и что она делает —
 /// для подсказки над шкалой.
-pub const SCREEN_NAMES: [(&str, &str, &str); 17] = [
+pub const SCREEN_NAMES: [(&str, &str, &str); 18] = [
     ("biolab:still", "Перегонный куб", "Перегонка"),
     ("biolab:incubator", "Инкубатор", "Рост культуры"),
     ("biolab:fermenter", "Ферментер", "Брожение"),
@@ -17638,6 +18967,8 @@ pub const SCREEN_NAMES: [(&str, &str, &str); 17] = [
     (OUTPUT_PORT, "Выходной порт", "Выдача"),
     (SEQUENCER, "Генный секвенатор", "Секвенирование"),
     (BIOREACTOR, "Биореактор", "Партия"),
+    // Криобанк (GDD 4.23 п. 9): не машина, но экран у него свой.
+    (CRYOBANK, "Криобанк", "Хранение"),
 ];
 
 /// Название машины для заголовка.
@@ -17681,6 +19012,11 @@ fn furnace_screen(
 /// раскладка наша у всех, но места те же — чтобы откат на ванильные меню
 /// ничего не сдвинул.
 pub fn machine_screen(id: &str) -> Option<MachineScreen> {
+    // Криобанк (GDD 4.23 п. 9): табло холода во всю ширину и ряд из девяти
+    // слотов над инвентарём, как у сундука.
+    if id == CRYOBANK {
+        return Some(cryobank_screen());
+    }
     // Порт установки: пять слотов в ряд, как у воронки; слева — стрелка
     // подачи, справа — табличка «вход»/«выход».
     if port(id).is_some() {
@@ -18350,6 +19686,9 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
         let over = inside(screen.gauge, at) || inside(screen.progress, at);
         return if over { port_tooltip(id) } else { Vec::new() };
     }
+    if id == CRYOBANK {
+        return if inside(screen.gauge, at) { cryobank_tooltip() } else { Vec::new() };
+    }
     // Кнопки режимов секвенатора — вне прибора и шкалы.
     if id == SEQUENCER
         && let Some(mode) = seq_button_at(at)
@@ -18795,7 +20134,7 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 35, "блоков стало больше — решите, выпадают ли новые");
+        assert_eq!(blocks.len(), 36, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,
@@ -18841,7 +20180,7 @@ mod drop_tests {
             assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
         }
         // Части многоблочных установок (GDD 4.18) — тоже.
-        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER_RACK, SEQUENCER_MONITOR, CLEAN_PANEL] {
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER_RACK, SEQUENCER_MONITOR, CLEAN_PANEL, CRYOBANK] {
             assert!(dropping.contains(&id.trim_start_matches("biolab:")), "{id}");
         }
         for fluid in &FLUIDS {
@@ -18879,7 +20218,7 @@ mod drop_tests {
         assert!(pickaxe.contains(&LAB_BENCH.to_string()));
         assert!(pickaxe.contains(&OPERATING_TABLE.to_string()));
         // Части установок — металл и стекло в раме: киркой.
-        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER, SEQUENCER_RACK, SEQUENCER_MONITOR, QUARANTINE, CLEAN_PANEL] {
+        for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER, SEQUENCER_RACK, SEQUENCER_MONITOR, QUARANTINE, CLEAN_PANEL, CRYOBANK] {
             assert!(pickaxe.contains(&id.to_string()), "{id}");
         }
     }

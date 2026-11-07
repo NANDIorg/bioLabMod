@@ -2122,8 +2122,85 @@ def write_quarantine():
     print("карантинная камера: фильтр, чистая панель, патрон")
 
 
+# ---------------------------------------------------------------- криобанк (GDD 4.23 п. 9)
+#
+# Криобанк — белый лабораторный холодильник: сталь с инеем по кромке, спереди
+# дверца с окошком изморози и голубое табло температуры. Термобокс — предмет:
+# белый пенопластовый ящик с голубой крышкой и ручкой.
+
+FROST = (196, 232, 244)
+ICE_BLUE = (110, 190, 230)
+
+
+def cryo_side(seed):
+    img = canvas((214, 222, 226))
+    grain(img, 3, seed)
+    bevel(img, 0, 0, 16, 16, 12, -26)
+    outline(img, 0, 0, 16, 16, shade((214, 222, 226), -48))
+    for x in range(1, 15):  # иней по верхней кромке
+        if (x * 7 + seed) % 3:
+            put(img, x, 1, FROST)
+    for x, y in ((1, 1), (14, 1), (1, 14), (14, 14)):
+        put(img, x, y, STEEL)
+    return img
+
+
+def cryo_front():
+    img = cryo_side(stable("cryobank_front") & 0xFFF)
+    rect(img, 2, 2, 14, 15, (200, 210, 216))
+    outline(img, 2, 2, 14, 15, EDGE)
+    rect(img, 4, 4, 12, 9, (150, 196, 220))  # окошко с изморозью
+    outline(img, 4, 4, 12, 9, STEEL_DARK)
+    for x, y in ((5, 5), (7, 6), (9, 5), (10, 7), (6, 7)):
+        put(img, x, y, FROST)
+    rect(img, 5, 10, 11, 13, (18, 30, 40))  # табло
+    for x in (6, 7, 9):
+        put(img, x, 11, ICE_BLUE)
+    put(img, 12, 11, STEEL_LIGHT)  # ручка
+    put(img, 12, 12, STEEL_LIGHT)
+    return img
+
+
+def thermobox_tex():
+    img = canvas((0, 0, 0), 0)
+    foam = (236, 240, 236)
+    rect(img, 2, 6, 14, 15, foam)
+    outline(img, 2, 6, 14, 15, shade(foam, -60))
+    rect(img, 1, 4, 15, 7, ICE_BLUE)  # крышка
+    outline(img, 1, 4, 15, 7, shade(ICE_BLUE, -60))
+    rect(img, 6, 2, 10, 3, STEEL_DARK)  # ручка
+    put(img, 6, 3, STEEL_DARK)
+    put(img, 9, 3, STEEL_DARK)
+    for x in (5, 8, 11):  # снежинки на боку
+        put(img, x, 10, FROST)
+        put(img, x - 1, 11, FROST)
+        put(img, x + 1, 11, FROST)
+        put(img, x, 12, FROST)
+    return img
+
+
+def write_cryobank():
+    write_png("cryobank_side", cryo_side(stable("cryobank_side") & 0xFFF))
+    write_png("cryobank_front", cryo_front())
+    write_model("cryobank", "minecraft:block/orientable",
+                {"front": "cryobank_front", "side": "cryobank_side", "top": "cryobank_side",
+                 "particle": "cryobank_side"})
+    facing_states("cryobank")
+    write_item("cryobank")
+
+    write_png("thermobox", thermobox_tex(), os.path.join(ASSETS, "textures", "item"))
+    dump_model(os.path.join(ASSETS, "models", "item", "thermobox.json"), {
+        "parent": "minecraft:item/generated",
+        "textures": {"layer0": "biolab:item/thermobox"},
+    })
+    with open(os.path.join(ASSETS, "items", "thermobox.json"), "w") as f:
+        f.write('{ "model": { "type": "minecraft:model", "model": "biolab:item/thermobox" } }\n')
+    print("криобанк и термобокс")
+
+
 if __name__ == "__main__":
     main()
     write_multiblock()
     write_bioreactor()
     write_quarantine()
+    write_cryobank()

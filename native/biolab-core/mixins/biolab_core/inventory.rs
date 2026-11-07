@@ -12,6 +12,8 @@ fn biolab_core_inventory_tick(game: &mut crate::game::Game<'_>, slot: i32) {
     if !game.native_on(m::ID) {
         return;
     }
+    // Образцы портятся вне холода (GDD 4.23 п. 9, `lab.rs`).
+    crate::game::biolab_lab::inventory_tick(game, slot);
     let Some(stack) = game.native_carried_stack(slot) else {
         return;
     };
