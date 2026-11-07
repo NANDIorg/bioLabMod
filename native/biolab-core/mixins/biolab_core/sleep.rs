@@ -340,7 +340,7 @@ fn level_tick(game: &mut crate::game::Game<'_>, now: u64, dimension: &str) {
     }
 }
 
-/// Игрок в облаке без противогаза вдыхает дозу — раз за облако.
+/// Игрок в облаке вдыхает дозу сквозь маску — раз за облако.
 fn player_tick(game: &mut crate::game::Game<'_>, now: u64, dimension: &str) {
     let Some(player) = game.native_player() else {
         return;
@@ -359,9 +359,9 @@ fn player_tick(game: &mut crate::game::Game<'_>, now: u64, dimension: &str) {
     if clouds.is_empty() {
         return;
     }
-    // Голова — слот 103 (`native_carried_slot`: 100–103 — броня, 103 — шлем).
-    let head = game.native_carried_stack(103).map(|stack| stack.item.to_string());
-    let protected = m::gas_protected(head.as_deref());
+    // Маска режет вдох по каналу воздуха (M9, GDD 4.25): респиратор с живым
+    // фильтром — до 0,15, черепаший панцирь — до 0,6 (`suit_multiplier`).
+    let air = m::suit_multiplier(&crate::game::biolab_suit::worn(game), m::DoseChannel::Air);
     let world = game.world_root.clone();
     let resistance = m::world_player_gene(&world, uuid, m::RESISTANCE_GENE);
     for cloud in clouds {
@@ -371,10 +371,7 @@ fn player_tick(game: &mut crate::game::Game<'_>, now: u64, dimension: &str) {
         let Some(s) = m::sleeper(cloud.sleeper) else {
             continue;
         };
-        if protected {
-            continue;
-        }
-        let dose = m::gas_dose(s, resistance);
+        let dose = m::gas_through(m::gas_dose(s, resistance), air);
         if dose == 0 {
             continue;
         }

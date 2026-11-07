@@ -178,5 +178,12 @@
  "block.biolab.bioreactor": "Bioreactor",
  "block.biolab.quarantine": "Quarantine Filter",
  "block.biolab.clean_panel": "Clean Panel",
- "item.biolab.filter_cartridge": "Filter Cartridge"
+ "item.biolab.filter_cartridge": "Filter Cartridge",
+ "item.biolab.lab_coat": "Lab Coat",
+ "item.biolab.lab_pants": "Lab Trousers",
+ "item.biolab.lab_shoes": "Shoe Covers",
+ "item.biolab.hazmat_respirator": "Respirator",
+ "item.biolab.hazmat_suit": "Hazmat Suit",
+ "item.biolab.hazmat_pants": "Hazmat Trousers",
+ "item.biolab.hazmat_boots": "Hazmat Boots"
 }

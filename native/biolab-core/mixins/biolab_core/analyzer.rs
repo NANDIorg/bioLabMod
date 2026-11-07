@@ -25,12 +25,15 @@ fn biolab_core_hud(
     let Some(infection) = m::shown_infection() else {
         return;
     };
-    let lines = m::analyzer_lines_with(
+    let mut lines = m::analyzer_lines_with(
         infection,
         m::shown_journal(),
         &m::shown_blood(),
         &m::shown_strain(),
     );
+    // Сколько пропускает надетая спецодежда (M9, GDD 4.25): броня у клиента
+    // та же, что прислал сервер.
+    lines.extend(m::suit_lines(&crate::game::biolab_suit::worn(game)));
     let w = lines
         .iter()
         .map(|l| game.native_text_width(l))

@@ -178,5 +178,12 @@
  "block.biolab.bioreactor": "Биореактор",
  "block.biolab.quarantine": "Фильтр карантинной камеры",
  "block.biolab.clean_panel": "Чистая панель",
- "item.biolab.filter_cartridge": "Фильтрующий патрон"
+ "item.biolab.filter_cartridge": "Фильтрующий патрон",
+ "item.biolab.lab_coat": "Халат лаборанта",
+ "item.biolab.lab_pants": "Штаны лаборанта",
+ "item.biolab.lab_shoes": "Бахилы",
+ "item.biolab.hazmat_respirator": "Респиратор",
+ "item.biolab.hazmat_suit": "Костюм химзащиты",
+ "item.biolab.hazmat_pants": "Штаны химзащиты",
+ "item.biolab.hazmat_boots": "Сапоги химзащиты"
 }

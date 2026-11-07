@@ -1,0 +1,29 @@
+{
+ "template": "minecraft:leather_chestplate",
+ "max_stack_size": 1,
+ "components": {
+  "minecraft:attribute_modifiers": [
+   {
+    "type": "minecraft:armor",
+    "amount": 3.0,
+    "id": "minecraft:armor.chestplate",
+    "operation": "add_value",
+    "slot": "chest"
+   },
+   {
+    "type": "minecraft:armor_toughness",
+    "amount": 0.0,
+    "id": "minecraft:armor.chestplate",
+    "operation": "add_value",
+    "slot": "chest"
+   },
+   {
+    "type": "minecraft:movement_speed",
+    "amount": -0.02,
+    "id": "biolab:hazmat_suit_weight",
+    "operation": "add_multiplied_base",
+    "slot": "chest"
+   }
+  ]
+ }
+}

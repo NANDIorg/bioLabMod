@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 112] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 119] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -229,6 +229,14 @@ pub const ITEM_HINTS: [(&str, &[&str]); 112] = [
     ("biolab:antisense_vector", &["ПКМ по мобу — удалить этот ген", "ПКМ в воздух — удалить у себя"]),
     // Биореактор (GDD 4.18, п. 2).
     ("biolab:bioreactor", &["Середина стенки куба 3×3×3, огонь под днищем", "Партия до 8: рецепты ферментера и инкубатора"]),
+    // Спецодежда (M9, GDD 4.25): числа — из `SUIT_PIECES`.
+    ("biolab:lab_coat", &["Закрывает: контакт ×0,6, брызги ×0,4", "Перчатки и очки — в комплекте"]),
+    ("biolab:lab_pants", &["Закрывает: контакт ×0,8, брызги ×0,8", "Комбинезон: халат, штаны, бахилы"]),
+    ("biolab:lab_shoes", &["Закрывает: контакт ×0,5 — лужи под ногами", "Комбинезон: халат, штаны, бахилы"]),
+    ("biolab:hazmat_respirator", &["Закрывает: воздух ×0,15, брызги ×0,6", "Фильтр 20 мин; ПКМ патроном — новый"]),
+    ("biolab:hazmat_suit", &["Закрывает: контакт и брызги ×0,25", "С респиратором воздух ещё ×0,35; жарко"]),
+    ("biolab:hazmat_pants", &["Закрывает: контакт ×0,5, брызги ×0,6", "Полный костюм: поток ×0,05, скорость −8 %"]),
+    ("biolab:hazmat_boots", &["Закрывает: контакт ×0,4, брызги ×0,6", "Полный костюм: поток ×0,05, скорость −8 %"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -5286,14 +5294,11 @@ pub fn gas_dose(s: &Sleeper, resistance: i32) -> u32 {
     base * (4 - resistance.clamp(0, 3) as u32) / 4
 }
 
-/// Что на голове спасает от газа. Своего противогаза пока нет — его место
-/// занимает черепаший панцирь: ванильный «дыхательный» шлем.
+/// Слабые маски: черепаший панцирь, ванильный «дыхательный» шлем. До M9 он
+/// один спасал от газа целиком; теперь вдох режет спецодежда по каналу
+/// воздуха (`suit_multiplier`, `gas_through`, GDD 4.25): респиратор с живым
+/// фильтром — до 0,15, панцирь — до `WEAK_MASK_AIR`.
 pub const GAS_MASKS: [&str; 1] = ["minecraft:turtle_helmet"];
-
-/// Защищён ли игрок с этим предметом на голове.
-pub fn gas_protected(head: Option<&str>) -> bool {
-    head.is_some_and(|item| GAS_MASKS.contains(&item))
-}
 
 /// Внутри ли облака точка (середина тела).
 pub fn in_cloud(cloud: &Cloud, at: [f64; 3]) -> bool {
@@ -7312,7 +7317,8 @@ mod tests {
             let id = format!("biolab:{}", path.file_stem().unwrap().to_string_lossy());
             let json = Json::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
             let size = json.get("max_stack_size").and_then(Json::num).expect(&id) as u32;
-            let want = if single.contains(&id.as_str()) || fluid_of_bucket(&id).is_some() {
+            // Спецодежда (GDD 4.25) — броня, по одной, как у шаблона.
+            let want = if single.contains(&id.as_str()) || fluid_of_bucket(&id).is_some() || suit_piece(&id).is_some() {
                 1
             } else if element(&id).is_some()
                 || id == TISSUE_ID
@@ -8847,9 +8853,11 @@ mod tests {
         let west = spray_point([0.0, 64.0, 0.0], 90.0, 0.0);
         assert!((west[0] + SPRAY_REACH).abs() < 1e-9);
         assert!(spray_point([0.0, 64.0, 0.0], 0.0, 90.0)[1] < 64.0 + EYE_HEIGHT - 2.0);
-        // Противогаз (пока — черепаший панцирь) спасает, остальное — нет.
-        assert!(gas_protected(Some("minecraft:turtle_helmet")));
-        assert!(!gas_protected(Some("minecraft:iron_helmet")) && !gas_protected(None));
+        // Маска режет вдох (M9): панцирь — слабо, железный шлем — никак.
+        let head = |item: &str| Worn { slots: [(item.to_string(), String::new()), Default::default(), Default::default(), Default::default()] };
+        assert_eq!(gas_through(30, suit_multiplier(&head("minecraft:turtle_helmet"), DoseChannel::Air)), 18);
+        assert_eq!(gas_through(30, suit_multiplier(&head("minecraft:iron_helmet"), DoseChannel::Air)), 30);
+        assert_eq!(gas_through(30, suit_multiplier(&head(RESPIRATOR_ID), DoseChannel::Air)), 4);
         // Устойчивость к снотворному режет вдох на четверть за силу.
         let ether = sleeper("ether").unwrap();
         assert_eq!(gas_dose(ether, 0), 30);
@@ -10194,7 +10202,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 67] = [
+pub const RESEARCH: [Research; 68] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10285,6 +10293,9 @@ pub const RESEARCH: [Research; 67] = [
     // Карантинная камера — микробиология, после штамма: она нужна, когда
     // штамм выведен тяжёлым.
     node("quarantine", 2, (3, 0), "biolab:quarantine", "Карантинная камера", &["strain"], Unlock::Item(&["biolab:quarantine", "biolab:clean_panel", "biolab:filter_cartridge"]), "Сделайте фильтр: корпус, решётки, шерсть."),
+    // Спецодежда и загрязнение (M9, GDD 4.25, 4.23 п. 13) — микробиология,
+    // сразу под инкубатором: костюм нужен с первой культуры.
+    node("suit", 2, (0, 2), "biolab:hazmat_respirator", "Спецодежда", &["incubator"], Unlock::Item(&["biolab:lab_coat", "biolab:lab_pants", "biolab:lab_shoes", "biolab:hazmat_respirator", "biolab:hazmat_suit", "biolab:hazmat_pants", "biolab:hazmat_boots"]), "Сшейте халат из белой шерсти на верстаке."),
 ];
 
 /// Номер узла по id.
@@ -17307,6 +17318,758 @@ mod dose_tests {
     }
 }
 
+// ---- M9: спецодежда и загрязнение (GDD 4.25, 4.23 п. 13) ----
+//
+// Спецодежда — свои предметы на шаблонах кожаной брони (`leather_*`): слот,
+// броня и прочность — шаблона, а слой на теле игрока пин ищет по
+// `equippable.asset_id` предмета (`game/armor_stands.rs`, `armor_layers`),
+// и у наших предметов он шаблонный, `minecraft:leather`. Цвет слоя — из
+// `dyed_color` стека (`layer_color` там же; значения по умолчанию предмета
+// он не читает), поэтому цвет ставит тик костюма (`biolab_suit::tick`).
+// Модификаторы атрибутов пин берёт только у предмета (`apply_equipment`,
+// `game.rs`), не у стека, — отсюда и свои предметы, а не кожанка с данными.
+//
+// Защита: каждая деталь режет каждый канал дозы своим множителем, итог —
+// произведение по надетому, но не ниже `SUIT_FLOOR`. Фильтр респиратора —
+// заряд в секундах в `custom_data` (`SUIT_KEY`), тратится, пока респиратор
+// на голове. Грязная деталь держит хуже (`soiled`).
+//
+// Загрязнение — у любого стека в `custom_data` (`CONTAM_KEY`): уровень 1–100
+// и, если известен, штамм. Съел — доза «съеденное»; держишь в руке —
+// «контакт». Печь даёт новый стек — чисто; у термостойкого штамма половина
+// уровня остаётся на выходе печи (`CookBook`). Хлор ПКМ чистит всё.
+
+/// Ступень спецодежды.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SuitTier {
+    /// Комбинезон лаборанта: халат, штаны, бахилы.
+    Lab,
+    /// Костюм химзащиты: респиратор, костюм, штаны, сапоги.
+    Hazmat,
+}
+
+/// Деталь спецодежды: слот (как в `Worn`: 0 голова, 1 грудь, 2 ноги,
+/// 3 ступни), ступень, множители каналов (1.0 — канал не режет) и цвет слоя
+/// на теле (`dyed_color`, RGB).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SuitPiece {
+    pub id: &'static str,
+    pub slot: usize,
+    pub tier: SuitTier,
+    pub air: f32,
+    pub contact: f32,
+    pub splash: f32,
+    pub colour: i32,
+}
+
+/// Белый халат лаборанта и жёлтая химзащита (GDD 4.25).
+pub const LAB_COLOUR: i32 = 0xE6_EBEE;
+pub const HAZMAT_COLOUR: i32 = 0xE0_B420;
+
+pub const RESPIRATOR_ID: &str = "biolab:hazmat_respirator";
+pub const HAZMAT_SUIT_ID: &str = "biolab:hazmat_suit";
+
+/// Таблица защиты. Воздух респиратора — с живым фильтром (без фильтра
+/// `RESPIRATOR_DRY_AIR`); воздух костюма — капюшон, он держит только вместе
+/// с респиратором. Полный костюм химзащиты: воздух 0,15 × 0,35 ≈ 0,05,
+/// контакт 0,25 × 0,5 × 0,4 = 0,05, брызги 0,6 × 0,25 × 0,6 × 0,6 ≈ 0,05.
+/// Комбинезон: контакт 0,24, брызги 0,32, воздух не держит.
+pub const SUIT_PIECES: [SuitPiece; 7] = [
+    SuitPiece { id: "biolab:lab_coat", slot: 1, tier: SuitTier::Lab, air: 1.0, contact: 0.6, splash: 0.4, colour: LAB_COLOUR },
+    SuitPiece { id: "biolab:lab_pants", slot: 2, tier: SuitTier::Lab, air: 1.0, contact: 0.8, splash: 0.8, colour: LAB_COLOUR },
+    SuitPiece { id: "biolab:lab_shoes", slot: 3, tier: SuitTier::Lab, air: 1.0, contact: 0.5, splash: 1.0, colour: LAB_COLOUR },
+    SuitPiece { id: RESPIRATOR_ID, slot: 0, tier: SuitTier::Hazmat, air: 0.15, contact: 1.0, splash: 0.6, colour: HAZMAT_COLOUR },
+    SuitPiece { id: HAZMAT_SUIT_ID, slot: 1, tier: SuitTier::Hazmat, air: 0.35, contact: 0.25, splash: 0.25, colour: HAZMAT_COLOUR },
+    SuitPiece { id: "biolab:hazmat_pants", slot: 2, tier: SuitTier::Hazmat, air: 1.0, contact: 0.5, splash: 0.6, colour: HAZMAT_COLOUR },
+    SuitPiece { id: "biolab:hazmat_boots", slot: 3, tier: SuitTier::Hazmat, air: 1.0, contact: 0.4, splash: 0.6, colour: HAZMAT_COLOUR },
+];
+
+/// Ниже этого поток не опускается: полной защиты в моде нет (GDD 4.25).
+pub const SUIT_FLOOR: f32 = 0.05;
+/// Респиратор с забитым фильтром: только закрывает лицо.
+pub const RESPIRATOR_DRY_AIR: f32 = 0.6;
+/// Черепаший панцирь (`GAS_MASKS`) — слабая защита воздуха, как маска без
+/// фильтра. До M9 он один спасал от газа целиком.
+pub const WEAK_MASK_AIR: f32 = 0.6;
+
+/// Деталь спецодежды по id предмета.
+pub fn suit_piece(item: &str) -> Option<&'static SuitPiece> {
+    SUIT_PIECES.iter().find(|p| p.id == item)
+}
+
+/// Ключ данных респиратора в `custom_data`: `filter=<секунд>`.
+pub const SUIT_KEY: &str = "biolab_suit";
+/// Полный фильтр, секунд ношения: 20 минут, как патрон камеры.
+pub const FILTER_FULL: u32 = 1200;
+/// За сколько секунд до конца предупредить.
+pub const FILTER_WARN: u32 = 60;
+pub const FILTER_LOW: &str = "Фильтр респиратора: осталась минута";
+pub const FILTER_SPENT: &str = "Фильтр респиратора забит: воздух больше не держит";
+pub const FILTER_REFILLED: &str = "Фильтр респиратора заменён: 20 минут";
+pub const FILTER_ALREADY_FULL: &str = "Фильтр респиратора ещё полный";
+pub const FILTER_NO_RESPIRATOR: &str = "Наденьте респиратор, чтобы сменить фильтр";
+
+/// Число под ключом `key` в строке вида `filter=900;contam=40`.
+fn suit_token(text: &str, key: &str) -> Option<u32> {
+    text.split(';')
+        .find_map(|part| part.trim().strip_prefix(key)?.strip_prefix('=')?.trim().parse().ok())
+}
+
+/// Заряд фильтра по строке респиратора. Записи нет — респиратор новый, фильтр
+/// полный (так выходит и из творческой вкладки, и с верстака).
+pub fn respirator_filter(text: Option<&str>) -> u32 {
+    text.and_then(|t| suit_token(t, "filter")).unwrap_or(FILTER_FULL).min(FILTER_FULL)
+}
+
+/// Строка респиратора под `SUIT_KEY`.
+pub fn suit_text(filter: u32) -> String {
+    format!("filter={}", filter.min(FILTER_FULL))
+}
+
+/// Секунда ношения респиратора: новый заряд и, если пора, что сказать.
+pub fn filter_tick(left: u32) -> (u32, Option<&'static str>) {
+    if left == 0 {
+        return (0, None);
+    }
+    let next = left - 1;
+    let news = match next {
+        0 => Some(FILTER_SPENT),
+        FILTER_WARN => Some(FILTER_LOW),
+        _ => None,
+    };
+    (next, news)
+}
+
+/// Строка подсказки респиратора о фильтре.
+pub fn respirator_line(left: u32) -> String {
+    if left == 0 {
+        "Фильтр забит: ПКМ фильтрующим патроном".to_string()
+    } else {
+        format!("Фильтр: {} мин {} с", left / 60, left % 60)
+    }
+}
+
+/// Строка под ключом `key` из SNBT `custom_data` надетой детали — так её
+/// кладёт в `Worn` тик дозы (`to_snbt`): `{biolab_suit:"filter=900"}`.
+pub fn snbt_string(snbt: &str, key: &str) -> Option<String> {
+    let mut rest = snbt;
+    while let Some(at) = rest.find(key) {
+        let before = rest[..at].trim_end().chars().last();
+        let after = rest[at + key.len()..].trim_start();
+        rest = &rest[at + key.len()..];
+        if !matches!(before, Some('{') | Some(',')) {
+            continue;
+        }
+        let Some(value) = after.strip_prefix(':') else {
+            continue;
+        };
+        let value = value.trim_start();
+        let quote = value.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+        let body = &value[1..];
+        return Some(body[..body.find(quote)?].to_string());
+    }
+    None
+}
+
+/// Заряд фильтра надетой детали по её строке в `Worn`.
+pub fn worn_filter(data: &str) -> u32 {
+    respirator_filter(snbt_string(data, SUIT_KEY).as_deref())
+}
+
+/// Уровень загрязнения надетой детали по её строке в `Worn`.
+pub fn worn_dirt(data: &str) -> u32 {
+    snbt_string(data, CONTAM_KEY).and_then(|t| contamination_from_text(&t)).map_or(0, |c| c.level)
+}
+
+/// Грязная деталь держит хуже: при 100 % теряет половину своей защиты.
+pub fn soiled(factor: f32, level: u32) -> f32 {
+    factor + (1.0 - factor) * level.min(100) as f32 / 200.0
+}
+
+/// Множитель потока по каналу от надетого — тело `suit_multiplier`.
+pub fn suit_flow(worn: &Worn, channel: DoseChannel) -> f32 {
+    if channel == DoseChannel::Ingest {
+        return 1.0;
+    }
+    let respirator = worn.slots[0].0 == RESPIRATOR_ID;
+    let mut flow = 1.0_f32;
+    for (slot, (item, data)) in worn.slots.iter().enumerate() {
+        let factor = match suit_piece(item) {
+            Some(p) if p.slot == slot => {
+                let base = match channel {
+                    DoseChannel::Air if p.id == RESPIRATOR_ID => {
+                        if worn_filter(data) > 0 { p.air } else { RESPIRATOR_DRY_AIR }
+                    }
+                    DoseChannel::Air if p.id == HAZMAT_SUIT_ID && !respirator => 1.0,
+                    DoseChannel::Air => p.air,
+                    DoseChannel::Contact => p.contact,
+                    DoseChannel::Splash => p.splash,
+                    DoseChannel::Ingest => 1.0,
+                };
+                soiled(base, worn_dirt(data))
+            }
+            _ if slot == 0 && channel == DoseChannel::Air && GAS_MASKS.contains(&item.as_str()) => WEAK_MASK_AIR,
+            _ => 1.0,
+        };
+        flow *= factor;
+    }
+    flow.max(SUIT_FLOOR)
+}
+
+/// Множитель строкой для подсказки и анализатора: `0,25`.
+pub fn flow_text(flow: f32) -> String {
+    let rounded = (flow * 100.0).round() / 100.0;
+    format!("{rounded}").replace('.', ",")
+}
+
+/// Строки анализатора о надетом: пусто, если ничего не режет.
+pub fn suit_lines(worn: &Worn) -> Vec<String> {
+    let flows = [
+        ("воздух", suit_flow(worn, DoseChannel::Air)),
+        ("контакт", suit_flow(worn, DoseChannel::Contact)),
+        ("брызги", suit_flow(worn, DoseChannel::Splash)),
+    ];
+    if flows.iter().all(|(_, f)| *f >= 1.0) {
+        return Vec::new();
+    }
+    let text: Vec<String> = flows.iter().map(|(name, f)| format!("{name} ×{}", flow_text(*f))).collect();
+    vec![format!("Защита: {}", text.join(", "))]
+}
+
+/// Газ снотворного (GDD 4.20) сквозь маску: доза × множитель воздуха, вниз.
+pub fn gas_through(dose: u32, air: f32) -> u32 {
+    (dose as f32 * air.clamp(0.0, 1.0)) as u32
+}
+
+/// Надет ли костюм химзащиты почти целиком (три детали из четырёх) — в нём
+/// жарко у работающей машины.
+pub fn sealed(worn: &Worn) -> bool {
+    worn.slots
+        .iter()
+        .enumerate()
+        .filter(|(slot, (item, _))| suit_piece(item).is_some_and(|p| p.tier == SuitTier::Hazmat && p.slot == *slot))
+        .count()
+        >= 3
+}
+
+/// Перегрев (GDD 4.25): секунды в закрытом костюме у жара. С `HEAT_LIMIT` —
+/// замедление и слабость, пока не остынешь; снятый костюм остывает быстрее.
+pub const HEAT_LIMIT: u32 = 45;
+pub const HEAT_CAP: u32 = 90;
+/// Как далеко работающая машина греет, блоков.
+pub const HEAT_RANGE: i32 = 4;
+/// Машины, у которых жарко, пока они работают (`BUSY_KEY`).
+pub const SUIT_HEAT_SOURCES: [&str; 2] = ["biolab:reactor", "biolab:bioreactor"];
+/// Где жарко само по себе.
+pub const HOT_DIMENSIONS: [&str; 1] = ["minecraft:the_nether"];
+pub const HEAT_ON: &str = "Перегрев в костюме: отойдите от жара и расстегнитесь";
+pub const HEAT_OFF: &str = "Костюм остыл";
+
+/// Перегрев через секунду: в костюме у жара +1, в костюме без жара −1, без
+/// костюма −3.
+pub fn heat_step(heat: u32, sealed: bool, hot: bool) -> u32 {
+    match (sealed, hot) {
+        (true, true) => (heat + 1).min(HEAT_CAP),
+        (true, false) => heat.saturating_sub(1),
+        (false, _) => heat.saturating_sub(3),
+    }
+}
+
+/// Пора ли игроку платить за перегрев.
+pub fn overheated(heat: u32) -> bool {
+    heat >= HEAT_LIMIT
+}
+
+/// Что сказать при переходе порога.
+pub fn heat_news(before: u32, after: u32) -> Option<&'static str> {
+    match (overheated(before), overheated(after)) {
+        (false, true) => Some(HEAT_ON),
+        (true, false) => Some(HEAT_OFF),
+        _ => None,
+    }
+}
+
+fn suit_heat() -> &'static std::sync::Mutex<std::collections::HashMap<u128, u32>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u128, u32>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Секунда перегрева игрока: новый перегрев и что сказать. Память процесса:
+/// перезаход в мир костюм остужает.
+pub fn heat_tick(player: u128, sealed: bool, hot: bool) -> (u32, Option<&'static str>) {
+    let Ok(mut heat) = suit_heat().lock() else {
+        return (0, None);
+    };
+    let before = heat.get(&player).copied().unwrap_or(0);
+    let after = heat_step(before, sealed, hot);
+    if after == 0 {
+        heat.remove(&player);
+    } else {
+        heat.insert(player, after);
+    }
+    (after, heat_news(before, after))
+}
+
+/// Рамка маски на экране (GDD 4.25): полосы по краям, `(x, y, ш, в)` и ARGB.
+/// Забитый фильтр — с красноватым краем.
+pub fn mask_frame(width: f32, height: f32, dry: bool) -> Vec<([f32; 4], u32)> {
+    let outer = (height * 0.07).max(4.0);
+    let inner = outer * 0.6;
+    let mut out = Vec::new();
+    for (t, offset, argb) in [(outer, 0.0, 0x70_00_00_00_u32), (inner, outer, 0x38_00_00_00)] {
+        out.push(([0.0, offset, width, t], argb));
+        out.push(([0.0, height - offset - t, width, t], argb));
+        out.push(([offset, offset + t, t, height - 2.0 * (offset + t)], argb));
+        out.push(([width - offset - t, offset + t, t, height - 2.0 * (offset + t)], argb));
+    }
+    if dry {
+        out.push(([0.0, 0.0, width, outer], 0x30_C0_20_20));
+        out.push(([0.0, height - outer, width, outer], 0x30_C0_20_20));
+    }
+    out
+}
+
+// Загрязнение предметов и еды (GDD 4.23 п. 13).
+
+/// Ключ загрязнения в `custom_data`: `40` или `40:3,2,4,1` (уровень и штамм).
+pub const CONTAM_KEY: &str = "biolab_contam";
+
+/// Загрязнение стека: уровень 1–100 и штамм (None — дикий, неизвестный).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Contamination {
+    pub level: u32,
+    pub strain: Option<Strain>,
+}
+
+/// Загрязнение из строки `CONTAM_KEY`; ноль и мусор — чисто.
+pub fn contamination_from_text(text: &str) -> Option<Contamination> {
+    let (level, strain) = match text.split_once(':') {
+        Some((level, strain)) => (level, strain_from_text(strain)),
+        None => (text, None),
+    };
+    let level = level.trim().parse::<u32>().ok()?.min(100);
+    (level > 0).then_some(Contamination { level, strain })
+}
+
+/// Строка для `CONTAM_KEY`.
+pub fn contamination_text(c: &Contamination) -> String {
+    match c.strain {
+        Some(s) => format!("{}:{}", c.level, strain_to_text(&s)),
+        None => c.level.to_string(),
+    }
+}
+
+/// Из двух штаммов — тяжелее (как у утечки: тяжесть, потом заразность).
+fn heavier_strain(a: Option<Strain>, b: Option<Strain>) -> Option<Strain> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(if (b.severity, b.infectivity) > (a.severity, a.infectivity) { b } else { a }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Стек испачкался ещё на `add` процентов (не выше 100); штамм — тяжелее.
+pub fn contaminate(current: Option<Contamination>, add: u32, strain: Option<Strain>) -> Option<Contamination> {
+    if add == 0 {
+        return current;
+    }
+    let level = (current.map_or(0, |c| c.level) + add).min(100);
+    Some(Contamination { level, strain: heavier_strain(current.and_then(|c| c.strain), strain) })
+}
+
+/// Грязнее из двух: больший уровень, тяжелее штамм (выход печи, добыча).
+pub fn dirtier(a: Option<Contamination>, b: Option<Contamination>) -> Option<Contamination> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(Contamination {
+            level: a.level.max(b.level),
+            strain: heavier_strain(a.strain, b.strain),
+        }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// С какой стойкости штамм переживает готовку.
+pub const THERMOSTABLE: i32 = 4;
+
+/// Термостойко ли загрязнение: только известный штамм высокой стойкости.
+pub fn thermostable(c: &Contamination) -> bool {
+    c.strain.is_some_and(|s| s.resistance >= THERMOSTABLE)
+}
+
+/// Что остаётся после печи: термостойкий штамм теряет половину, остальное —
+/// чисто (выход печи и так новый стек).
+pub fn after_cooking(c: Option<Contamination>) -> Option<Contamination> {
+    c.filter(thermostable)
+        .map(|c| Contamination { level: c.level / 2, ..c })
+        .filter(|c| c.level > 0)
+}
+
+/// Доза за съеденную штуку при 100 % и за секунду в руке при 100 %. Единицы —
+/// дозы M9 (порог `DOSE_THRESHOLD` 100, тает ×0,97 в секунду): съеденное при
+/// 100 % — как гнилая плоть (60), одна штука прощается; вещь при 100 % в
+/// голой руке набирает порог за ~45 с, в халате (контакт 0,6) — никогда.
+pub const EAT_DOSE: f32 = 60.0;
+pub const HANDLE_DOSE: f32 = 4.0;
+
+pub fn ingest_dose(c: &Contamination) -> f32 {
+    EAT_DOSE * c.level as f32 / 100.0
+}
+
+pub fn handle_dose(c: &Contamination) -> f32 {
+    HANDLE_DOSE * c.level as f32 / 100.0
+}
+
+/// Доза загрязнённой еды сверх той, что еда даёт сама (`tainted_food_dose`,
+/// её кладёт `remedy.rs`): гнилая плоть с заражённого не платится дважды.
+pub fn contaminated_food_dose(item: &str, c: &Contamination) -> Option<f32> {
+    let extra = ingest_dose(c) - tainted_food_dose(item).unwrap_or(0.0);
+    (extra > 0.0).then_some(extra)
+}
+
+/// Что сказать съевшему загрязнённое.
+pub fn eaten_message(c: &Contamination) -> String {
+    format!("Съедено загрязнённое ({} %): зараза попала внутрь", c.level)
+}
+
+/// Цвет строк загрязнения в подсказке: красный (`0xAABBGGRR`, как `HINT_INK`).
+pub const CONTAM_INK: u32 = 0xFF55_55FF;
+
+/// Строки подсказки загрязнённого стека: предупреждение первым.
+pub fn contamination_lines(c: &Contamination) -> Vec<String> {
+    let mut lines = vec![format!("Загрязнено: {} %", c.level)];
+    if let Some(s) = c.strain {
+        let v = s.values();
+        let tag = if thermostable(c) { ", термостойкий" } else { "" };
+        lines.push(format!("Штамм: з{} и{} т{} с{}{tag}", v[0], v[1], v[2], v[3]));
+    }
+    lines.push(
+        if thermostable(c) { "Печь снимет половину, хлор — всё" } else { "Очистит печь или хлор (ПКМ)" }.to_string(),
+    );
+    lines
+}
+
+/// Лежит в заражённой луже — +10 % в секунду; у утечки тяжёлого штамма —
+/// +5 % и её штамм.
+pub const GROUND_RATE: u32 = 10;
+pub const LEAK_RATE: u32 = 5;
+
+/// Насколько место пачкает за секунду и каким штаммом: заражённая лужа
+/// (`Fluid::infects`) и/или живая утечка рядом. None — место чистое.
+pub fn place_contamination(puddle: bool, leak: Option<Strain>) -> Option<(u32, Option<Strain>)> {
+    let rate = if puddle { GROUND_RATE } else { 0 } + if leak.is_some() { LEAK_RATE } else { 0 };
+    (rate > 0).then_some((rate, leak))
+}
+
+/// Насколько пачкается надетое за секунду: ступни и ноги — в луже, всё — у
+/// утечки (слот как в `Worn`).
+pub fn suit_dirt(slot: usize, puddle: bool, leak: bool) -> u32 {
+    let ground = match slot {
+        3 => GROUND_RATE,
+        2 => GROUND_RATE / 2,
+        _ => 0,
+    };
+    (if puddle { ground } else { 0 }) + if leak { 2 } else { 0 }
+}
+
+/// Добыча с заражённого — 60 % его штамма, с больного скота — 40 %, всё, что
+/// выпало у утечки (урожай, блоки), — 30 % её штамма.
+pub const INFECTED_DROP_DIRT: u32 = 60;
+pub const SICK_DROP_DIRT: u32 = 40;
+pub const LEAK_DROP_DIRT: u32 = 30;
+
+/// Загрязнение добычи по источнику.
+pub fn drop_contamination(infected: bool, sick: bool, leak: Option<Strain>) -> Option<Contamination> {
+    let from_mob = if infected {
+        Some(Contamination { level: INFECTED_DROP_DIRT, strain: Some(INFECTED_STRAIN) })
+    } else if sick {
+        Some(Contamination { level: SICK_DROP_DIRT, strain: None })
+    } else {
+        None
+    };
+    let from_leak = leak.map(|s| Contamination { level: LEAK_DROP_DIRT, strain: Some(s) });
+    dirtier(from_mob, from_leak)
+}
+
+/// Чем дезинфицируют (GDD 4.5: хлорка): ПКМ хлором чистит предмет в левой
+/// руке и всё надетое, тратит одну штуку.
+pub const DISINFECTANT: &str = "biolab:element_chlorine";
+
+pub fn disinfect_message(cleaned: usize) -> String {
+    format!("Хлор: очищено предметов — {cleaned}")
+}
+
+/// Остаток термостойкого штамма в печи: старт готовки запоминает, что
+/// останется от загрязнённого входа (`after_cooking`), конец готовки отмечает
+/// готовым, тик игрока кладёт остаток на выход печи. Хуки печи в пине только
+/// читают, поэтому запись — на тике.
+#[derive(Default)]
+pub struct CookBook {
+    list: Vec<(String, [i32; 3], Contamination, bool)>,
+}
+
+impl CookBook {
+    /// Печь начала готовить вход с этим загрязнением.
+    pub fn start(&mut self, dimension: &str, pos: [i32; 3], input: Option<Contamination>) {
+        self.list.retain(|(d, p, _, ready)| *ready || !(d == dimension && *p == pos));
+        if let Some(rest) = after_cooking(input) {
+            self.list.push((dimension.to_string(), pos, rest, false));
+        }
+        self.list.truncate(64);
+    }
+
+    /// Печь доготовила.
+    pub fn done(&mut self, dimension: &str, pos: [i32; 3]) {
+        if let Some(entry) = self.list.iter_mut().find(|(d, p, _, ready)| !*ready && d == dimension && *p == pos) {
+            entry.3 = true;
+        }
+    }
+
+    /// Забрать готовые остатки этого уровня.
+    pub fn take_ready(&mut self, dimension: &str) -> Vec<([i32; 3], Contamination)> {
+        let (ready, rest): (Vec<_>, Vec<_>) =
+            self.list.drain(..).partition(|(d, _, _, ready)| *ready && d == dimension);
+        self.list = rest;
+        ready.into_iter().map(|(_, p, c, _)| (p, c)).collect()
+    }
+}
+
+pub fn cook_book() -> &'static std::sync::Mutex<CookBook> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<CookBook>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+#[cfg(test)]
+mod suit_tests {
+    use super::*;
+
+    fn wear(items: [&str; 4]) -> Worn {
+        Worn { slots: items.map(|i| (i.to_string(), String::new())) }
+    }
+
+    const FULL: [&str; 4] = [RESPIRATOR_ID, HAZMAT_SUIT_ID, "biolab:hazmat_pants", "biolab:hazmat_boots"];
+    const LAB: [&str; 4] = ["", "biolab:lab_coat", "biolab:lab_pants", "biolab:lab_shoes"];
+
+    fn near(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.006
+    }
+
+    #[test]
+    fn nothing_worn_protects_nothing() {
+        let bare = Worn::default();
+        for ch in [DoseChannel::Air, DoseChannel::Contact, DoseChannel::Splash, DoseChannel::Ingest] {
+            assert_eq!(suit_flow(&bare, ch), 1.0);
+            assert_eq!(suit_multiplier(&bare, ch), 1.0, "контракт зовёт таблицу");
+        }
+        assert!(suit_lines(&bare).is_empty());
+    }
+
+    #[test]
+    fn full_hazmat_with_a_filter_lets_through_about_a_twentieth() {
+        let suit = wear(FULL);
+        for ch in [DoseChannel::Air, DoseChannel::Contact, DoseChannel::Splash] {
+            let flow = suit_flow(&suit, ch);
+            assert!(near(flow, 0.05), "{ch:?}: {flow}");
+            assert!(flow >= SUIT_FLOOR, "полной защиты нет");
+        }
+        assert_eq!(suit_flow(&suit, DoseChannel::Ingest), 1.0, "еду костюм не держит");
+        assert_eq!(suit_lines(&suit), vec!["Защита: воздух ×0,05, контакт ×0,05, брызги ×0,05".to_string()]);
+    }
+
+    #[test]
+    fn each_piece_cuts_its_own_channel() {
+        let respirator = wear([RESPIRATOR_ID, "", "", ""]);
+        assert!(near(suit_flow(&respirator, DoseChannel::Air), 0.15));
+        assert_eq!(suit_flow(&respirator, DoseChannel::Contact), 1.0);
+        let suit = wear(["", HAZMAT_SUIT_ID, "", ""]);
+        assert!(near(suit_flow(&suit, DoseChannel::Contact), 0.25));
+        assert_eq!(suit_flow(&suit, DoseChannel::Air), 1.0, "капюшон без маски не держит");
+        let lab = wear(LAB);
+        assert!(near(suit_flow(&lab, DoseChannel::Contact), 0.24));
+        assert!(near(suit_flow(&lab, DoseChannel::Splash), 0.32));
+        assert_eq!(suit_flow(&lab, DoseChannel::Air), 1.0, "комбинезон воздух не держит");
+        // Деталь не в своём слоте (так не наденешь, но таблица не путается).
+        let wrong = wear(["biolab:hazmat_boots", "", "", ""]);
+        assert_eq!(suit_flow(&wrong, DoseChannel::Contact), 1.0);
+    }
+
+    #[test]
+    fn a_spent_filter_only_covers_the_face() {
+        let mut worn = wear([RESPIRATOR_ID, "", "", ""]);
+        worn.slots[0].1 = format!("{{{SUIT_KEY}:\"{}\"}}", suit_text(0));
+        assert_eq!(suit_flow(&worn, DoseChannel::Air), RESPIRATOR_DRY_AIR);
+        worn.slots[0].1 = format!("{{{CONTAM_KEY}:\"5\",{SUIT_KEY}:\"{}\"}}", suit_text(5));
+        assert!(near(suit_flow(&worn, DoseChannel::Air), 0.15 + 0.85 * 0.025));
+        assert!(suit_flow(&worn, DoseChannel::Air) < 1.0, "в маске слышно дыхание");
+        // Черепаший панцирь — слабая маска.
+        assert_eq!(suit_flow(&wear(["minecraft:turtle_helmet", "", "", ""]), DoseChannel::Air), WEAK_MASK_AIR);
+        assert_eq!(gas_through(30, 0.15), 4);
+        assert_eq!(gas_through(30, 1.0), 30);
+        assert_eq!(gas_through(30, SUIT_FLOOR), 1);
+    }
+
+    #[test]
+    fn a_dirty_piece_protects_worse() {
+        let mut worn = wear(["", HAZMAT_SUIT_ID, "", ""]);
+        worn.slots[1].1 = "{biolab_contam:\"100:3,2,4,1\"}".to_string();
+        assert_eq!(worn_dirt(&worn.slots[1].1), 100);
+        assert!(near(suit_flow(&worn, DoseChannel::Contact), 0.625), "половина защиты ушла");
+        assert_eq!(soiled(0.25, 0), 0.25);
+        // SNBT: ключ в кавычках или без, одинарные кавычки, чужие ключи рядом.
+        assert_eq!(snbt_string("{a:1,biolab_suit:'filter=3'}", SUIT_KEY).as_deref(), Some("filter=3"));
+        assert_eq!(snbt_string("{x_biolab_suit:\"filter=3\"}", SUIT_KEY), None, "чужой ключ с тем же хвостом");
+        assert_eq!(snbt_string("{biolab_suit: \"filter=3\"}", SUIT_KEY).as_deref(), Some("filter=3"));
+        assert_eq!(snbt_string("", SUIT_KEY), None);
+        assert_eq!(worn_filter(""), FILTER_FULL, "нет данных — новый респиратор");
+    }
+
+    #[test]
+    fn the_filter_runs_out_while_worn() {
+        assert_eq!(respirator_filter(None), FILTER_FULL, "новый — полный");
+        assert_eq!(respirator_filter(Some("filter=90")), 90);
+        assert_eq!(respirator_filter(Some("filter=99999")), FILTER_FULL);
+        assert_eq!(worn_filter("{biolab_contam:\"30\",biolab_suit:\"filter=7\"}"), 7);
+        assert_eq!(filter_tick(FILTER_WARN + 1), (FILTER_WARN, Some(FILTER_LOW)));
+        assert_eq!(filter_tick(1), (0, Some(FILTER_SPENT)));
+        assert_eq!(filter_tick(0), (0, None), "забитый молчит");
+        assert_eq!(filter_tick(500), (499, None));
+        assert_eq!(respirator_line(0), "Фильтр забит: ПКМ фильтрующим патроном");
+        assert_eq!(respirator_line(125), "Фильтр: 2 мин 5 с");
+    }
+
+    #[test]
+    fn suit_hints_name_the_channels_they_cut() {
+        for p in &SUIT_PIECES {
+            let hint = item_hint(p.id).join(" / ");
+            for (name, f) in [("воздух", p.air), ("контакт", p.contact), ("брызги", p.splash)] {
+                if f < 1.0 {
+                    assert!(hint.contains(name), "{}: «{hint}» молчит про {name}", p.id);
+                    assert!(hint.contains(&format!("×{}", flow_text(f))), "{}: «{hint}» без числа {name}", p.id);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_closed_suit_overheats_and_cools() {
+        assert!(sealed(&wear(FULL)));
+        assert!(sealed(&wear(["", HAZMAT_SUIT_ID, "biolab:hazmat_pants", "biolab:hazmat_boots"])));
+        assert!(!sealed(&wear(LAB)));
+        let mut heat = 0;
+        for _ in 0..HEAT_LIMIT {
+            heat = heat_step(heat, true, true);
+        }
+        assert!(overheated(heat));
+        assert_eq!(heat_news(HEAT_LIMIT - 1, HEAT_LIMIT), Some(HEAT_ON));
+        assert_eq!(heat_step(HEAT_CAP, true, true), HEAT_CAP);
+        assert_eq!(heat_step(10, true, false), 9);
+        assert_eq!(heat_step(10, false, true), 7, "расстегнулся — остывает быстрее");
+        assert_eq!(heat_news(HEAT_LIMIT, HEAT_LIMIT - 1), Some(HEAT_OFF));
+        let me = 0xC0FFEE;
+        assert_eq!(heat_tick(me, true, true), (1, None));
+        assert_eq!(heat_tick(me, false, false), (0, None));
+    }
+
+    #[test]
+    fn the_mask_frame_stays_on_screen() {
+        for dry in [false, true] {
+            for (rect, argb) in mask_frame(427.0, 240.0, dry) {
+                let [x, y, w, h] = rect;
+                assert!(x >= 0.0 && y >= 0.0 && w > 0.0 && h > 0.0 && x + w <= 427.0 && y + h <= 240.0, "{rect:?}");
+                assert!(argb >> 24 <= 0x70, "рамка лёгкая");
+            }
+        }
+        assert!(mask_frame(427.0, 240.0, true).len() > mask_frame(427.0, 240.0, false).len());
+    }
+
+    #[test]
+    fn contamination_reads_and_writes_its_text() {
+        let heavy = Strain::of([3, 2, 4, 5]);
+        let c = Contamination { level: 40, strain: Some(heavy) };
+        assert_eq!(contamination_text(&c), "40:3,2,4,5");
+        assert_eq!(contamination_from_text("40:3,2,4,5"), Some(c));
+        assert_eq!(contamination_from_text("15"), Some(Contamination { level: 15, strain: None }));
+        assert_eq!(contamination_from_text("250").map(|c| c.level), Some(100));
+        assert_eq!(contamination_from_text("0"), None, "ноль — чисто");
+        assert_eq!(contamination_from_text("грязь"), None);
+        let lines = contamination_lines(&c);
+        assert_eq!(lines[0], "Загрязнено: 40 %", "предупреждение первым");
+        assert!(lines[1].contains("термостойкий"));
+        assert_eq!(contamination_lines(&Contamination { level: 5, strain: None }).len(), 2);
+    }
+
+    #[test]
+    fn dirt_adds_up_and_keeps_the_heavier_strain() {
+        let mild = Strain::of([2, 3, 2, 1]);
+        let bad = Strain::of([2, 3, 5, 1]);
+        let once = contaminate(None, 10, Some(mild));
+        assert_eq!(once, Some(Contamination { level: 10, strain: Some(mild) }));
+        let twice = contaminate(once, 95, Some(bad)).unwrap();
+        assert_eq!((twice.level, twice.strain), (100, Some(bad)));
+        assert_eq!(contaminate(once, 0, Some(bad)), once);
+        assert_eq!(contaminate(None, 10, None).unwrap().strain, None, "лужа — дикая");
+        let a = Some(Contamination { level: 30, strain: Some(bad) });
+        let b = Some(Contamination { level: 60, strain: Some(mild) });
+        assert_eq!(dirtier(a, b), Some(Contamination { level: 60, strain: Some(bad) }));
+        assert_eq!(dirtier(None, b), b);
+    }
+
+    #[test]
+    fn cooking_spares_only_thermostable_strains() {
+        let tough = Contamination { level: 60, strain: Some(Strain::of([2, 3, 2, 4])) };
+        let soft = Contamination { level: 60, strain: Some(Strain::of([2, 3, 2, 3])) };
+        assert_eq!(after_cooking(Some(tough)), Some(Contamination { level: 30, ..tough }));
+        assert_eq!(after_cooking(Some(soft)), None);
+        assert_eq!(after_cooking(Some(Contamination { level: 60, strain: None })), None, "дикий не термостоек");
+        assert_eq!(after_cooking(Some(Contamination { level: 1, ..tough })), None);
+        assert_eq!(after_cooking(None), None);
+
+        let ow = "minecraft:overworld";
+        let mut book = CookBook::default();
+        book.start(ow, [1, 64, 1], Some(tough));
+        book.start(ow, [5, 64, 5], Some(soft));
+        assert!(book.take_ready(ow).is_empty(), "ещё готовится");
+        book.done(ow, [1, 64, 1]);
+        book.done(ow, [5, 64, 5]);
+        assert!(book.take_ready("minecraft:the_nether").is_empty());
+        assert_eq!(book.take_ready(ow), vec![([1, 64, 1], Contamination { level: 30, ..tough })]);
+        assert!(book.take_ready(ow).is_empty(), "забрано");
+        // Новый старт на том же месте заменяет недоготовленное.
+        book.start(ow, [1, 64, 1], Some(tough));
+        book.start(ow, [1, 64, 1], None);
+        book.done(ow, [1, 64, 1]);
+        assert!(book.take_ready(ow).is_empty());
+    }
+
+    #[test]
+    fn doses_follow_the_level() {
+        let half = Contamination { level: 50, strain: None };
+        assert_eq!(ingest_dose(&half), EAT_DOSE / 2.0);
+        assert_eq!(handle_dose(&half), HANDLE_DOSE / 2.0);
+        assert!(eaten_message(&half).contains("50 %"));
+        let full = Contamination { level: 100, strain: None };
+        assert_eq!(contaminated_food_dose("minecraft:beef", &half), Some(EAT_DOSE / 2.0));
+        assert_eq!(contaminated_food_dose("minecraft:rotten_flesh", &half), None, "своя доза плоти больше");
+        let flesh = tainted_food_dose("minecraft:rotten_flesh").unwrap();
+        assert_eq!(contaminated_food_dose("minecraft:rotten_flesh", &full), Some(EAT_DOSE - flesh).filter(|d| *d > 0.0));
+    }
+
+    #[test]
+    fn dirty_places_and_drops() {
+        let leak = Strain::of([3, 2, 4, 1]);
+        assert_eq!(place_contamination(false, None), None);
+        assert_eq!(place_contamination(true, None), Some((GROUND_RATE, None)));
+        assert_eq!(place_contamination(true, Some(leak)), Some((GROUND_RATE + LEAK_RATE, Some(leak))));
+        assert_eq!(suit_dirt(3, true, false), GROUND_RATE);
+        assert_eq!(suit_dirt(2, true, false), GROUND_RATE / 2);
+        assert_eq!(suit_dirt(0, true, false), 0, "в луже голова чистая");
+        assert_eq!(suit_dirt(0, false, true), 2);
+        assert_eq!(drop_contamination(false, false, None), None);
+        assert_eq!(drop_contamination(true, false, None).unwrap().strain, Some(INFECTED_STRAIN));
+        assert_eq!(drop_contamination(false, true, None).unwrap().level, SICK_DROP_DIRT);
+        assert_eq!(drop_contamination(false, false, Some(leak)), Some(Contamination { level: LEAK_DROP_DIRT, strain: Some(leak) }));
+        assert!(disinfect_message(3).contains('3'));
+    }
+}
+
 // ---- M9: контракт параллельной работы (GDD 4.23, 4.25) ----
 //
 // Доза заразы (4.23 п. 1) идёт игроку по каналам; спецодежда (4.25) режет
@@ -17373,8 +18136,8 @@ pub struct Worn {
 /// Множитель потока дозы по каналу от надетого (1.0 — защиты нет, 0.05 —
 /// полный костюм с фильтром). Тело — агента «спецодежда»; доза только зовёт.
 pub fn suit_multiplier(worn: &Worn, channel: DoseChannel) -> f32 {
-    let _ = (worn, channel);
-    1.0
+    // Таблица деталей и правила — раздел «M9: спецодежда и загрязнение».
+    suit_flow(worn, channel)
 }
 
 // ---- M8: связь установок между собой (контракт волны 2) ----

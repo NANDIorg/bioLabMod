@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "equipment",
+ "pattern": [
+  " S ",
+  "YCY",
+  " S "
+ ],
+ "key": {
+  "S": "minecraft:slime_ball",
+  "Y": "minecraft:yellow_dye",
+  "C": "biolab:lab_pants"
+ },
+ "result": {
+  "id": "biolab:hazmat_pants",
+  "count": 1
+ }
+}

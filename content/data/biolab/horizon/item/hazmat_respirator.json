@@ -1,0 +1,29 @@
+{
+ "template": "minecraft:leather_helmet",
+ "max_stack_size": 1,
+ "components": {
+  "minecraft:attribute_modifiers": [
+   {
+    "type": "minecraft:armor",
+    "amount": 1.0,
+    "id": "minecraft:armor.helmet",
+    "operation": "add_value",
+    "slot": "head"
+   },
+   {
+    "type": "minecraft:armor_toughness",
+    "amount": 0.0,
+    "id": "minecraft:armor.helmet",
+    "operation": "add_value",
+    "slot": "head"
+   },
+   {
+    "type": "minecraft:movement_speed",
+    "amount": -0.02,
+    "id": "biolab:hazmat_respirator_weight",
+    "operation": "add_multiplied_base",
+    "slot": "head"
+   }
+  ]
+ }
+}
