@@ -1216,3 +1216,62 @@ bindings = [
   { name = "layer", ty = "&str", value = "layer" },
   { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
 ]
+
+# ---- M9: машины (GDD 4.23 п. 3, 4) ----
+# Подбор режима ферментера и экстрактора (ручки, окно рецепта, карта
+# протокола) и опознание пробы спектрометром по частям. Решения — раздел
+# «M9: машины» в `runtime.rs`, под тестами; оба модуля зовёт тик машины
+# (`machine.rs`), новых тиков нет.
+[[module]]
+id = "protocol"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_protocol"
+source = "protocol.rs"
+
+[[module]]
+id = "probe"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_probe"
+source = "probe.rs"
+
+# Кнопки панелей: окно называет номер кнопки (API 20). Вторая инъекция на
+# этот хук рядом с `sequencer-click`.
+[[injection]]
+id = "panel-click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_click"
+helper = "panel_click.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "at", ty = "[f32; 2]", value = "at" },
+  { name = "right", ty = "bool", value = "right" },
+  { name = "button", ty = "&mut Option<i32>", value = "&mut *button" },
+]
+
+# Кнопка пришла на сервер: ручка или заказ проверки — в сейв машины (API 20).
+# Вторая инъекция рядом с `sequencer-button`.
+[[injection]]
+id = "panel-button"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_menu_button"
+helper = "panel_button.rs"
+bindings = [
+  { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
+  { name = "id", ty = "i32", value = "id" },
+]
+
+# Карта протокола по машине: ПКМ пишет или ставит режим. Второй перехват
+# правого клика по блоку рядом с `harvest.rs` (стабильный хук API 21, на
+# сервере). Не `native_use_item_on`: тот зовут уже после того, как блок
+# пропустил клик, а машина его не пропускает — она открывает меню.
+[[injection]]
+id = "protocol-card"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_right_click_block"
+helper = "protocol_card.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]

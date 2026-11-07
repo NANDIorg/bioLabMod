@@ -86,6 +86,8 @@ fn group(item: &str) -> usize {
         "thermobox" => 2,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,
+        // Карта протокола (GDD 4.23 п. 3) — тоже снаряжение лаборанта.
+        "protocol_card" => 2,
         // Оружие для дротиков и баллоны к ружью (GDD 4.20) — тоже инструменты.
         "blowpipe" | "tranq_crossbow" | "air_rifle" | "co2_canister" | "co2_canister_empty" => 2,
         // Спецодежда (GDD 4.25) — тоже снаряжение лаборанта.

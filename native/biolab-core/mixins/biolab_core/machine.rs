@@ -651,6 +651,12 @@ fn biolab_core_machine_tick(
                     // изменяемо, и читать `entity.id` внутри вызова уже нельзя.
                     let slots = m::machine_data_slots(&entity.id);
                     entity.data.resize(slots, 0);
+        // Проба (GDD 4.23 п. 4): состав не читается, его сужают дешёвые
+        // проверки. Обычная колба идёт прежним путём — спектр и анализ.
+        if let Some(step) = crate::game::biolab_probe::work(game, entity, output_slot) {
+            machine_sound(game, pos, entity, step);
+            return;
+        }
         let contents = entity
             .items
             .get(m::SLOT_INPUT)
@@ -1087,7 +1093,17 @@ fn biolab_core_machine_tick(
     }
 
     let progress = entity.data[m::DATA_PROGRESS];
-    let time = found.as_ref().map(|(time, _, _)| *time);
+    // Подбор режима (GDD 4.23 п. 3): у ферментера и экстрактора рецепт идёт
+    // по ручкам, и попытка оценивается скрытым окном сырья. Числа панели
+    // пишутся каждый тик, даже когда рецепта нет.
+    let recipe = input.as_ref().map(|stack| stack.item.to_string());
+    let grade = crate::game::biolab_protocol::prepare(game, entity, recipe.as_deref());
+    let time = found
+        .as_ref()
+        .map(|(time, _, _)| match grade {
+            Some(grade) => m::protocol_time(*time, grade),
+            None => *time,
+        });
     let step = m::step(time, progress);
     match step {
         m::Step::Idle => {
@@ -1097,9 +1113,9 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_LIT_TOTAL] = 0;
         }
         m::Step::Working(next) => {
-            let (total, _, _) = found.as_ref().expect("Working только с рецептом");
+            let total = time.expect("Working только с рецептом");
             entity.data[m::DATA_PROGRESS] = next;
-            entity.data[m::DATA_TOTAL] = *total;
+            entity.data[m::DATA_TOTAL] = total;
             // Пламя горит всё время работы: клиент рисует его как у печки.
             entity.data[m::DATA_LIT] = 1;
             entity.data[m::DATA_LIT_TOTAL] = 1;
@@ -1183,8 +1199,14 @@ fn biolab_core_machine_tick(
                 ));
                 result.count = 1;
             }
+            // Подбор режима (GDD 4.23 п. 3): в окне — полный выход, рядом —
+            // половина, мимо — ничего. Брак выдаёт пробу сам (`finish`).
+            result.count = match grade {
+                Some(grade) => m::protocol_count(result.count, grade),
+                None => result.count,
+            };
             // Кладём результат в выход.
-            if let Some(slot) = entity.items.get_mut(output_slot) {
+            if result.count > 0 && let Some(slot) = entity.items.get_mut(output_slot) {
                 match slot.as_mut() {
                     // Два фрагмента с разными генами в одну стопку не кладём.
                     Some(stack)
@@ -1200,6 +1222,11 @@ fn biolab_core_machine_tick(
             entity.data[m::DATA_TOTAL] = 0;
             entity.data[m::DATA_LIT] = 0;
             entity.data[m::DATA_LIT_TOTAL] = 0;
+            // Итог попытки: подсказка направления, найденное окно — в сейв,
+            // брак — пробой в выход.
+            if let (Some(grade), Some(recipe)) = (grade, recipe.as_deref()) {
+                crate::game::biolab_protocol::finish(game, pos, entity, recipe, output_slot, grade);
+            }
         }
     }
     machine_sound(game, pos, entity, step);

@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "minecraft:paper",
+  "minecraft:copper_ingot",
+  "minecraft:redstone"
+ ],
+ "result": {
+  "id": "biolab:protocol_card",
+  "count": 1
+ },
+ "time": 40
+}
