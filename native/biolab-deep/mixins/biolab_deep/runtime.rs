@@ -23,7 +23,7 @@ pub const ID: &str = "biolab_deep";
 // `tests/modules.rs` следит, чтобы копии не разошлись.
 
 /// Гены по номерам: тот же порядок, что `mutants::GENE_NAMES`.
-pub const GENE_NAMES: [&str; 50] = [
+pub const GENE_NAMES: [&str; 54] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -76,10 +76,16 @@ pub const GENE_NAMES: [&str; 50] = [
     "bloated_torso",
     "sunken_chest",
     "asymmetry",
+    // M9: предохранители (GDD 4.23 п. 10) - ослабляют творение;
+    // срок и вид ведёт `biolab-core`, аттенуацию - `expressed` здесь.
+    "self_limiting",
+    "host_restriction",
+    "kill_switch",
+    "attenuated",
 ];
 
 /// Цена гена за единицу силы (та же, что в lib).
-pub const GENE_COSTS: [i32; 50] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 1, 1];
+pub const GENE_COSTS: [i32; 54] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1];
 
 /// Сколько генов влезает в природный геном и какую сумму цен он выдерживает.
 /// Это правило только природного броска (`roll`): лаборатория — укол
@@ -102,7 +108,7 @@ pub const STAT_MODIFIERS: [&str; 5] = [
 /// Метки генома старого формата (до M11): модификатор дальности
 /// преследования с нулевой прибавкой, чьё имя и есть ген. Новых таких меток
 /// мод не ставит; список нужен только миграции старых миров.
-pub const GENE_MARKERS: [&str; 150] = [
+pub const GENE_MARKERS: [&str; 162] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -254,6 +260,19 @@ pub const GENE_MARKERS: [&str; 150] = [
     "biolab:gene/asymmetry/1",
     "biolab:gene/asymmetry/2",
     "biolab:gene/asymmetry/3",
+    // M9: предохранители (GDD 4.23, п. 10)
+    "biolab:gene/self_limiting/1",
+    "biolab:gene/self_limiting/2",
+    "biolab:gene/self_limiting/3",
+    "biolab:gene/host_restriction/1",
+    "biolab:gene/host_restriction/2",
+    "biolab:gene/host_restriction/3",
+    "biolab:gene/kill_switch/1",
+    "biolab:gene/kill_switch/2",
+    "biolab:gene/kill_switch/3",
+    "biolab:gene/attenuated/1",
+    "biolab:gene/attenuated/2",
+    "biolab:gene/attenuated/3",
 ];
 
 // ---- Кто бывает мутантом ----
@@ -403,8 +422,10 @@ pub fn roll(draw: u32, percent: u32, temperament: Temperament) -> Vec<(usize, i3
     if draw % 100 >= percent {
         return Vec::new();
     }
+    // M9 (GDD 4.23 п. 10): предохранители природе не выпадают — это
+    // лабораторные кассеты, а не признак живого организма.
     let pool: Vec<usize> = (0..GENE_NAMES.len())
-        .filter(|gene| gene_fits(*gene, temperament))
+        .filter(|gene| gene_fits(*gene, temperament) && !is_safeguard(*gene))
         .collect();
     let count = pool.len() as u32;
     if count < 2 {
@@ -423,9 +444,12 @@ pub fn roll(draw: u32, percent: u32, temperament: Temperament) -> Vec<(usize, i3
         let step = 1 + ((draw / 2700) % (count - 1)) as usize;
         let second = pool[(pick + step) % pool.len()];
         let strength = 1 + ((draw / 8100) % 3) as i32;
-        // M9 (GDD 4.24): природный мутант несёт не больше одной черты пропорций.
+        // M9 (GDD 4.24): природный мутант несёт не больше одной черты
+        // пропорций; (GDD 4.23 п. 5) несовместимой пары в природе не бывает —
+        // иначе мутант рождался бы мёртвым.
         if spent + GENE_COSTS[second] * strength <= STABILITY
             && !(is_proportion(first) && is_proportion(second))
+            && pair_kind(first, second) != Some(PAIR_LETHAL)
         {
             genome.push((second, strength));
         }
@@ -807,7 +831,10 @@ pub fn inherit(mother: &[(usize, i32)], father: &[(usize, i32)], seed: u64) -> V
             out.push((gene, strength));
         }
     }
-    out
+    // M9 (GDD 4.23 п. 5): у детёныша пары работают — мелкий разлад снимает
+    // ступень, крупный дорастит уродство. Несовместимую пару не отменяем:
+    // такой детёныш не жилец, и его добьёт тик мира `biolab-core`.
+    apply_pairs(out, seed)
 }
 
 /// Вылупляется из яйца, а не рождается: черепаха, лягушка (головастик из
@@ -911,6 +938,12 @@ pub fn births() -> &'static std::sync::Mutex<Births> {
 /// нового вида.
 pub fn converted_genome(old: Option<&str>, old_checked: bool) -> Option<String> {
     let genes = genome_from_text(old.unwrap_or(""));
+    // M9 (GDD 4.23 п. 10): видоспецифичность — кассета собрана под один вид.
+    // Сменил вид (утонул, попал под молнию, стал грибной коровой) — весь
+    // геном гаснет: конструкт в новом хозяине не работает.
+    if genes.iter().any(|(gene, _)| GENE_NAMES.get(*gene) == Some(&"host_restriction")) {
+        return Some(String::new());
+    }
     if !genes.is_empty() {
         return Some(genome_text(&genes));
     }
@@ -1273,6 +1306,157 @@ pub fn is_proportion(gene: usize) -> bool {
     GENE_NAMES.get(gene).is_some_and(|name| PROPORTION_GENES.contains(name))
 }
 
+// ---- M9: сочетания и ограничители (GDD 4.23, пп. 5, 10) ----
+//
+// Правила пар и предохранителей живут в `biolab-core` (раздел «M9: сочетания
+// и ограничители»): там и журнал пар, и часы гена, и уколы. Бинарнику нужна
+// своя копия таблицы пар — геном он складывает сам в двух местах, куда
+// `biolab-core` не достаёт: природный бросок (`roll`) и наследование
+// (`inherit`). Копию сверяет `tests/modules.rs`.
+//
+// Что делает бинарник:
+// * природе предохранители не выпадают (`is_safeguard`), и несовместимой
+//   пары в броске не бывает — иначе мутант рождался бы мёртвым;
+// * у детёныша пары работают: мелкий разлад снимает ступень, крупный
+//   дорастит уродство. Несовместимость в наследстве не отменяется — такой
+//   геном добивает тик мира `biolab-core` (там же игрок узнаёт пару);
+// * аттенуация ослабляет чужие гены — это делает lib (`mutants::expressed`),
+//   потому что прибавки и поведение считает она.
+
+/// Виды пар: номер — тот же, что `PairKind::id()` в `biolab-core`.
+pub const PAIR_SYNERGY: u8 = 0;
+pub const PAIR_MINOR: u8 = 1;
+pub const PAIR_MAJOR: u8 = 2;
+pub const PAIR_LETHAL: u8 = 3;
+
+/// Скрытая таблица пар: имена генов и вид пары, в том же порядке, что
+/// `GENE_PAIRS` в `biolab-core`.
+pub const GENE_PAIRS: [(&str, &str, u8); 28] = [
+    ("chitin", "thorns", PAIR_SYNERGY),
+    ("regeneration", "hypermetabolism", PAIR_SYNERGY),
+    ("aquatic", "membranes", PAIR_SYNERGY),
+    ("polyopia", "dicephaly", PAIR_SYNERGY),
+    ("predator", "pack_instinct", PAIR_SYNERGY),
+    ("spring_legs", "membranes", PAIR_SYNERGY),
+    ("stilt_legs", "spring_legs", PAIR_SYNERGY),
+    ("heavy_arms", "brute_force", PAIR_SYNERGY),
+    ("kill_switch", "self_limiting", PAIR_SYNERGY),
+    ("attenuated", "volatile", PAIR_SYNERGY),
+    ("gigantism", "dwarfism", PAIR_MINOR),
+    ("thermal", "cryophilia", PAIR_MINOR),
+    ("albinism", "melanism", PAIR_MINOR),
+    ("thin_skin", "chitin", PAIR_MINOR),
+    ("photophobia", "bioluminescence", PAIR_MINOR),
+    ("loyalty", "predator", PAIR_MINOR),
+    ("dense_bone", "sinew", PAIR_MINOR),
+    ("macrocephaly", "microcephaly", PAIR_MINOR),
+    ("bloated_torso", "sunken_chest", PAIR_MINOR),
+    ("short_legs", "stilt_legs", PAIR_MINOR),
+    ("gigantism", "hypermetabolism", PAIR_MAJOR),
+    ("volatile", "regeneration", PAIR_MAJOR),
+    ("violet_blood", "toxic_blood", PAIR_MAJOR),
+    ("brute_force", "dwarfism", PAIR_MAJOR),
+    ("healing_aura", "necrosis", PAIR_MAJOR),
+    ("acid_glands", "thin_skin", PAIR_LETHAL),
+    ("volatile", "necrosis", PAIR_LETHAL),
+    ("hypermetabolism", "cryophilia", PAIR_LETHAL),
+];
+
+/// Уродства GDD 4.19: из них вырастает лишний признак крупного разлада. Тот
+/// же список и в том же порядке, что `DEFORMITIES` в `biolab-core`.
+pub const DEFORMITIES: [&str; 8] =
+    ["polymelia", "dicephaly", "horns", "tail", "tentacles", "polyopia", "tumor", "membranes"];
+
+/// Предохранители (GDD 4.23 п. 10): природе не выпадают.
+pub const SAFEGUARD_GENES: [&str; 4] = ["self_limiting", "host_restriction", "kill_switch", "attenuated"];
+
+/// Номер гена по имени; None — такого гена в таблице нет.
+pub fn gene_number(name: &str) -> Option<usize> {
+    GENE_NAMES.iter().position(|n| *n == name)
+}
+
+/// Предохранитель ли это (по номеру в `GENE_NAMES`).
+pub fn is_safeguard(gene: usize) -> bool {
+    GENE_NAMES.get(gene).is_some_and(|name| SAFEGUARD_GENES.contains(name))
+}
+
+/// Пара таблицы номерами генов и видом; None — имена разошлись с таблицей.
+pub fn pair_of(index: usize) -> Option<(usize, usize, u8)> {
+    let (a, b, kind) = *GENE_PAIRS.get(index)?;
+    Some((gene_number(a)?, gene_number(b)?, kind))
+}
+
+/// Вид пары двух генов (порядок неважен); None — гены уживаются молча.
+pub fn pair_kind(a: usize, b: usize) -> Option<u8> {
+    (0..GENE_PAIRS.len())
+        .filter_map(pair_of)
+        .find(|(x, y, _)| (*x == a && *y == b) || (*x == b && *y == a))
+        .map(|(_, _, kind)| kind)
+}
+
+/// Пары, оба гена которых есть в геноме, — по порядку таблицы.
+pub fn pairs_in(genome: &[(usize, i32)]) -> Vec<usize> {
+    let has = |gene: usize| genome.iter().any(|(g, s)| *g == gene && *s > 0);
+    (0..GENE_PAIRS.len())
+        .filter(|i| pair_of(*i).is_some_and(|(a, b, _)| has(a) && has(b)))
+        .collect()
+}
+
+/// Несовместимая пара в геноме; None — такой нет.
+pub fn lethal_in(genome: &[(usize, i32)]) -> Option<usize> {
+    pairs_in(genome)
+        .into_iter()
+        .find(|i| pair_of(*i).is_some_and(|(_, _, kind)| kind == PAIR_LETHAL))
+}
+
+/// Применить пары к собранному геному: мелкий разлад снимает ступень у
+/// слабейшего из пары (поровну — у второго; ступень 1 уходит вовсе), крупный
+/// дорастит одно уродство, которого ещё нет (сила 1, выбор — от зерна).
+/// Синергия тут ничего не меняет (она про цену), несовместимость не
+/// отменяется: такой геном добивает тик мира `biolab-core`.
+pub fn apply_pairs(genome: Vec<(usize, i32)>, seed: u64) -> Vec<(usize, i32)> {
+    let mut out = genome;
+    let mut grown = false;
+    for index in pairs_in(&out) {
+        let Some((a, b, kind)) = pair_of(index) else {
+            continue;
+        };
+        let strength = |genes: &[(usize, i32)], gene: usize| {
+            genes.iter().find(|(g, _)| *g == gene).map_or(0, |(_, s)| *s)
+        };
+        match kind {
+            PAIR_MINOR => {
+                let (sa, sb) = (strength(&out, a), strength(&out, b));
+                // Пару мог разбить разлад раньше по таблице.
+                if sa == 0 || sb == 0 {
+                    continue;
+                }
+                let weaker = if sa < sb { a } else { b };
+                if let Some(at) = out.iter().position(|(g, _)| *g == weaker) {
+                    out[at].1 -= 1;
+                    if out[at].1 <= 0 {
+                        out.remove(at);
+                    }
+                }
+            }
+            PAIR_MAJOR if !grown => {
+                let free: Vec<usize> = DEFORMITIES
+                    .iter()
+                    .filter_map(|name| gene_number(name))
+                    .filter(|gene| strength(&out, *gene) == 0)
+                    .collect();
+                if let Some(pick) = free.get((mix(seed ^ (index as u64 + 1)) % free.len().max(1) as u64) as usize) {
+                    out.push((*pick, 1));
+                    grown = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    out.sort_by_key(|(gene, _)| *gene);
+    out
+}
+
 #[cfg(test)]
 mod proportion_tests {
     use super::*;
@@ -1522,8 +1706,9 @@ mod tests {
             }
         }
         // Остальные гены мирным достаются: фильтр не выкосил лишнего.
+        // Предохранители (GDD 4.23 п. 10) природе не выпадают никому.
         let missing: Vec<&str> = (0..GENE_NAMES.len())
-            .filter(|g| !seen[*g] && gene_fits(*g, Temperament::Passive))
+            .filter(|g| !seen[*g] && gene_fits(*g, Temperament::Passive) && !is_safeguard(*g))
             .map(|g| GENE_NAMES[g])
             .collect();
         assert!(missing.is_empty(), "мирным не выпадают: {missing:?}");

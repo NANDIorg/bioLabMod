@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 122] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 123] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -111,7 +111,7 @@ pub const ITEM_HINTS: [(&str, &[&str]); 122] = [
     ("biolab:synthesizer", &["Элементы в сетке → колба с веществом", "Чертёж в сетке задаёт нужный состав"]),
     ("biolab:reactor", &["Греется снизу: костёр, магма, огонь, лава", "Выше 900° — содержимое сгорит"]),
     ("biolab:press", &["Экстракт → таблетки, уголь → антидот"]),
-    ("biolab:extractor", &["Достаёт ген: ткань, урожай, части животных"]),
+    ("biolab:extractor", &["Достаёт ген: ткань, урожай, части животных", "Праймер в боковом слоте — выбрать ген"]),
     ("biolab:cloning_vat", &["Фрагмент ДНК + раствор → клон с геном"]),
     ("biolab:spectrometer", &["Опознаёт вещество в колбе, печатает чертёж", "Колба не тратится"]),
     ("biolab:pen", &["Держит подопытного моба на месте"]),
@@ -242,6 +242,8 @@ pub const ITEM_HINTS: [(&str, &[&str]); 122] = [
     ("biolab:hazmat_boots", &["Закрывает: контакт ×0,4, брызги ×0,6", "Полный костюм: поток ×0,05, скорость −8 %"]),
     // Карта протокола (GDD 4.23 п. 3, раздел «M9: машины»).
     ("biolab:protocol_card", &["ПКМ по ферментеру или экстрактору", "Пустая — запишет найденный режим"]),
+    // Предохранители (M9, GDD 4.23 п. 10).
+    ("biolab:syringe_inductor", &["ПКМ по мутанту — доза генному выключателю", "Без дозы такой мутант гибнет"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -860,6 +862,9 @@ pub fn slot_role(machine: &Machine, slot: usize) -> SlotRole {
         "minecraft:furnace" => match slot {
             SLOT_INPUT => SlotRole::Input,
             SLOT_FUEL if machine.id == CLONING_VAT => SlotRole::Fuel,
+            // Экстрактор: на месте топлива — праймер (GDD 4.23 п. 6), средний
+            // шаг лестницы контроля: фрагмент в нём называет нужный ген.
+            SLOT_PRIMER if machine.id == EXTRACTOR => SlotRole::Input,
             SLOT_FUEL => SlotRole::Unused,
             _ => SlotRole::Output,
         },
@@ -965,14 +970,20 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
     (
         "biolab:extractor",
         &[
+            // Кассеты предохранителей (GDD 4.23 п. 10): их экстрактор не
+            // достаёт из плоти, а собирает из готовых частей.
+            "biolab:culture_weakened",
+            "biolab:element_redstonium",
             "biolab:gm_crop",
             "biolab:mutant_tissue",
             "minecraft:bone",
+            "minecraft:clock",
             "minecraft:cocoa_beans",
             "minecraft:glow_ink_sac",
             "minecraft:goat_horn",
             "minecraft:ink_sac",
             "minecraft:magma_cream",
+            "minecraft:name_tag",
             "minecraft:phantom_membrane",
             "minecraft:poisonous_potato",
             "minecraft:rabbit_foot",
@@ -1067,7 +1078,8 @@ pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
         SlotRole::Output | SlotRole::Unused => false,
         SlotRole::Fuel => item == BROTH_ID,
         SlotRole::Input => match machine.id {
-            CLONING_VAT => item == FRAGMENT_ID,
+            // Чан растит клона и по фрагменту, и по вектору секвенатора.
+            CLONING_VAT => item == FRAGMENT_ID || item == GENE_VECTOR,
             // Синтезатор собирает формулу из элементов, а по рецепту — смесь
             // (транквилизатор зверолова, GDD 4.20): её входы тоже берёт.
             SYNTHESIZER => element(item).is_some() || item == BLUEPRINT_ID || machine_ingredients(SYNTHESIZER).contains(&item),
@@ -1080,6 +1092,8 @@ pub fn slot_accepts(machine: &Machine, slot: usize, item: &str) -> bool {
             BIOREACTOR => BIOREACTOR_RECIPES.iter().any(|kind| machine_ingredients(kind).contains(&item)),
             // Фильтр карантинной камеры — только патрон.
             QUARANTINE => item == FILTER_CARTRIDGE,
+            // Экстрактор: в боковой слот — только праймер, фрагмент ДНК.
+            EXTRACTOR if slot == SLOT_PRIMER => item == FRAGMENT_ID,
             id => machine_ingredients(id).contains(&item),
         },
     }
@@ -2670,7 +2684,7 @@ pub const BENCH_UNLISTED: i32 = -3;
 /// только числом слота данных, поэтому номер — место в этой таблице, а имя
 /// отсюда же рисует табло. Тест сверяет таблицу с рецептами стола в
 /// `content/` и с именами в языковом файле.
-pub const BENCH_RESULTS: [(&str, &str); 41] = [
+pub const BENCH_RESULTS: [(&str, &str); 42] = [
     ("biolab:syringe", "Шприц"),
     ("biolab:syringe_penicillin", "Пенициллин, инъекция"),
     ("biolab:syringe_sedative", "Седативное, инъекция"),
@@ -2715,6 +2729,8 @@ pub const BENCH_RESULTS: [(&str, &str); 41] = [
     ("biolab:syringe_wake", "Пробуждающее, инъекция"),
     // Карта протокола (GDD 4.23 п. 3, раздел «M9: машины»).
     ("biolab:protocol_card", "Карта протокола"),
+    // Предохранители (GDD 4.23 п. 10): доза индуктора для выключателя.
+    ("biolab:syringe_inductor", "Индуктор, инъекция"),
 ];
 
 /// Номер результата для слота данных стола.
@@ -2827,7 +2843,8 @@ mod bench_tests {
         // Баллон дописан веткой оружия, снотворные — следом за ним.
         assert!(bench_result_index(CO2_CANISTER_EMPTY_ID) > 18);
         assert_eq!(bench_result_index("biolab:nutrient_broth"), 18, "старые номера не сдвинулись");
-        assert_eq!(bench_result_index(PROTOCOL_CARD), BENCH_RESULTS.len() as i32 - 1);
+        assert_eq!(bench_result_index("biolab:syringe_inductor"), BENCH_RESULTS.len() as i32 - 1);
+        assert!(bench_result_index(PROTOCOL_CARD) > 18);
         assert!(bench_result_index("biolab:syringe_wake") > 18);
         assert_eq!(bench_result_index("minecraft:stick"), BENCH_UNLISTED);
         assert_eq!(machine_data_slots(LAB_BENCH), DATA_BENCH_RESULT + 1);
@@ -5626,7 +5643,7 @@ pub struct GeneKind {
     pub side: Option<&'static str>,
 }
 
-pub const GENES: [GeneKind; 50] = [
+pub const GENES: [GeneKind; 54] = [
     GeneKind { name: "gigantism", title: "Гигантизм", cost: 2, about: "крупнее, живучее и сильнее", player: Some("health_boost"), side: Some("slowness") },
     GeneKind { name: "dwarfism", title: "Карликовость", cost: 1, about: "мельче и шустрее, но слабее", player: Some("speed"), side: Some("weakness") },
     GeneKind { name: "hypermetabolism", title: "Гиперметаболизм", cost: 2, about: "быстрее и злее, но хрупче", player: Some("speed"), side: Some("hunger") },
@@ -5681,6 +5698,14 @@ pub const GENES: [GeneKind; 50] = [
     GeneKind { name: "bloated_torso", title: "Раздутый торс", cost: 2, about: "широкий корпус: живучее, но крупная мишень", player: Some("health_boost"), side: Some("hunger") },
     GeneKind { name: "sunken_chest", title: "Впалая грудь", cost: 1, about: "узкий корпус: хрупче, но в него трудно попасть", player: Some("speed"), side: Some("weakness") },
     GeneKind { name: "asymmetry", title: "Асимметрия", cost: 1, about: "правая сторона крупнее левой: ходит боком", player: None, side: None },
+    // M9: предохранители (GDD 4.23, п. 10) — гены, которые ослабляют
+    // творение, и в этом их смысл. В человеке не приживаются: платить за
+    // предохранитель собой незачем. Правила — раздел «M9: сочетания и
+    // ограничители».
+    GeneKind { name: "self_limiting", title: "Самоограничение", cost: 1, about: "геном гаснет сам через 3/2/1 игровых дня", player: None, side: None },
+    GeneKind { name: "host_restriction", title: "Видоспецифичность", cost: 1, about: "кассета приживается только у своего вида", player: None, side: None },
+    GeneKind { name: "kill_switch", title: "Генный выключатель", cost: 1, about: "без укола индуктора раз в 3/2/1 день гибнет", player: None, side: None },
+    GeneKind { name: "attenuated", title: "Аттенуация", cost: 1, about: "остальные гены работают слабее на его силу", player: None, side: None },
 ];
 
 /// Природный предел: сколько генов бывает у мутанта, родившегося в мире, и
@@ -5721,7 +5746,7 @@ pub fn takes_in_humans(kind: &GeneKind) -> bool {
 /// с нулевой прибавкой, чьё имя и есть ген. Мод их больше не ставит и не
 /// читает — старые миры переносит в данные `biolab-deep` (`data.rs`,
 /// `migrate`). Список остаётся для подсказок и сверки двух бандлов.
-pub const GENE_MARKERS: [&str; 150] = [
+pub const GENE_MARKERS: [&str; 162] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -5873,6 +5898,19 @@ pub const GENE_MARKERS: [&str; 150] = [
     "biolab:gene/asymmetry/1",
     "biolab:gene/asymmetry/2",
     "biolab:gene/asymmetry/3",
+    // M9: предохранители (GDD 4.23, п. 10)
+    "biolab:gene/self_limiting/1",
+    "biolab:gene/self_limiting/2",
+    "biolab:gene/self_limiting/3",
+    "biolab:gene/host_restriction/1",
+    "biolab:gene/host_restriction/2",
+    "biolab:gene/host_restriction/3",
+    "biolab:gene/kill_switch/1",
+    "biolab:gene/kill_switch/2",
+    "biolab:gene/kill_switch/3",
+    "biolab:gene/attenuated/1",
+    "biolab:gene/attenuated/2",
+    "biolab:gene/attenuated/3",
 ];
 
 /// Ген по имени.
@@ -5923,6 +5961,13 @@ pub const CHECKED_DATA: &str = "mutation_checked";
 pub const PLAYER_GENES_DATA: &str = "player_genes";
 /// Поле строки генов в сохранённой форме: `{genes: "chitin:2,horns:1"}`.
 pub const GENES_FIELD: &str = "genes";
+/// Часы гена (`Holder::Entity`, `String`, без `sync`): срок предохранителей,
+/// последняя доза индуктора и вид, под который собрана кассета (GDD 4.23
+/// п. 10, раздел «M9: сочетания и ограничители»). Их ставит и читает только
+/// `biolab-core` — окну они не нужны, а `biolab-deep` о них не знает.
+pub const CLOCK_DATA: &str = "gene_clock";
+/// Поле часов: `{clock: "set=12000,dose=0,host=minecraft:zombie"}`.
+pub const CLOCK_FIELD: &str = "clock";
 /// Поле отметки броска: `{checked: 1b}`.
 pub const CHECKED_FIELD: &str = "checked";
 /// Поля операционной: `{flayed: 5b, table: 1b, asleep: 0b}`.
@@ -6061,7 +6106,10 @@ pub fn fragment_tooltip(text: &str) -> Vec<String> {
 /// Какой ген достанется из образца. Детерминированно от зерна, чтобы прогон
 /// повторялся: зерно даёт машина (позиция и тик).
 pub fn roll_gene(seed: u64) -> (&'static str, i32) {
-    let kind = &GENES[(seed % GENES.len() as u64) as usize];
+    // Предохранители (GDD 4.23 п. 10) из ткани не достаются: это кассеты,
+    // собранные в лаборатории, а не признак живого организма (`LAB_ONLY`).
+    let pool: Vec<&'static GeneKind> = GENES.iter().filter(|g| !LAB_ONLY.contains(&g.name)).collect();
+    let kind = pool[(seed % pool.len() as u64) as usize];
     // Сила 1–3 у любого гена: раньше дорогой ген не бывал сильным (его
     // некуда было бы вживить), но с GDD 4.19 у лаборатории предела нет.
     let strength = 1 + ((seed / 7) % 3) as i32;
@@ -6081,13 +6129,30 @@ pub fn genome_lines(genes: &[(&'static str, i32)]) -> Vec<String> {
         lines.push(format!("  {} {} — {}", kind.title, "+".repeat(*strength as usize), kind.about));
     }
     // Предел стабильности — у природных мутантов; геном сверх него — дело
-    // рук лаборатории, и микроскоп так и пишет.
-    lines.push(if total > STABILITY || genes.len() > MAX_GENES {
-        format!("Цена генов: {total} — сверх природы ({STABILITY}), лабораторный")
+    // рук лаборатории, и микроскоп так и пишет. Синергия пар (GDD 4.23 п. 5)
+    // цену сбавляет, и мерить природность надо уже по ней.
+    let discount = synergy_discount(genes);
+    let price = (total - discount).max(0);
+    if discount > 0 {
+        lines.push(format!("Синергия пар: −{discount} к цене"));
+    }
+    lines.push(if price > STABILITY || genes.len() > MAX_GENES {
+        format!("Цена генов: {price} — сверх природы ({STABILITY}), лабораторный")
     } else {
-        format!("Цена генов: {total} из природных {STABILITY}")
+        format!("Цена генов: {price} из природных {STABILITY}")
     });
     lines
+}
+
+/// Строки микроскопа и монитора про известные пары в геноме (GDD 4.23 п. 5):
+/// `known` — маска, которую лаборатория уже узнала (`known_pairs`). Пара,
+/// которой игрок ещё не видел, не называется: она остаётся скрытой.
+pub fn genome_pair_lines(genes: &[(&'static str, i32)], known: u64) -> Vec<String> {
+    pairs_in(genes)
+        .into_iter()
+        .filter(|i| known & pair_bit(*i) != 0)
+        .map(|i| format!("  Пара: {}", pair_title(i)))
+        .collect()
 }
 
 /// Чем закончилась попытка вживить ген.
@@ -6206,7 +6271,9 @@ pub const CLONE_BROTH: u32 = 1;
 
 /// Можно ли запускать чан: нужен фрагмент с геном и раствор.
 pub fn vat_ready(input: Option<&str>, fuel: Option<(&str, u32)>) -> bool {
-    input.and_then(gene_from_text).is_some()
+    // Во входе и фрагмент (один ген), и генный вектор (несколько):
+    // клон выходит со всем, что в строке (GDD 4.23 п. 5 — пары в чане).
+    input.is_some_and(|text| !genes_of_data(text).is_empty())
         && fuel.is_some_and(|(item, count)| item == BROTH_ID && count >= CLONE_BROTH)
 }
 
@@ -6863,7 +6930,7 @@ pub fn daylight(day_time: i64) -> bool {
 /// Что ген делает, кроме чисел. Та же таблица, что в `biolab-deep`: обе
 /// собираются из одного описания, а тест ниже следит, чтобы в core не
 /// осталось гена без строки поведения.
-pub const GENE_BEHAVIOUR: [&[&str]; 50] = [
+pub const GENE_BEHAVIOUR: [&[&str]; 54] = [
     &[],
     &[],
     &[],
@@ -6918,9 +6985,18 @@ pub const GENE_BEHAVIOUR: [&[&str]; 50] = [
     &[],
     &[],
     &["lopsided"],
+    // M9: предохранители (GDD 4.23, п. 10). Срок и индуктор ведёт тик мира
+    // (`behaviour.rs`) по часам гена, вид смотрит он же, аттенуация ослабляет
+    // чужие гены в `behaviour_strength`; своих меток поведения у них нет.
+    &[],
+    &[],
+    &[],
+    &[],
 ];
 
-/// Сила поведения в наборе генов; 0 — такого гена нет.
+/// Сила поведения в наборе генов; 0 — такого гена нет. Аттенуация (GDD 4.23
+/// п. 10) ослабляет чужие гены на свою силу, но не ниже 1: это одно место, и
+/// через него поведение мутанта слабеет целиком (`expressed_strength`).
 pub fn behaviour_strength(genes: &[(&'static str, i32)], flag: &str) -> i32 {
     genes
         .iter()
@@ -6931,7 +7007,7 @@ pub fn behaviour_strength(genes: &[(&'static str, i32)], flag: &str) -> i32 {
                 .and_then(|i| GENE_BEHAVIOUR.get(i))
                 .is_some_and(|flags| flags.contains(&flag))
         })
-        .map(|(_, strength)| *strength)
+        .map(|(name, strength)| expressed_strength(genes, name, *strength))
         .max()
         .unwrap_or(0)
 }
@@ -9511,7 +9587,10 @@ mod tests {
             assert!(inputs.iter().chain(&outputs).all(|s| *s < machine.slots), "{}", machine.id);
             assert!(inputs.iter().all(|s| !outputs.contains(s)), "{}", machine.id);
             if machine.menu == "minecraft:furnace" {
-                assert_eq!(inputs.contains(&SLOT_FUEL), machine.id == CLONING_VAT, "{}", machine.id);
+                // Слот топлива печки занят только у чана (раствор) и у
+                // экстрактора (праймер, GDD 4.23 п. 6).
+                let side = machine.id == CLONING_VAT || machine.id == EXTRACTOR;
+                assert_eq!(inputs.contains(&SLOT_FUEL), side, "{}", machine.id);
                 assert_eq!(outputs, vec![SLOT_OUTPUT], "{}", machine.id);
             }
         }
@@ -9604,7 +9683,7 @@ mod tests {
                 animals += 1;
             }
         }
-        assert_eq!(animals, 12, "шесть животных из GDD 4.15, пять уродств из 4.19 и устойчивость из 4.20");
+        assert_eq!(animals, 16, "шесть животных из GDD 4.15, пять уродств из 4.19, устойчивость из 4.20 и четыре предохранителя из 4.23 п. 10");
     }
 
     #[test]
@@ -9668,8 +9747,9 @@ mod tests {
         assert_eq!(synth_status(&water, Some(&formula_from_text("H2O2").unwrap())), SYNTH_NOT_BLUEPRINT);
         // Числа влезают в отведённые машине слоты данных.
         assert_eq!(machine_data_slots(SYNTHESIZER), DATA_SYNTH_ELEMENTS + water.len());
-        // У экстрактора после чисел гена идёт панель режима (раздел «M9: машины»).
-        assert_eq!(machine_data_slots(EXTRACTOR), DATA_PROTO_END);
+        // У экстрактора — только числа гена: ручки режима ему не достались,
+        // их место на экране занял праймер (раздел «M9: машины»).
+        assert_eq!(machine_data_slots(EXTRACTOR), 4, "ген и его сила");
         assert!(DATA_PROTO_TEMP > DATA_GENE_STRENGTH, "числа гена панель не затирает");
         assert_eq!(machine_data_slots(CENTRIFUGE), DATA_SLOTS);
     }
@@ -10253,6 +10333,8 @@ pub enum Unlock {
     Overdose,
     /// У игрока есть хотя бы один ген.
     Gene,
+    /// Лаборатория узнала хотя бы столько пар генов (GDD 4.23 п. 5).
+    GenePairs(u32),
 }
 
 /// Узел карты.
@@ -10293,7 +10375,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 69] = [
+pub const RESEARCH: [Research; 71] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10390,6 +10472,10 @@ pub const RESEARCH: [Research; 69] = [
     // Спецодежда и загрязнение (M9, GDD 4.25, 4.23 п. 13) — микробиология,
     // сразу под инкубатором: костюм нужен с первой культуры.
     node("suit", 2, (0, 2), "biolab:hazmat_respirator", "Спецодежда", &["incubator"], Unlock::Item(&["biolab:lab_coat", "biolab:lab_pants", "biolab:lab_shoes", "biolab:hazmat_respirator", "biolab:hazmat_suit", "biolab:hazmat_pants", "biolab:hazmat_boots"]), "Сшейте халат из белой шерсти на верстаке."),
+    // Сочетания и предохранители (M9, GDD 4.23 пп. 5, 6, 10) — генетика.
+    // Пары узнаются опытом, поэтому у узла своё условие.
+    node("pairs", 4, (2, 2), "biolab:microscope", "Совместимость генов", &["fragment"], Unlock::GenePairs(1), "Вживите два гена, которые не ладят."),
+    node("safeguards", 4, (5, 3), "biolab:syringe_inductor", "Гены-предохранители", &["sequencer"], Unlock::Item(&["biolab:syringe_inductor"]), "Соберите индуктор на лабораторном столе."),
 ];
 
 /// Номер узла по id.
@@ -10408,6 +10494,8 @@ pub struct ResearchFacts<'a> {
     pub items: &'a [String],
     pub discovered: u32,
     pub identified: u32,
+    /// Сколько пар генов узнала лаборатория этого мира (`known_pair_count`).
+    pub pairs: u32,
 }
 
 /// Выполнено ли условие узла.
@@ -10428,6 +10516,7 @@ pub fn research_met(r: &Research, s: &PlayerState, f: &ResearchFacts) -> bool {
                 })
         }
         Unlock::Gene => s.genes.iter().any(|g| *g > 0),
+        Unlock::GenePairs(n) => f.pairs >= n,
     }
 }
 
@@ -11483,7 +11572,7 @@ mod research_tests {
     fn nodes_light_up_from_what_the_player_does() {
         let mut s = PlayerState::default();
         let items = vec!["biolab:mold".to_string()];
-        let facts = ResearchFacts { items: &items, discovered: 0, identified: 0 };
+        let facts = ResearchFacts { items: &items, discovered: 0, identified: 0, pairs: 0 };
         let now = research_now(&s, &facts);
         let mold = research_index("mold").unwrap();
         assert_ne!(now & research_bit(mold), 0);
@@ -11494,7 +11583,7 @@ mod research_tests {
         s.drugs[0].blood = 30;
         s.genes[0] = 1;
         let empty: Vec<String> = Vec::new();
-        let facts = ResearchFacts { items: &empty, discovered: 1, identified: 10 };
+        let facts = ResearchFacts { items: &empty, discovered: 1, identified: 10, pairs: 0 };
         let now = research_now(&s, &facts);
         for id in ["infection", "window", "therapy", "bonds", "identify", "collection"] {
             assert_ne!(now & research_bit(research_index(id).unwrap()), 0, "{id}");
@@ -11530,7 +11619,7 @@ mod research_tests {
     fn the_tick_reports_each_node_once() {
         let dir = std::env::temp_dir().join(format!("biolab-research-{}", std::process::id()));
         let items = vec!["biolab:still".to_string()];
-        let facts = ResearchFacts { items: &items, discovered: 0, identified: 0 };
+        let facts = ResearchFacts { items: &items, discovered: 0, identified: 0, pairs: 0 };
         let (mask, opened) = research_tick(&dir, 7, &facts);
         assert_eq!(opened, vec![0, research_index("still").unwrap()]);
         assert_eq!(research_message(opened[1]), "Журнал лаборанта: новая запись «Перегонный куб»");
@@ -14155,6 +14244,9 @@ pub enum SeqStatus {
     TooMany,
     /// Сумма цен выше `STABILITY`.
     Unstable,
+    /// Несовместимая пара генов (GDD 4.23 п. 5): в пробирке такой вектор не
+    /// собирается — образец гибнет ещё в ней.
+    Lethal,
     NoPhosphorus,
     NoBroth,
     /// В выходе лежит вектор.
@@ -14170,7 +14262,7 @@ pub enum SeqStatus {
 }
 
 impl SeqStatus {
-    pub const ALL: [SeqStatus; 14] = [
+    pub const ALL: [SeqStatus; 15] = [
         SeqStatus::Idle,
         SeqStatus::Empty,
         SeqStatus::One,
@@ -14178,6 +14270,7 @@ impl SeqStatus {
         SeqStatus::Twice,
         SeqStatus::TooMany,
         SeqStatus::Unstable,
+        SeqStatus::Lethal,
         SeqStatus::NoPhosphorus,
         SeqStatus::NoBroth,
         SeqStatus::OutputFull,
@@ -14225,7 +14318,11 @@ pub fn vector_plan(fragments: &[Option<&str>]) -> SeqPlan {
         SeqStatus::Twice
     } else if genes.len() > MAX_GENES {
         SeqStatus::TooMany
-    } else if genome_cost(&genes) > STABILITY {
+    // Несовместимая пара (GDD 4.23 п. 5): такой вектор гибнет в пробирке.
+    } else if lethal_in(&genes).is_some() {
+        SeqStatus::Lethal
+    // Цена — с синергией пар: дружная пара в вектор влезает, спорная — нет.
+    } else if pair_cost(&genes) > STABILITY {
         SeqStatus::Unstable
     } else {
         SeqStatus::Working
@@ -14328,7 +14425,7 @@ pub fn vector_tooltip(text: &str) -> Vec<String> {
         .iter()
         .filter_map(|(n, s)| Some(format!("{}: {}", gene_short(n, *s), gene(n)?.about)))
         .collect();
-    lines.push(format!("Цена {} из {STABILITY}, генов {} из {MAX_GENES}", genome_cost(&genes), genes.len()));
+    lines.push(format!("Цена {} из {STABILITY}, генов {} из {MAX_GENES}", pair_cost(&genes), genes.len()));
     let human = genes.iter().filter(|(n, _)| gene(n).is_some_and(takes_in_humans)).count();
     lines.push(if human == genes.len() {
         "Человеку приживаются все".to_string()
@@ -14495,23 +14592,37 @@ pub const DATA_SEQ_COST: usize = DATA_MB_END + 2;
 pub const DATA_SEQ_COUNT: usize = DATA_MB_END + 3;
 pub const DATA_SEQ_GENES: usize = DATA_MB_END + 4;
 pub const SEQ_SHOWN_GENES: usize = 8;
-pub const DATA_SEQ_END: usize = DATA_SEQ_GENES + SEQ_SHOWN_GENES;
+/// Известные пары в наборе (GDD 4.23 п. 5): номер пары + 1, 0 — пусто.
+pub const DATA_SEQ_PAIRS: usize = DATA_SEQ_GENES + SEQ_SHOWN_GENES;
+pub const SEQ_SHOWN_PAIRS: usize = 3;
+pub const DATA_SEQ_END: usize = DATA_SEQ_PAIRS + SEQ_SHOWN_PAIRS;
 
-/// Записать в числа экрана режим, итог и гены (`data` длиной не меньше
-/// `DATA_SEQ_END`).
-pub fn write_seq(data: &mut [i32], mode: SeqMode, status: SeqStatus, genes: &[(&str, i32)]) {
+/// Записать в числа экрана режим, итог, гены и известные пары среди них
+/// (`data` длиной не меньше `DATA_SEQ_END`). `known` — маска пар, которые
+/// лаборатория уже узнала (`known_pairs`): неизвестную пару монитор молчит.
+pub fn write_seq(
+    data: &mut [i32],
+    mode: SeqMode,
+    status: SeqStatus,
+    genes: &[(&'static str, i32)],
+    known: u64,
+) {
     if data.len() < DATA_SEQ_END {
         return;
     }
     data[DATA_SEQ_MODE] = mode.id();
     data[DATA_SEQ_STATUS] = status.id();
-    data[DATA_SEQ_COST] = genome_cost(genes);
+    data[DATA_SEQ_COST] = pair_cost(genes);
     data[DATA_SEQ_COUNT] = genes.len() as i32;
     for k in 0..SEQ_SHOWN_GENES {
         data[DATA_SEQ_GENES + k] = genes
             .get(k)
             .and_then(|(name, s)| Some(GENES.iter().position(|g| g.name == *name)? as i32 * 4 + (*s).clamp(1, 3)))
             .unwrap_or(0);
+    }
+    let shown: Vec<usize> = pairs_in(genes).into_iter().filter(|i| known & pair_bit(*i) != 0).collect();
+    for k in 0..SEQ_SHOWN_PAIRS {
+        data[DATA_SEQ_PAIRS + k] = shown.get(k).map_or(0, |i| *i as i32 + 1);
     }
 }
 
@@ -14524,6 +14635,8 @@ pub struct SeqShown {
     /// Генов всего; на экран пришли первые `SEQ_SHOWN_GENES`.
     pub count: u32,
     pub genes: Vec<(&'static str, i32)>,
+    /// Известные пары среди этих генов (GDD 4.23 п. 5).
+    pub pairs: Vec<usize>,
 }
 
 pub fn seq_shown(data: &[i32]) -> SeqShown {
@@ -14534,12 +14647,19 @@ pub fn seq_shown(data: &[i32]) -> SeqShown {
             (v > 0 && s > 0).then(|| GENES.get(index as usize).map(|g| (g.name, s)))?
         })
         .collect();
+    let pairs = (0..SEQ_SHOWN_PAIRS)
+        .filter_map(|k| {
+            let v = screen_datum(data, DATA_SEQ_PAIRS + k, 0);
+            (v > 0 && (v as usize) <= GENE_PAIRS.len()).then(|| v as usize - 1)
+        })
+        .collect();
     SeqShown {
         mode: SeqMode::from_id(screen_datum(data, DATA_SEQ_MODE, 0)).unwrap_or(SeqMode::Vector),
         status: SeqStatus::from_id(screen_datum(data, DATA_SEQ_STATUS, 0)),
         cost: screen_datum(data, DATA_SEQ_COST, 0),
         count: screen_datum(data, DATA_SEQ_COUNT, 0).max(0) as u32,
         genes,
+        pairs,
     }
 }
 
@@ -14555,6 +14675,7 @@ pub fn seq_status_text(shown: &SeqShown) -> String {
         SeqStatus::Twice => "Ген дважды".to_string(),
         SeqStatus::TooMany => format!("Больше {MAX_GENES} генов"),
         SeqStatus::Unstable => format!("Цена {} > {STABILITY}", shown.cost),
+        SeqStatus::Lethal => "Гены несовместимы".to_string(),
         SeqStatus::NoPhosphorus => format!("Нужен фосфор ×{phosphorus}"),
         SeqStatus::NoBroth => "Нужен раствор".to_string(),
         SeqStatus::OutputFull => "Выход занят".to_string(),
@@ -14579,6 +14700,10 @@ pub fn seq_status_long(shown: &SeqShown) -> String {
         SeqStatus::Unstable => {
             format!("Вектор нестабилен: сумма цен {} выше {STABILITY} — уберите дорогой ген", shown.cost)
         }
+        SeqStatus::Lethal => match shown.pairs.iter().find(|i| GENE_PAIRS[**i].kind == PairKind::Lethal) {
+            Some(i) => format!("Образец погиб в пробирке: {}", pair_title(*i)),
+            None => "Образец погиб в пробирке: эти гены друг с другом не живут".to_string(),
+        },
         SeqStatus::NoPatient => format!(
             "Уложите усыплённого моба на операционный стол не дальше {} блоков от консоли",
             SEQ_TABLE_REACH as i32
@@ -14618,6 +14743,25 @@ pub fn seq_monitor(shown: &SeqShown, rows: usize) -> Vec<(String, u32)> {
     if total > out.len() {
         out.push((format!("…и ещё {}", total - out.len()), SCREEN_TEXT_DIM));
     }
+    // Известные пары (GDD 4.23 п. 5) — строкой «+ Хитин и Шипы»: монитор
+    // называет только те, что лаборатория уже узнала.
+    for index in &shown.pairs {
+        if out.len() + 1 >= rows {
+            break;
+        }
+        let pair = &GENE_PAIRS[*index];
+        let mark = match pair.kind {
+            PairKind::Synergy => "+",
+            PairKind::Lethal => "x",
+            _ => "!",
+        };
+        let ink = match pair.kind {
+            PairKind::Synergy => 0x5A_E8B4,
+            PairKind::Minor => SCREEN_TEXT_DIM,
+            _ => 0xE8_5A4A,
+        };
+        out.push((format!("{mark} {} и {}", gene_title(pair.a), gene_title(pair.b)), ink));
+    }
     out.push((seq_status_text(shown), seq_status_ink(shown.status)));
     out
 }
@@ -14633,6 +14777,10 @@ pub fn seq_tooltip(shown: &SeqShown) -> Vec<String> {
     let more = (shown.count as usize).saturating_sub(shown.genes.len());
     if more > 0 {
         lines.push(format!("§7…и ещё {more}"));
+    }
+    // Известные пары с объяснением, почему они так себя ведут.
+    for index in &shown.pairs {
+        lines.push(format!("§7{}: {}", pair_title(*index), GENE_PAIRS[*index].why));
     }
     lines.push(seq_status_long(shown));
     let (phosphorus, broth) = seq_supplies(shown.mode, shown.count as usize);
@@ -14889,8 +15037,8 @@ mod sequencer_tests {
     #[test]
     fn the_monitor_gets_the_genome_through_numbers() {
         let mut data = vec![0; DATA_SEQ_END];
-        let genes: Vec<(&str, i32)> = vec![("gigantism", 3), ("chitin", 1), ("sedation_resistance", 2)];
-        write_seq(&mut data, SeqMode::Read, SeqStatus::Read, &genes);
+        let genes: Vec<(&'static str, i32)> = vec![("gigantism", 3), ("chitin", 1), ("sedation_resistance", 2)];
+        write_seq(&mut data, SeqMode::Read, SeqStatus::Read, &genes, 0);
         let shown = seq_shown(&data);
         assert_eq!(shown.genes, genes);
         assert_eq!((shown.mode, shown.status, shown.cost, shown.count), (SeqMode::Read, SeqStatus::Read, 12, 3));
@@ -14907,8 +15055,8 @@ mod sequencer_tests {
         assert_eq!(lines.len(), 4);
         assert_eq!(lines[2].0, "Устойчивость к снотворному ++");
         // Генов больше, чем чисел: на экран приходят первые восемь.
-        let many: Vec<(&str, i32)> = GENES.iter().take(10).map(|g| (g.name, 1)).collect();
-        write_seq(&mut data, SeqMode::Read, SeqStatus::Read, &many);
+        let many: Vec<(&'static str, i32)> = GENES.iter().take(10).map(|g| (g.name, 1)).collect();
+        write_seq(&mut data, SeqMode::Read, SeqStatus::Read, &many, 0);
         let shown = seq_shown(&data);
         assert_eq!((shown.genes.len(), shown.count), (SEQ_SHOWN_GENES, 10));
         assert!(seq_tooltip(&shown).iter().any(|l| l == "§7…и ещё 2"));
@@ -14917,7 +15065,7 @@ mod sequencer_tests {
         assert_eq!((empty.mode, empty.status), (SeqMode::Vector, SeqStatus::Idle));
         assert_eq!(seq_monitor(&empty, 4), vec![("Ждёт".to_string(), SCREEN_TEXT_DIM)]);
         // Антисмысл помечает ген минусом.
-        write_seq(&mut data, SeqMode::Antisense, SeqStatus::NoBroth, &[("horns", 2)]);
+        write_seq(&mut data, SeqMode::Antisense, SeqStatus::NoBroth, &[("horns", 2)], 0);
         let lines = seq_monitor(&seq_shown(&data), 4);
         assert_eq!(lines[0].0, "- Рогатость ++");
         assert_eq!(lines[1].0, "Нужен раствор");
@@ -19628,7 +19776,11 @@ mod suit_tests {
 pub const FERMENTER: &str = "biolab:fermenter";
 
 /// Машины с подбором режима: там, где «выдержка» — это естественно.
-pub const PROTOCOL_MACHINES: [&str; 2] = [FERMENTER, EXTRACTOR];
+// Экстрактор ручек режима не крутит: его нижний левый угол занял праймер
+// (уровень контроля, GDD 4.23 п. 6), а панель ручек влезала и на слот, и на
+// шкалу. Подбор режима остаётся у ферментера; третьей машине его добавлять —
+// вместе с местом на экране.
+pub const PROTOCOL_MACHINES: [&str; 1] = [FERMENTER];
 
 /// Крутятся ли у машины ручки режима.
 pub fn has_protocol(id: &str) -> bool {
@@ -21003,6 +21155,1102 @@ mod machine9_tests {
     }
 }
 
+// ---- M9: сочетания и ограничители (GDD 4.23, пп. 5, 6, 10) ----
+//
+// Три правила поверх генетики M3–M8; здесь решения и чистые функции, под
+// тестами, а хуки только зовут их.
+//
+// *Пары генов* (п. 5). Важен не только суммарная цена генома, но и состав:
+// скрытая таблица `GENE_PAIRS` — синергия (пара дешевле суммы на
+// `SYNERGY_DISCOUNT`), мелкий разлад (слабейший из пары теряет ступень),
+// крупный (сверх набора вырастает уродство GDD 4.19) и несовместимость
+// (образец не выживает). Геном складывает одна функция `combine`: пара
+// срабатывает, только если хотя бы один её ген пришёл сейчас, — старые пары
+// генома при каждом уколе не пересчитываются. Где это зовут: укол фрагмента
+// и вектора мобу (`inject.rs`) и себе (`remedy.rs`), клонирующий чан
+// (`machine.rs`), сборка вектора в секвенаторе (`vector_plan`: цена — с
+// синергией, несовместимая пара в пробирке не собирается), наследование у
+// потомства (`inherit` в `biolab-deep`, своя копия таблицы — её сверяет
+// `biolab-deep/tests/modules.rs`). Геном с несовместимой парой нежизнеспособен,
+// откуда бы он ни взялся (мутаген, рождение, превращение): тик мира
+// (`behaviour.rs`) такого моба добивает.
+//
+// Пара становится известной после первого срабатывания: `learn_pair` пишет её
+// в журнал мира (`biolab/gene_pairs.txt`), игрок слышит «Журнал лаборанта:
+// новая запись «Совместимость генов: …»», узел карты «Совместимость генов»
+// загорается сам (`Unlock::GenePairs`), а монитор секвенатора называет
+// известные пары в сборке и в прочитанном геноме. У машины и у тика мира
+// своего игрока нет — они кладут новость в очередь (`note_gene_news`), её
+// разбирает тик игрока (`infection.rs`) у всех, кто был рядом.
+//
+// *Уровень контроля* (п. 6, `CONTROL_LADDER`). Ранний — экстрактор выдаёт из
+// ткани, что выпало (`roll_gene`). Средний — праймер: фрагмент с нужным геном
+// в боковом слоте экстрактора (`SLOT_PRIMER`); из ткани выходит именно этот
+// ген, силу по-прежнему решает случай. Праймер не тратится: иначе обмен был
+// бы «фрагмент гена X на фрагмент гена X». Поздний — секвенатор M8: вектор из
+// нескольких генов и антисмысл, который убирает лишнее.
+//
+// *Предохранители* (п. 10). Четыре гена ослабляют творение, и в этом их смысл:
+// `self_limiting` — геном гаснет сам через `safeguard_days` игровых дней;
+// `kill_switch` — без укола индуктора (`INDUCTOR_SYRINGE`) за те же дни моб
+// гибнет; `host_restriction` — геном заперт на виде, под который собран, и
+// сменивший вид мутант теряет его целиком (это решает `converted_genome` в
+// `biolab-deep`: часы живут только здесь и новому мобу не достаются, а тик
+// мира сверяет вид с часами второй проверкой); `attenuated` — остальные гены работают
+// слабее на его силу, но не ниже 1 (`behaviour_strength` здесь,
+// `mutants::expressed` в `biolab-deep`). Срок, последнюю дозу и вид держат
+// часы гена — данные моба `biolab:gene_clock` (только `biolab-core`), решает
+// `safeguard_verdict`, зовёт тик мира (`behaviour.rs`). Природе и ткани
+// предохранители не достаются (`LAB_ONLY`): это лабораторные кассеты, их
+// собирает экстрактор из готовых частей (часы, именная бирка, редстониум,
+// ослабленная культура).
+
+/// Как пара генов уживается в одном геноме.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairKind {
+    /// Синергия: пара дешевле суммы цен на `SYNERGY_DISCOUNT`.
+    Synergy,
+    /// Мелкий разлад: слабейший из пары теряет ступень силы.
+    Minor,
+    /// Крупный разлад: сверх набора вырастает уродство (`DEFORMITIES`).
+    Major,
+    /// Несовместимость: образец не выживает.
+    Lethal,
+}
+
+impl PairKind {
+    /// Номер вида пары: тот же, что `PAIR_*` в `biolab-deep` (его копия
+    /// таблицы хранит вид числом). Сверяет `biolab-deep/tests/modules.rs`.
+    pub fn id(self) -> u8 {
+        match self {
+            PairKind::Synergy => 0,
+            PairKind::Minor => 1,
+            PairKind::Major => 2,
+            PairKind::Lethal => 3,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            PairKind::Synergy => "синергия",
+            PairKind::Minor => "мелкий разлад",
+            PairKind::Major => "крупный разлад",
+            PairKind::Lethal => "несовместимы",
+        }
+    }
+}
+
+/// Пара генов из скрытой таблицы.
+pub struct GenePair {
+    pub a: &'static str,
+    pub b: &'static str,
+    pub kind: PairKind,
+    /// Почему так — строкой журнала.
+    pub why: &'static str,
+}
+
+const fn gene_pair(a: &'static str, b: &'static str, kind: PairKind, why: &'static str) -> GenePair {
+    GenePair { a, b, kind, why }
+}
+
+/// Скрытая таблица пар. Порядок — номер пары в журнале мира и на мониторе,
+/// поэтому новые пары дописываются только в конец. Та же таблица (именами и
+/// видом) есть в `biolab-deep` (`GENE_PAIRS` там же), сверяет
+/// `biolab-deep/tests/modules.rs`.
+pub const GENE_PAIRS: [GenePair; 28] = [
+    // Синергия: два признака растут из одного корня.
+    gene_pair("chitin", "thorns", PairKind::Synergy, "шипы растут прямо из панциря"),
+    gene_pair("regeneration", "hypermetabolism", PairKind::Synergy, "быстрый обмен кормит заживление"),
+    gene_pair("aquatic", "membranes", PairKind::Synergy, "жабры и перепонки — одна водная форма"),
+    gene_pair("polyopia", "dicephaly", PairKind::Synergy, "две головы делят один зрительный центр"),
+    gene_pair("predator", "pack_instinct", PairKind::Synergy, "стая охотится сообща"),
+    gene_pair("spring_legs", "membranes", PairKind::Synergy, "прыжок переходит в планирование"),
+    gene_pair("stilt_legs", "spring_legs", PairKind::Synergy, "длинные ноги прыгают дальше"),
+    gene_pair("heavy_arms", "brute_force", PairKind::Synergy, "толстые руки держат свой же удар"),
+    gene_pair("kill_switch", "self_limiting", PairKind::Synergy, "два предохранителя на одной кассете"),
+    gene_pair("attenuated", "volatile", PairKind::Synergy, "ослабленный геном не идёт вразнос"),
+    // Мелкий разлад: признаки тянут в разные стороны.
+    gene_pair("gigantism", "dwarfism", PairKind::Minor, "рост тянут в разные стороны"),
+    gene_pair("thermal", "cryophilia", PairKind::Minor, "жар и холод гасят друг друга"),
+    gene_pair("albinism", "melanism", PairKind::Minor, "пигмент делят пополам"),
+    gene_pair("thin_skin", "chitin", PairKind::Minor, "тонкая кожа не держит панцирь"),
+    gene_pair("photophobia", "bioluminescence", PairKind::Minor, "светится и сам себя боится"),
+    gene_pair("loyalty", "predator", PairKind::Minor, "охота спорит с послушанием"),
+    gene_pair("dense_bone", "sinew", PairKind::Minor, "тяжёлая кость рвёт жилы"),
+    gene_pair("macrocephaly", "microcephaly", PairKind::Minor, "череп растёт и сжимается разом"),
+    gene_pair("bloated_torso", "sunken_chest", PairKind::Minor, "грудная клетка не знает, куда расти"),
+    gene_pair("short_legs", "stilt_legs", PairKind::Minor, "одна нога тянется, другая садится"),
+    // Крупный разлад: геном идёт вразнос, и сверх набора лезет уродство.
+    gene_pair("gigantism", "hypermetabolism", PairKind::Major, "рост идёт вразнос"),
+    gene_pair("volatile", "regeneration", PairKind::Major, "нестабильный геном заживает наростами"),
+    gene_pair("violet_blood", "toxic_blood", PairKind::Major, "две чужие биохимии в одной крови"),
+    gene_pair("brute_force", "dwarfism", PairKind::Major, "сила не помещается в мелкое тело"),
+    gene_pair("healing_aura", "necrosis", PairKind::Major, "аура кормит отмирающую ткань"),
+    // Несовместимость: образец не выживает.
+    gene_pair("acid_glands", "thin_skin", PairKind::Lethal, "кислота разъедает тонкую кожу изнутри"),
+    gene_pair("volatile", "necrosis", PairKind::Lethal, "геном распадается вместе с тканью"),
+    gene_pair("hypermetabolism", "cryophilia", PairKind::Lethal, "остывшее тело не тянет быстрый обмен"),
+];
+
+/// На сколько синергия удешевляет пару.
+pub const SYNERGY_DISCOUNT: i32 = 1;
+
+/// Уродства GDD 4.19: из них вырастает лишний признак крупного разлада.
+pub const DEFORMITIES: [&str; 8] =
+    ["polymelia", "dicephaly", "horns", "tail", "tentacles", "polyopia", "tumor", "membranes"];
+
+/// Номер пары двух генов (порядок неважен); None — гены уживаются молча.
+pub fn pair_index(a: &str, b: &str) -> Option<usize> {
+    GENE_PAIRS.iter().position(|p| (p.a == a && p.b == b) || (p.a == b && p.b == a))
+}
+
+/// Пары таблицы, оба гена которых есть в геноме, — по порядку таблицы.
+pub fn pairs_in(genes: &[(&'static str, i32)]) -> Vec<usize> {
+    let has = |name: &str| genes.iter().any(|(n, s)| *n == name && *s > 0);
+    (0..GENE_PAIRS.len()).filter(|i| has(GENE_PAIRS[*i].a) && has(GENE_PAIRS[*i].b)).collect()
+}
+
+/// Скидка синергии в геноме.
+pub fn synergy_discount(genes: &[(&'static str, i32)]) -> i32 {
+    pairs_in(genes).iter().filter(|i| GENE_PAIRS[**i].kind == PairKind::Synergy).count() as i32
+        * SYNERGY_DISCOUNT
+}
+
+/// Цена генома с учётом синергии: по ней секвенатор меряет стабильность
+/// вектора, а микроскоп — природность генома.
+pub fn pair_cost(genes: &[(&'static str, i32)]) -> i32 {
+    (genome_cost(genes) - synergy_discount(genes)).max(0)
+}
+
+/// Первая несовместимая пара в геноме; None — такой нет.
+pub fn lethal_in(genes: &[(&'static str, i32)]) -> Option<usize> {
+    pairs_in(genes).into_iter().find(|i| GENE_PAIRS[*i].kind == PairKind::Lethal)
+}
+
+/// Перемешать биты зерна (splitmix64): соседние зёрна дают несвязанный выбор.
+fn pair_mix(seed: u64) -> u64 {
+    let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// Чем кончилось сложение генома.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Combined {
+    /// Геном после пар, в порядке `GENES`.
+    pub genes: Vec<(&'static str, i32)>,
+    /// Сработавшие пары по порядку таблицы и ген, который пара задела:
+    /// ослабленный (мелкий разлад) или выросший (крупный).
+    pub fired: Vec<(usize, Option<&'static str>)>,
+    /// Первая несовместимая пара: образец не выживает, геном не пишется.
+    pub lethal: Option<usize>,
+}
+
+impl Combined {
+    /// Номера сработавших пар — их и узнаёт игрок.
+    pub fn pairs(&self) -> Vec<usize> {
+        let mut out: Vec<usize> = self.fired.iter().map(|(i, _)| *i).collect();
+        out.extend(self.lethal);
+        out
+    }
+}
+
+/// Сложить геном: к `have` приходят гены `added` (каждый сильнее того, что
+/// есть, иначе он сюда не попадает), потом срабатывают пары, в которых есть
+/// хотя бы один пришедший ген. Мелкий разлад снимает ступень у слабейшего
+/// (поровну — у второго в паре; ступень 1 уходит вовсе), крупный добавляет
+/// одно уродство, которого ещё нет (сила 1, выбор — от зерна), несовместимость
+/// помечает исход и геном не меняет. Незнакомые гены пропускаются.
+pub fn combine(
+    have: &[(&'static str, i32)],
+    added: &[(&'static str, i32)],
+    seed: u64,
+) -> Combined {
+    let mut merged = genes_of_data(&genome_data(have));
+    let mut fresh: Vec<&'static str> = Vec::new();
+    for (name, strength) in added {
+        let Some(kind) = gene(name) else { continue };
+        let strength = (*strength).clamp(1, 3);
+        match merged.iter_mut().find(|(n, _)| *n == kind.name) {
+            Some(slot) if slot.1 >= strength => continue,
+            Some(slot) => slot.1 = strength,
+            None => merged.push((kind.name, strength)),
+        }
+        if !fresh.contains(&kind.name) {
+            fresh.push(kind.name);
+        }
+    }
+    let strength_of =
+        |genes: &[(&'static str, i32)], name: &str| genes.iter().find(|(n, _)| *n == name).map_or(0, |(_, s)| *s);
+    let triggered: Vec<usize> = pairs_in(&merged)
+        .into_iter()
+        .filter(|i| fresh.contains(&GENE_PAIRS[*i].a) || fresh.contains(&GENE_PAIRS[*i].b))
+        .collect();
+    // Несовместимость решает всё: образец гибнет, геном уже не важен.
+    if let Some(i) = triggered.iter().copied().find(|i| GENE_PAIRS[*i].kind == PairKind::Lethal) {
+        return Combined { genes: genes_of_data(&genome_data(have)), fired: Vec::new(), lethal: Some(i) };
+    }
+    let mut fired = Vec::new();
+    let mut grown = false;
+    for i in triggered {
+        let pair = &GENE_PAIRS[i];
+        let touched = match pair.kind {
+            PairKind::Synergy | PairKind::Lethal => None,
+            PairKind::Minor => {
+                let (sa, sb) = (strength_of(&merged, pair.a), strength_of(&merged, pair.b));
+                // Пару мог разбить разлад раньше по таблице.
+                if sa == 0 || sb == 0 {
+                    continue;
+                }
+                let weaker = if sa < sb { pair.a } else { pair.b };
+                if let Some(pos) = merged.iter().position(|(n, _)| *n == weaker) {
+                    merged[pos].1 -= 1;
+                    if merged[pos].1 <= 0 {
+                        merged.remove(pos);
+                    }
+                }
+                Some(weaker)
+            }
+            // Больше одного лишнего признака за раз не вырастает.
+            PairKind::Major if grown => None,
+            PairKind::Major => {
+                let free: Vec<&'static str> =
+                    DEFORMITIES.iter().copied().filter(|d| strength_of(&merged, d) == 0).collect();
+                if free.is_empty() {
+                    None
+                } else {
+                    let pick = free[(pair_mix(seed ^ (i as u64 + 1)) % free.len() as u64) as usize];
+                    merged.push((pick, 1));
+                    grown = true;
+                    Some(pick)
+                }
+            }
+        };
+        fired.push((i, touched));
+    }
+    Combined { genes: genes_of_data(&genome_data(&merged)), fired, lethal: None }
+}
+
+fn gene_title(name: &str) -> &str {
+    gene(name).map_or(name, |k| k.title)
+}
+
+/// Пара словами: «Хитиновый панцирь + Костяные шипы — синергия».
+pub fn pair_title(index: usize) -> String {
+    match GENE_PAIRS.get(index) {
+        Some(p) => format!("{} + {} — {}", gene_title(p.a), gene_title(p.b), p.kind.title()),
+        None => String::new(),
+    }
+}
+
+/// Что пара сделала — строкой для чата.
+pub fn fired_line(index: usize, touched: Option<&str>) -> String {
+    let Some(p) = GENE_PAIRS.get(index) else {
+        return String::new();
+    };
+    let what = match (p.kind, touched) {
+        (PairKind::Synergy, _) => format!("{} (пара дешевле на {SYNERGY_DISCOUNT})", p.why),
+        (PairKind::Minor, Some(gene)) => format!("{}: {} слабее на ступень", p.why, gene_title(gene)),
+        (PairKind::Major, Some(gene)) => format!("{}: вырос лишний признак — {}", p.why, gene_title(gene)),
+        (PairKind::Lethal, _) => format!("{}: образец не выживает", p.why),
+        _ => p.why.to_string(),
+    };
+    format!("{} + {}: {what}", gene_title(p.a), gene_title(p.b))
+}
+
+/// Строки чата по сработавшим парам.
+pub fn combined_lines(c: &Combined) -> Vec<String> {
+    let mut lines: Vec<String> = c.fired.iter().map(|(i, touched)| fired_line(*i, *touched)).collect();
+    if let Some(i) = c.lethal {
+        lines.push(fired_line(i, None));
+    }
+    lines
+}
+
+/// Несовместимая пара в уколе мобу.
+pub fn lethal_mob_message(index: usize) -> String {
+    match GENE_PAIRS.get(index) {
+        Some(p) => format!("{} и {} несовместимы: образец погиб", gene_title(p.a), gene_title(p.b)),
+        None => "Образец погиб".to_string(),
+    }
+}
+
+/// Несовместимая пара в генотерапии: человека мод не убивает — ген отторгнут.
+pub fn lethal_player_message(index: usize) -> String {
+    match GENE_PAIRS.get(index) {
+        Some(p) => format!("Организм отторг вживление: {} и {} несовместимы", gene_title(p.a), gene_title(p.b)),
+        None => "Организм отторг вживление".to_string(),
+    }
+}
+
+/// Вживление мобу набора генов (фрагмент — набор из одного, вектор — из
+/// нескольких): исход по каждому гену (`splice_mob`) и сложенный геном.
+pub fn splice_mob_paired(
+    have: &[(&'static str, i32)],
+    added: &[(&'static str, i32)],
+    seed: u64,
+) -> (Vec<Splice>, Combined) {
+    let mut scratch = have.to_vec();
+    let mut results = Vec::with_capacity(added.len());
+    let mut taken: Vec<(&'static str, i32)> = Vec::new();
+    for (name, strength) in added {
+        let result = splice_mob(&scratch, name, *strength);
+        if result == Splice::Done {
+            scratch.retain(|(n, _)| n != name);
+            scratch.push((name, *strength));
+            taken.push((name, *strength));
+        }
+        results.push(result);
+    }
+    (results, combine(have, &taken, seed))
+}
+
+/// Вживление себе: исход по каждому гену (`splice_player`) и сложенный геном.
+/// Геном игрока переписывается целиком — пары могли ослабить ген или дорастить
+/// лишний; несовместимая пара не меняет ничего.
+pub fn splice_player_paired(
+    state: &mut PlayerState,
+    added: &[(&'static str, i32)],
+    seed: u64,
+) -> (Vec<Splice>, Combined) {
+    let have = player_genes(state);
+    let mut scratch = have.clone();
+    let mut results = Vec::with_capacity(added.len());
+    let mut taken: Vec<(&'static str, i32)> = Vec::new();
+    for (name, strength) in added {
+        let result = match gene(name) {
+            Some(kind) if !takes_in_humans(kind) => Splice::NotForHumans,
+            None => Splice::NotForHumans,
+            Some(kind) => {
+                let now = scratch.iter().find(|(n, _)| *n == kind.name).map_or(0, |(_, s)| *s);
+                if now >= *strength {
+                    Splice::Already
+                } else {
+                    scratch.retain(|(n, _)| *n != kind.name);
+                    scratch.push((kind.name, *strength));
+                    taken.push((kind.name, *strength));
+                    Splice::Done
+                }
+            }
+        };
+        results.push(result);
+    }
+    let combined = combine(&have, &taken, seed);
+    if combined.lethal.is_none() {
+        let mut genes = [0u8; GENES.len()];
+        for (name, strength) in &combined.genes {
+            if let Some(i) = GENES.iter().position(|g| g.name == *name) {
+                genes[i] = (*strength).clamp(1, 3) as u8;
+            }
+        }
+        state.genes = genes;
+    }
+    (results, combined)
+}
+
+/// Вживить себе набор генов в этом мире (фрагмент, вектор): результаты по
+/// генам и что сделали пары. Пишет состояние на диск, как `splice_world_player`.
+pub fn splice_paired_world_player(
+    world: &std::path::Path,
+    uuid: u128,
+    added: &[(&'static str, i32)],
+    seed: u64,
+) -> Option<(Vec<Splice>, Combined)> {
+    edit_world_player(world, uuid, |state| {
+        let (results, combined) = splice_player_paired(state, added, seed);
+        let changed = combined.lethal.is_none() && results.contains(&Splice::Done);
+        ((results, combined), changed)
+    })
+}
+
+// == Что лаборатория знает о парах ==
+
+/// Журнал пар внутри папки мира: по строке на пару, именами генов.
+pub fn pairs_path(world: &std::path::Path) -> std::path::PathBuf {
+    world.join("biolab").join("gene_pairs.txt")
+}
+
+/// Бит пары в маске известного.
+pub fn pair_bit(index: usize) -> u64 {
+    1u64 << (index % 64)
+}
+
+/// Маска строками `ген+ген`: перестановка таблицы сохранение не путает.
+pub fn pairs_to_text(mask: u64) -> String {
+    (0..GENE_PAIRS.len())
+        .filter(|i| mask & pair_bit(*i) != 0)
+        .map(|i| format!("{}+{}", GENE_PAIRS[i].a, GENE_PAIRS[i].b))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Маска из файла: незнакомые пары пропускаем молча.
+pub fn pairs_from_text(text: &str) -> u64 {
+    text.lines()
+        .filter_map(|line| line.trim().split_once('+'))
+        .filter_map(|(a, b)| pair_index(a.trim(), b.trim()))
+        .fold(0, |mask, i| mask | pair_bit(i))
+}
+
+fn pair_books() -> &'static std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, u64>> {
+    static BOOKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, u64>>,
+    > = std::sync::OnceLock::new();
+    BOOKS.get_or_init(Default::default)
+}
+
+/// Пары, известные лаборатории этого мира. Файл читается один раз за запуск:
+/// пишет его только `biolab-core`, и только через `learn_pair`.
+pub fn known_pairs(world: &std::path::Path) -> u64 {
+    let Ok(mut books) = pair_books().lock() else {
+        return 0;
+    };
+    *books.entry(world.to_path_buf()).or_insert_with(|| {
+        std::fs::read_to_string(pairs_path(world)).map(|t| pairs_from_text(&t)).unwrap_or(0)
+    })
+}
+
+/// Запомнить пару. Истина — она была неизвестна: это и есть «новая запись».
+pub fn learn_pair(world: &std::path::Path, index: usize) -> bool {
+    if index >= GENE_PAIRS.len() {
+        return false;
+    }
+    let Ok(mut books) = pair_books().lock() else {
+        return false;
+    };
+    let known = books.entry(world.to_path_buf()).or_insert_with(|| {
+        std::fs::read_to_string(pairs_path(world)).map(|t| pairs_from_text(&t)).unwrap_or(0)
+    });
+    if *known & pair_bit(index) != 0 {
+        return false;
+    }
+    *known |= pair_bit(index);
+    let text = pairs_to_text(*known);
+    drop(books);
+    let path = pairs_path(world);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, text);
+    true
+}
+
+/// Сколько пар известно: по этому числу открывается узел карты.
+pub fn known_pair_count(world: &std::path::Path) -> u32 {
+    known_pairs(world).count_ones()
+}
+
+/// Новая запись о паре — в чат, по образцу узлов карты.
+pub fn pair_learned_message(index: usize) -> String {
+    format!("Журнал лаборанта: новая запись «Совместимость генов: {}»", pair_title(index))
+}
+
+/// Записать пары в журнал мира и отдать строки для чата: по строке на то, что
+/// пара сделала, и по строке на каждую новую запись.
+pub fn learn_pairs(world: &std::path::Path, c: &Combined) -> Vec<String> {
+    let mut lines = combined_lines(c);
+    for index in c.pairs() {
+        if learn_pair(world, index) {
+            lines.push(pair_learned_message(index));
+        }
+    }
+    lines
+}
+
+// Новости генетики от машин и от тика мира: у них нет своего игрока, поэтому
+// они отмечают строку в точке, а забирает её каждый игрок, который был рядом
+// (на своём шаге раз в секунду) — как опыты машин (`LabEvents`).
+
+struct GeneNote {
+    dimension: String,
+    at: [f64; 3],
+    line: String,
+    seq: u64,
+    until: u64,
+}
+
+/// Новости генетики и что из них каждый игрок уже слышал.
+#[derive(Default)]
+pub struct GeneNews {
+    list: Vec<GeneNote>,
+    next: u64,
+    heard: std::collections::HashMap<u128, u64>,
+}
+
+impl GeneNews {
+    pub fn note(&mut self, dimension: &str, at: [f64; 3], line: &str, now: u64) {
+        self.list.retain(|n| n.until > now);
+        if self.list.len() >= 64 {
+            return;
+        }
+        self.next += 1;
+        self.list.push(GeneNote {
+            dimension: dimension.to_string(),
+            at,
+            line: line.to_string(),
+            seq: self.next,
+            until: now + LAB_EVENT_HOLD_MS,
+        });
+    }
+
+    /// Новости рядом с игроком, которых он ещё не слышал.
+    pub fn take(&mut self, player: u128, dimension: &str, at: [f64; 3], now: u64) -> Vec<String> {
+        let heard = self.heard.get(&player).copied().unwrap_or(0);
+        let mine = self
+            .list
+            .iter()
+            .filter(|n| n.seq > heard && n.until > now && n.dimension == dimension && within(n.at, at, LAB_EVENT_RADIUS))
+            .map(|n| n.line.clone())
+            .collect();
+        self.heard.insert(player, self.next);
+        mine
+    }
+}
+
+fn gene_news() -> &'static std::sync::Mutex<GeneNews> {
+    static NEWS: std::sync::OnceLock<std::sync::Mutex<GeneNews>> = std::sync::OnceLock::new();
+    NEWS.get_or_init(Default::default)
+}
+
+/// Машина или тик мира сказали что-то в точке `at`.
+pub fn note_gene_news(dimension: &str, at: [f64; 3], line: &str) {
+    if let Ok(mut news) = gene_news().lock() {
+        news.note(dimension, at, line, quarantine_clock());
+    }
+}
+
+/// Новости генетики рядом с игроком — в чат.
+pub fn take_gene_news(uuid: u128, dimension: &str, at: [f64; 3]) -> Vec<String> {
+    match gene_news().lock() {
+        Ok(mut news) => news.take(uuid, dimension, at, quarantine_clock()),
+        Err(_) => Vec::new(),
+    }
+}
+
+// == Уровень контроля (GDD 4.23, п. 6) ==
+
+/// Лестница контроля над геном: что умеет каждый шаг. Для журнала и подсказок.
+pub const CONTROL_LADDER: [(&str, &str); 3] = [
+    ("Экстрактор", "из ткани выходит случайный ген"),
+    ("Праймер в экстракторе", "из ткани выходит выбранный ген"),
+    ("Секвенатор", "вектор из нескольких генов и антисмысл"),
+];
+
+/// Боковой слот экстрактора: праймер — фрагмент ДНК, который называет ген.
+/// Это слот топлива печки, у экстрактора топлива нет.
+pub const SLOT_PRIMER: usize = SLOT_FUEL;
+
+/// Ген, который задаёт праймер; None — слот пуст или фрагмент без гена.
+pub fn primer_gene(primer: Option<&str>) -> Option<&'static str> {
+    primer.and_then(gene_from_text).map(|(name, _)| name)
+}
+
+/// Что достанется из ткани: праймер решает, какой ген, зерно — силу. Без
+/// праймера — случайный ген (`roll_gene`), ранний шаг лестницы.
+pub fn extracted_gene(primer: Option<&str>, seed: u64) -> (&'static str, i32) {
+    match primer_gene(primer) {
+        Some(name) => (name, roll_gene(seed).1),
+        None => roll_gene(seed),
+    }
+}
+
+// == Предохранители (GDD 4.23, п. 10) ==
+
+/// Гены, которые ослабляют творение: только лаборатория. Природному броску и
+/// ткани они не достаются (`roll_gene`, `roll` в `biolab-deep`).
+pub const SAFEGUARDS: [&str; 4] = ["self_limiting", "host_restriction", "kill_switch", "attenuated"];
+
+/// Гены, которых нет ни в природе, ни в ткани мутанта: их кассеты собирает
+/// экстрактор из готовых частей.
+pub const LAB_ONLY: [&str; 4] = SAFEGUARDS;
+
+/// Предохранитель ли это.
+pub fn is_safeguard(name: &str) -> bool {
+    SAFEGUARDS.contains(&name)
+}
+
+/// Сколько тиков в игровых сутках.
+pub const GAME_DAY: i64 = 24_000;
+
+/// Срок предохранителя в игровых днях: чем сильнее ген, тем он короче —
+/// сильный предохранитель держит творение на коротком поводке.
+pub fn safeguard_days(strength: i32) -> i64 {
+    match strength.clamp(1, 3) {
+        1 => 3,
+        2 => 2,
+        _ => 1,
+    }
+}
+
+/// Шприц индуктора: доза для генного выключателя.
+pub const INDUCTOR_SYRINGE: &str = "biolab:syringe_inductor";
+
+/// Часы гена на мобе (данные `biolab:gene_clock`, только `biolab-core`):
+/// когда геном с предохранителем лёг на моба, когда была последняя доза
+/// индуктора (игровое время, `world.game_time`) и под какой вид собрана
+/// кассета видоспецифичности.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GeneClock {
+    /// Игровое время, с которого идёт срок; 0 — часы ещё не пущены.
+    pub set: i64,
+    /// Игровое время последней дозы индуктора; 0 — дозы не было.
+    pub dose: i64,
+    /// Вид, под который собрана кассета; пусто — вид не записан.
+    pub host: String,
+}
+
+/// Часы строкой данных: `set=12000,dose=0,host=minecraft:zombie`.
+pub fn clock_to_text(clock: &GeneClock) -> String {
+    format!("set={},dose={},host={}", clock.set, clock.dose, clock.host)
+}
+
+/// Часы из строки данных. Незнакомое и битое пропускаем: мир от новой версии
+/// мода не должен ломать старую.
+pub fn clock_from_text(text: &str) -> GeneClock {
+    let mut clock = GeneClock::default();
+    for part in text.split(',') {
+        match part.trim().split_once('=') {
+            Some(("set", value)) => clock.set = value.trim().parse().unwrap_or(0),
+            Some(("dose", value)) => clock.dose = value.trim().parse().unwrap_or(0),
+            Some(("host", value)) => clock.host = value.trim().to_string(),
+            _ => {}
+        }
+    }
+    clock
+}
+
+/// Нужны ли геному часы: есть ли в нём предохранитель, который их считает.
+pub fn needs_clock(genes: &[(&'static str, i32)]) -> bool {
+    genes.iter().any(|(name, _)| matches!(*name, "self_limiting" | "kill_switch" | "host_restriction"))
+}
+
+/// Что сделал предохранитель к моменту `now` (игровое время в тиках).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SafeguardVerdict {
+    /// Всё в порядке, творение живёт.
+    Fine,
+    /// Видоспецифичность: вид не тот — геном не держится.
+    OffHost,
+    /// Генный выключатель: дозы индуктора нет — моб гибнет.
+    Killed,
+    /// Самоограничение: срок вышел, геном погас сам.
+    Faded,
+}
+
+/// Приговор предохранителей. `kind` — вид моба сейчас, `now` — игровое время.
+/// Часы с нулевым `set` — только что пущенные: срок считается от записи генома.
+pub fn safeguard_verdict(
+    genes: &[(&'static str, i32)],
+    clock: &GeneClock,
+    kind: &str,
+    now: i64,
+) -> SafeguardVerdict {
+    let strength = |name: &str| genes.iter().find(|(n, _)| *n == name).map_or(0, |(_, s)| *s);
+    let host = strength("host_restriction");
+    if host > 0 && !clock.host.is_empty() && full_kind(kind) != clock.host {
+        return SafeguardVerdict::OffHost;
+    }
+    let set = if clock.set > 0 { clock.set } else { now };
+    let kill = strength("kill_switch");
+    if kill > 0 {
+        let last = clock.dose.max(set);
+        if now - last >= safeguard_days(kill) * GAME_DAY {
+            return SafeguardVerdict::Killed;
+        }
+    }
+    let limit = strength("self_limiting");
+    if limit > 0 && now - set >= safeguard_days(limit) * GAME_DAY {
+        return SafeguardVerdict::Faded;
+    }
+    SafeguardVerdict::Fine
+}
+
+/// Сколько игровых дней осталось генному выключателю до беды; None — выключателя
+/// нет. Для подсказок и доклада пульта.
+pub fn inductor_left(genes: &[(&'static str, i32)], clock: &GeneClock, now: i64) -> Option<f64> {
+    let kill = genes.iter().find(|(n, _)| *n == "kill_switch").map(|(_, s)| *s)?;
+    let set = if clock.set > 0 { clock.set } else { now };
+    let last = clock.dose.max(set);
+    let deadline = last + safeguard_days(kill) * GAME_DAY;
+    Some((deadline - now) as f64 / GAME_DAY as f64)
+}
+
+/// Что сказать после приговора предохранителя.
+pub fn safeguard_message(verdict: SafeguardVerdict, kind: &str) -> Option<String> {
+    let name = mob_title(&full_kind(kind));
+    match verdict {
+        SafeguardVerdict::Fine => None,
+        SafeguardVerdict::OffHost => {
+            Some(format!("Видоспецифичность: вид не тот, геном погас ({name})"))
+        }
+        SafeguardVerdict::Killed => {
+            Some(format!("Генный выключатель: индуктора не было, образец погиб ({name})"))
+        }
+        SafeguardVerdict::Faded => {
+            Some(format!("Самоограничение: срок вышел, мутация погасла ({name})"))
+        }
+    }
+}
+
+/// Укол индуктора мобу: что сказать и отложился ли выключатель.
+pub fn inductor_message(genes: &[(&'static str, i32)]) -> (String, bool) {
+    match genes.iter().find(|(n, _)| *n == "kill_switch").map(|(_, s)| *s) {
+        None => ("Генного выключателя нет: индуктор ни к чему".to_string(), false),
+        Some(strength) => (
+            format!("Индуктор введён: выключатель отложен на {} дн.", safeguard_days(strength)),
+            true,
+        ),
+    }
+}
+
+/// Сила аттенуации в наборе генов: на столько ослабляются остальные.
+pub fn attenuation(genes: &[(&'static str, i32)]) -> i32 {
+    genes.iter().find(|(name, _)| *name == "attenuated").map_or(0, |(_, s)| *s)
+}
+
+/// Сила гена с учётом аттенуации: аттенуация ослабляет остальные гены на свою
+/// силу, но не ниже 1 — ген не выключается совсем, иначе его нельзя было бы
+/// отличить от отсутствующего. Сама аттенуация себя не ослабляет.
+pub fn expressed_strength(genes: &[(&'static str, i32)], name: &str, strength: i32) -> i32 {
+    if strength <= 0 || name == "attenuated" {
+        return strength;
+    }
+    (strength - attenuation(genes)).max(1)
+}
+
+#[cfg(test)]
+mod gene_logic_tests {
+    use super::*;
+
+    /// Сила гена в геноме; 0 — такого нет.
+    fn at(genes: &[(&'static str, i32)], name: &str) -> i32 {
+        genes.iter().find(|(n, _)| *n == name).map_or(0, |(_, s)| *s)
+    }
+
+    #[test]
+    fn the_pair_table_names_real_genes_and_every_kind() {
+        let mut seen: Vec<(usize, usize)> = Vec::new();
+        for (i, pair) in GENE_PAIRS.iter().enumerate() {
+            let a = GENES.iter().position(|g| g.name == pair.a).unwrap_or_else(|| panic!("{}", pair.a));
+            let b = GENES.iter().position(|g| g.name == pair.b).unwrap_or_else(|| panic!("{}", pair.b));
+            assert_ne!(a, b, "пара {i}: ген сам с собой");
+            let key = (a.min(b), a.max(b));
+            assert!(!seen.contains(&key), "пара {i} повторяется");
+            seen.push(key);
+            assert_eq!(pair_index(pair.a, pair.b), Some(i));
+            assert_eq!(pair_index(pair.b, pair.a), Some(i), "порядок пары неважен");
+            assert!(!pair.why.is_empty() && !pair.why.ends_with('.'), "пара {i}: причина");
+            assert!(pair_title(i).contains('+'));
+        }
+        // Все четыре исхода встречаются, иначе механика половинчатая.
+        for kind in [PairKind::Synergy, PairKind::Minor, PairKind::Major, PairKind::Lethal] {
+            assert!(GENE_PAIRS.iter().any(|p| p.kind == kind), "{kind:?}");
+            assert!(!kind.title().is_empty());
+        }
+        assert_eq!(pair_index("chitin", "gigantism"), None, "такая пара таблице не известна");
+        assert_eq!(pair_title(GENE_PAIRS.len()), "");
+        // Уродства крупного разлада — настоящие гены 4.19.
+        for name in DEFORMITIES {
+            assert!(gene(name).is_some(), "{name}");
+        }
+        // Номера видов — те же, что у копии в `biolab-deep`.
+        assert_eq!(
+            [PairKind::Synergy.id(), PairKind::Minor.id(), PairKind::Major.id(), PairKind::Lethal.id()],
+            [0, 1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn synergy_makes_a_pair_cheaper_than_the_sum() {
+        // Хитин 2 + шипы 3 — синергия: 4 + 9 = 13, со скидкой 12.
+        let genes = vec![("chitin", 2), ("thorns", 3)];
+        assert_eq!(genome_cost(&genes), 13);
+        assert_eq!(synergy_discount(&genes), SYNERGY_DISCOUNT);
+        assert_eq!(pair_cost(&genes), 12);
+        // Без пары скидки нет.
+        let alone = vec![("chitin", 2)];
+        assert_eq!(pair_cost(&alone), genome_cost(&alone));
+        // Дружная пара влезает в природный предел, спорная — нет.
+        let friendly = vec![("spring_legs", 1), ("membranes", 2)];
+        assert_eq!(genome_cost(&friendly), 5);
+        assert_eq!(pair_cost(&friendly), 4);
+        assert!(pairs_in(&friendly).len() == 1);
+        assert!(pairs_in(&[("spring_legs", 1)]).is_empty());
+    }
+
+    #[test]
+    fn a_minor_quarrel_weakens_the_weaker_gene() {
+        // Гигантизм 3 и карликовость 1: ступень снимается у слабейшего, и
+        // ген с нулевой силой уходит из генома вовсе.
+        let c = combine(&[("gigantism", 3)], &[("dwarfism", 1)], 1);
+        assert_eq!(at(&c.genes, "gigantism"), 3);
+        assert_eq!(at(&c.genes, "dwarfism"), 0, "{:?}", c.genes);
+        assert_eq!(c.fired.len(), 1);
+        assert_eq!(c.fired[0].1, Some("dwarfism"));
+        assert!(c.lethal.is_none());
+        assert!(fired_line(c.fired[0].0, c.fired[0].1).contains("слабее на ступень"));
+        // Сильный ген теряет только ступень.
+        let c = combine(&[("dwarfism", 3)], &[("gigantism", 1)], 1);
+        assert_eq!((at(&c.genes, "dwarfism"), at(&c.genes, "gigantism")), (3, 0));
+        let c = combine(&[("dwarfism", 2)], &[("gigantism", 3)], 1);
+        assert_eq!((at(&c.genes, "dwarfism"), at(&c.genes, "gigantism")), (1, 3));
+    }
+
+    #[test]
+    fn a_major_quarrel_grows_one_extra_deformity() {
+        let c = combine(&[("gigantism", 2)], &[("hypermetabolism", 2)], 11);
+        let grown: Vec<&str> =
+            c.genes.iter().map(|(n, _)| *n).filter(|n| DEFORMITIES.contains(n)).collect();
+        assert_eq!(grown.len(), 1, "{:?}", c.genes);
+        assert_eq!(at(&c.genes, grown[0]), 1, "лишний признак слабый");
+        assert_eq!(c.fired[0].1, Some(grown[0]));
+        assert!(fired_line(c.fired[0].0, c.fired[0].1).contains("лишний признак"));
+        // Два крупных разлада разом дают один лишний признак, а не два.
+        let c = combine(
+            &[("gigantism", 2), ("violet_blood", 1)],
+            &[("hypermetabolism", 2), ("toxic_blood", 1)],
+            12,
+        );
+        let grown = c.genes.iter().filter(|(n, _)| DEFORMITIES.contains(n)).count();
+        assert_eq!(grown, 1, "{:?}", c.genes);
+        // Зерно меняет, какой именно признак вырастет.
+        let picks: std::collections::BTreeSet<&str> = (0..40u64)
+            .map(|seed| combine(&[("gigantism", 2)], &[("hypermetabolism", 2)], seed))
+            .filter_map(|c| c.genes.iter().map(|(n, _)| *n).find(|n| DEFORMITIES.contains(n)))
+            .collect();
+        assert!(picks.len() > 1, "{picks:?}");
+    }
+
+    #[test]
+    fn an_incompatible_pair_kills_the_sample_and_keeps_the_genome() {
+        let have = vec![("acid_glands", 2)];
+        let c = combine(&have, &[("thin_skin", 1)], 3);
+        assert_eq!(c.lethal, pair_index("acid_glands", "thin_skin"));
+        assert_eq!(c.genes, have, "геном не пишется: образец погиб");
+        assert!(c.fired.is_empty());
+        assert!(combined_lines(&c)[0].contains("не выживает"));
+        assert!(lethal_mob_message(c.lethal.unwrap()).contains("погиб"));
+        assert!(lethal_player_message(c.lethal.unwrap()).contains("отторг"));
+        assert_eq!(lethal_in(&[("acid_glands", 1), ("thin_skin", 1)]), c.lethal);
+        assert_eq!(lethal_in(&[("acid_glands", 1)]), None);
+        // Несовместимость сильнее всего: разлад в том же уколе уже не важен.
+        let c = combine(&[("gigantism", 2), ("volatile", 1)], &[("dwarfism", 1), ("necrosis", 1)], 3);
+        assert!(c.lethal.is_some());
+        assert!(c.fired.is_empty());
+    }
+
+    #[test]
+    fn a_pair_fires_only_when_one_of_its_genes_is_fresh() {
+        // Пара уже в геноме: новый ген её не пересчитывает.
+        let have = vec![("gigantism", 2), ("dwarfism", 2)];
+        let c = combine(&have, &[("chitin", 1)], 5);
+        assert!(c.fired.is_empty(), "{:?}", c.fired);
+        assert_eq!(at(&c.genes, "dwarfism"), 2, "старая пара не бьёт второй раз");
+        // Ген, который не сильнее своего же, не считается пришедшим.
+        let c = combine(&[("gigantism", 3), ("dwarfism", 1)], &[("dwarfism", 1)], 5);
+        assert!(c.fired.is_empty());
+        // Незнакомый ген пропускается молча.
+        let c = combine(&[], &[("wings", 2)], 5);
+        assert!(c.genes.is_empty() && c.fired.is_empty() && c.lethal.is_none());
+    }
+
+    #[test]
+    fn splicing_a_mob_and_a_human_goes_through_the_same_table() {
+        // Мобу: укол фрагментом — набор из одного гена.
+        let have = vec![("chitin", 1)];
+        let (results, c) = splice_mob_paired(&have, &[("thorns", 2)], 7);
+        assert_eq!(results, vec![Splice::Done]);
+        assert_eq!(at(&c.genes, "thorns"), 2);
+        assert_eq!(c.pairs(), vec![pair_index("chitin", "thorns").unwrap()]);
+        // Тот же ген не слабее — отказ, и пара не срабатывает.
+        let (results, c) = splice_mob_paired(&c.genes, &[("thorns", 1)], 7);
+        assert_eq!(results, vec![Splice::Already]);
+        assert!(c.fired.is_empty());
+        // Человеку: ген без действия в человеке не приживается.
+        let mut state = PlayerState::default();
+        let (results, _) = splice_player_paired(&mut state, &[("acid_glands", 2)], 1);
+        assert_eq!(results, vec![Splice::NotForHumans]);
+        assert!(player_genes(&state).is_empty());
+        // Пара работает и в человеке: разлад снимает ступень.
+        let (results, c) = splice_player_paired(&mut state, &[("gigantism", 2), ("dwarfism", 1)], 1);
+        assert_eq!(results, vec![Splice::Done, Splice::Done]);
+        assert_eq!(c.fired.len(), 1);
+        assert_eq!(player_gene(&state, "gigantism"), 2);
+        assert_eq!(player_gene(&state, "dwarfism"), 0);
+        // Несовместимость в человеке геном не меняет.
+        let before = state.genes;
+        let (_, c) = splice_player_paired(&mut state, &[("thermal", 1), ("cryophilia", 1), ("hypermetabolism", 1)], 1);
+        assert!(c.lethal.is_some());
+        assert_eq!(state.genes, before, "отторгнуто целиком");
+    }
+
+    #[test]
+    fn the_lab_remembers_a_pair_once() {
+        let dir = std::env::temp_dir().join(format!("biolab-pairs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(known_pairs(&dir), 0);
+        let first = pair_index("chitin", "thorns").unwrap();
+        assert!(learn_pair(&dir, first), "первая встреча — новая запись");
+        assert!(!learn_pair(&dir, first), "второй раз уже не новость");
+        assert_eq!(known_pair_count(&dir), 1);
+        assert!(known_pairs(&dir) & pair_bit(first) != 0);
+        assert!(!learn_pair(&dir, GENE_PAIRS.len()), "пары с таким номером нет");
+        // Файл читается глазами и переживает перестановку таблицы.
+        let text = std::fs::read_to_string(pairs_path(&dir)).expect("журнал пар");
+        assert_eq!(text.trim(), "chitin+thorns");
+        assert_eq!(pairs_from_text(&text), pair_bit(first));
+        assert_eq!(pairs_from_text("ghost+gene\nchitin + thorns\n"), pair_bit(first));
+        assert_eq!(pairs_to_text(pair_bit(first)), "chitin+thorns");
+        // Новая запись — строкой узла карты.
+        assert!(pair_learned_message(first).starts_with("Журнал лаборанта: новая запись"));
+        // Монитор и микроскоп называют только известные пары.
+        let genes = vec![("chitin", 2), ("thorns", 1)];
+        assert_eq!(genome_pair_lines(&genes, 0), Vec::<String>::new());
+        assert_eq!(genome_pair_lines(&genes, known_pairs(&dir)).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_monitor_warns_about_a_known_pair() {
+        let mut data = vec![0; DATA_SEQ_END];
+        let genes: Vec<(&'static str, i32)> = vec![("chitin", 2), ("thorns", 1)];
+        let known = pair_bit(pair_index("chitin", "thorns").unwrap());
+        write_seq(&mut data, SeqMode::Vector, SeqStatus::Working, &genes, known);
+        let shown = seq_shown(&data);
+        assert_eq!(shown.pairs, vec![pair_index("chitin", "thorns").unwrap()]);
+        assert_eq!(shown.cost, pair_cost(&genes), "цена — со скидкой синергии");
+        let lines = seq_monitor(&shown, 6);
+        assert!(lines.iter().any(|(l, _)| l.starts_with("+ Хитиновый панцирь")), "{lines:?}");
+        assert!(seq_tooltip(&shown).iter().any(|l| l.contains("синергия")));
+        // Неизвестная пара молчит.
+        write_seq(&mut data, SeqMode::Vector, SeqStatus::Working, &genes, 0);
+        assert!(seq_shown(&data).pairs.is_empty());
+    }
+
+    #[test]
+    fn a_vector_of_incompatible_genes_is_not_assembled() {
+        let plan = vector_plan(&[Some("acid_glands:1"), Some("thin_skin:1")]);
+        assert_eq!(plan.status, SeqStatus::Lethal);
+        let shown = SeqShown {
+            mode: SeqMode::Vector,
+            status: SeqStatus::Lethal,
+            cost: pair_cost(&plan.genes),
+            count: plan.genes.len() as u32,
+            genes: plan.genes.clone(),
+            pairs: pairs_in(&plan.genes),
+        };
+        assert_eq!(seq_status_text(&shown), "Гены несовместимы");
+        assert!(seq_status_long(&shown).contains("пробирке"));
+        // Синергия пускает в вектор то, что по сумме цен не влезало.
+        let friendly = vector_plan(&[Some("chitin:2"), Some("thorns:1")]);
+        assert_eq!(genome_cost(&friendly.genes), 7, "сумма цен выше предела");
+        assert_eq!(friendly.status, SeqStatus::Working, "а с синергией — влезает");
+        let costly = vector_plan(&[Some("chitin:2"), Some("brute_force:1")]);
+        assert_eq!(costly.status, SeqStatus::Unstable);
+    }
+
+    #[test]
+    fn a_primer_picks_the_gene_and_the_dice_pick_the_strength() {
+        // Без праймера — что выпало.
+        assert_eq!(extracted_gene(None, 42), roll_gene(42));
+        // С праймером — его ген, сила по-прежнему от зерна.
+        let (name, strength) = extracted_gene(Some("acid_glands:3"), 42);
+        assert_eq!(name, "acid_glands");
+        assert_eq!(strength, roll_gene(42).1);
+        assert_eq!(primer_gene(Some("acid_glands:3")), Some("acid_glands"));
+        // Пустой и битый праймер — как будто его нет.
+        assert_eq!(primer_gene(Some("")), None);
+        assert_eq!(primer_gene(Some("wings:1")), None);
+        assert_eq!(extracted_gene(Some(""), 7), roll_gene(7));
+        // Из ткани предохранители не достаются ни с праймером, ни без него.
+        for seed in 0..500u64 {
+            assert!(!LAB_ONLY.contains(&roll_gene(seed).0), "{}", roll_gene(seed).0);
+        }
+        // Лестница контроля описана в журнале: три шага.
+        assert_eq!(CONTROL_LADDER.len(), 3);
+    }
+
+    #[test]
+    fn safeguards_fade_kill_and_check_the_host() {
+        let day = GAME_DAY;
+        let clock = GeneClock { set: 1000, dose: 0, host: "minecraft:zombie".to_string() };
+        let fading = vec![("self_limiting", 1), ("chitin", 2)];
+        // Срок самоограничения: 3 дня при силе 1.
+        assert_eq!(safeguard_days(1), 3);
+        assert_eq!(safeguard_days(3), 1);
+        assert_eq!(
+            safeguard_verdict(&fading, &clock, "minecraft:zombie", 1000 + 2 * day),
+            SafeguardVerdict::Fine
+        );
+        assert_eq!(
+            safeguard_verdict(&fading, &clock, "minecraft:zombie", 1000 + 3 * day),
+            SafeguardVerdict::Faded
+        );
+        // Выключатель: без дозы моб гибнет, доза отодвигает срок.
+        let switch = vec![("kill_switch", 2), ("chitin", 2)];
+        assert_eq!(
+            safeguard_verdict(&switch, &clock, "minecraft:zombie", 1000 + 2 * day),
+            SafeguardVerdict::Killed
+        );
+        let dosed = GeneClock { dose: 1000 + 2 * day, ..clock.clone() };
+        assert_eq!(
+            safeguard_verdict(&switch, &dosed, "minecraft:zombie", 1000 + 3 * day),
+            SafeguardVerdict::Fine
+        );
+        assert_eq!(inductor_left(&switch, &dosed, 1000 + 2 * day), Some(2.0));
+        assert_eq!(inductor_left(&fading, &clock, 1000), None);
+        // Вид не тот — геном не держится, и это важнее срока.
+        let host = vec![("host_restriction", 1), ("chitin", 2)];
+        assert_eq!(safeguard_verdict(&host, &clock, "minecraft:drowned", 1000), SafeguardVerdict::OffHost);
+        assert_eq!(safeguard_verdict(&host, &clock, "zombie", 1000), SafeguardVerdict::Fine, "вид без namespace");
+        // Геному без предохранителя часы ни к чему.
+        assert!(!needs_clock(&[("chitin", 2)]));
+        assert!(needs_clock(&fading) && needs_clock(&switch) && needs_clock(&host));
+        assert!(!needs_clock(&[("attenuated", 3)]), "аттенуации срок не нужен");
+        assert_eq!(safeguard_verdict(&[("chitin", 2)], &clock, "minecraft:zombie", 1000 + 9 * day), SafeguardVerdict::Fine);
+        // Сообщения: кто погас, кто погиб.
+        assert!(safeguard_message(SafeguardVerdict::Fine, "minecraft:zombie").is_none());
+        assert!(safeguard_message(SafeguardVerdict::Killed, "minecraft:zombie").unwrap().contains("индуктора"));
+        assert!(safeguard_message(SafeguardVerdict::Faded, "minecraft:cow").unwrap().contains("погасла"));
+        // Укол индуктора: мутанту с выключателем — отсрочка, прочим — нет.
+        assert_eq!(inductor_message(&switch).1, true);
+        assert_eq!(inductor_message(&fading).1, false);
+        assert!(inductor_message(&switch).0.contains("2 дн."));
+    }
+
+    #[test]
+    fn the_gene_clock_survives_the_save() {
+        let clock = GeneClock { set: 123_456, dose: 7, host: "minecraft:cow".to_string() };
+        assert_eq!(clock_from_text(&clock_to_text(&clock)), clock);
+        assert_eq!(clock_from_text(""), GeneClock::default());
+        assert_eq!(clock_from_text("set=x,dose=,host="), GeneClock::default());
+        // Незнакомое поле пропускается, знакомое читается.
+        assert_eq!(clock_from_text("mood=5,set=10").set, 10);
+    }
+
+    #[test]
+    fn attenuation_turns_the_other_genes_down() {
+        // Аттенуация 1: поведение остальных слабеет на ступень, но не гаснет.
+        let genes = vec![("acid_glands", 3), ("attenuated", 1)];
+        assert_eq!(attenuation(&genes), 1);
+        assert_eq!(behaviour_strength(&genes, "acid_aura"), 2);
+        let plain = vec![("acid_glands", 3)];
+        assert_eq!(behaviour_strength(&plain, "acid_aura"), 3);
+        // Сильная аттенуация оставляет ступень 1: ген работает, но еле-еле.
+        let weak = vec![("acid_glands", 2), ("attenuated", 3)];
+        assert_eq!(behaviour_strength(&weak, "acid_aura"), 1);
+        assert_eq!(expressed_strength(&weak, "attenuated", 3), 3, "себя не глушит");
+        assert_eq!(expressed_strength(&weak, "acid_glands", 0), 0, "нет гена — нет силы");
+        // Предохранители знают сами себя.
+        for name in SAFEGUARDS {
+            assert!(is_safeguard(name), "{name}");
+            assert!(gene(name).is_some(), "{name}");
+        }
+        assert!(!is_safeguard("chitin"));
+    }
+}
+
 // ---- M9: контракт параллельной работы (GDD 4.23, 4.25) ----
 //
 // Доза заразы (4.23 п. 1) идёт игроку по каналам; спецодежда (4.25) режет
@@ -21253,12 +22501,14 @@ pub fn machine_screen(id: &str) -> Option<MachineScreen> {
             [58.0, 17.0, 60.0, 46.0],
             [58.0, 66.0, 60.0, 4.0],
         ),
+        // Экстрактор: вход сверху слева, под ним праймер (GDD 4.23 п. 6) —
+        // как раствор у чана, выход справа.
         "biolab:extractor" => furnace_screen(
-            [26.0, 35.0],
-            None,
-            [134.0, 35.0],
-            [50.0, 18.0, 76.0, 34.0],
-            [50.0, 58.0, 76.0, 8.0],
+            [20.0, 20.0],
+            Some([20.0, 50.0]),
+            [146.0, 35.0],
+            [44.0, 18.0, 84.0, 34.0],
+            [44.0, 58.0, 84.0, 8.0],
         ),
         "biolab:cloning_vat" => furnace_screen(
             [20.0, 20.0],
@@ -22046,7 +23296,9 @@ mod screen_tests {
     fn fuel_slot_shows_only_at_the_vat() {
         for m in MACHINES.iter().filter(|m| m.menu == "minecraft:furnace") {
             let s = machine_screen(m.id).unwrap();
-            assert_eq!(s.slots[SLOT_FUEL].is_some(), m.id == CLONING_VAT, "{}", m.id);
+            // Боковой слот есть у чана (раствор) и у экстрактора (праймер).
+            let side = m.id == CLONING_VAT || m.id == EXTRACTOR;
+            assert_eq!(s.slots[SLOT_FUEL].is_some(), side, "{}", m.id);
             assert!(s.slots[SLOT_INPUT].is_some() && s.slots[SLOT_OUTPUT].is_some(), "{}", m.id);
             assert!(is_output_slot(m.id, SLOT_OUTPUT) && !is_output_slot(m.id, SLOT_FUEL), "{}", m.id);
         }

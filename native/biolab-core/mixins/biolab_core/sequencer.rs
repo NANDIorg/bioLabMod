@@ -128,8 +128,11 @@ pub fn work(
         entity.items.resize(m::SEQUENCER_SLOTS, None);
     }
     let mode = m::SeqMode::from_id(int(entity, m::SEQ_MODE_KEY).unwrap_or(0)).unwrap_or(m::SeqMode::Vector);
+    // Пары, которые лаборатория уже узнала (GDD 4.23 п. 5): монитор называет
+    // только их, остальные остаются скрытыми.
+    let known = m::known_pairs(&game.world_root.clone());
     if assembly.is_none() {
-        m::write_seq(&mut entity.data, mode, m::SeqStatus::Idle, &[]);
+        m::write_seq(&mut entity.data, mode, m::SeqStatus::Idle, &[], known);
         return idle(entity);
     }
 
@@ -141,28 +144,28 @@ pub fn work(
         let Some((id, genes)) = patient(game, pos) else {
             entity.nbt.remove(&m::SEQ_PATIENT_KEY.into());
             entity.nbt.remove(&m::SEQ_READ_KEY.into());
-            m::write_seq(&mut entity.data, mode, m::SeqStatus::NoPatient, &[]);
+            m::write_seq(&mut entity.data, mode, m::SeqStatus::NoPatient, &[], known);
             return idle(entity);
         };
         let now = m::genome_data(&genes);
         let saved = int(entity, m::SEQ_PATIENT_KEY).zip(text(entity, m::SEQ_READ_KEY));
         let saved = saved.as_ref().map(|(i, t)| (*i as u32, t.as_str()));
         if m::read_still_valid((id, &now), saved) {
-            m::write_seq(&mut entity.data, mode, m::SeqStatus::Read, &genes);
+            m::write_seq(&mut entity.data, mode, m::SeqStatus::Read, &genes, known);
             return idle(entity);
         }
         let ready = m::seq_ready(m::SeqStatus::Working, m::seq_supplies(mode, 0), phosphorus, broth, true);
         if ready != m::SeqStatus::Working {
-            m::write_seq(&mut entity.data, mode, ready, &[]);
+            m::write_seq(&mut entity.data, mode, ready, &[], known);
             return idle(entity);
         }
-        m::write_seq(&mut entity.data, mode, m::SeqStatus::Reading, &[]);
+        m::write_seq(&mut entity.data, mode, m::SeqStatus::Reading, &[], known);
         let step = advance(entity, mode.time());
         if step == m::Step::Finish {
             take(entity, m::SEQ_SLOT_PHOSPHORUS, 1);
             entity.nbt.insert(m::SEQ_PATIENT_KEY.into(), Tag::Int(id as i32));
             entity.nbt.insert(m::SEQ_READ_KEY.into(), Tag::String(now.as_str().into()));
-            m::write_seq(&mut entity.data, mode, m::SeqStatus::Read, &genes);
+            m::write_seq(&mut entity.data, mode, m::SeqStatus::Read, &genes, known);
         }
         return step;
     }
@@ -178,7 +181,20 @@ pub fn work(
     };
     let need = m::seq_supplies(mode, plan.genes.len());
     let ready = m::seq_ready(plan.status, need, phosphorus, broth, output_free);
-    m::write_seq(&mut entity.data, mode, ready, &plan.genes);
+    m::write_seq(&mut entity.data, mode, ready, &plan.genes, known);
+    // Несовместимая пара (GDD 4.23 п. 5): в пробирке образец гибнет, зато
+    // лаборатория узнаёт пару — записываем её один раз и говорим рядом.
+    if ready == m::SeqStatus::Lethal
+        && let Some(pair) = m::lethal_in(&plan.genes)
+    {
+        let world = game.world_root.clone();
+        if m::learn_pair(&world, pair) {
+            let at = [pos[0] as f64 + 0.5, pos[1] as f64 + 1.0, pos[2] as f64 + 0.5];
+            let dim = game.dim.id().to_string();
+            m::note_gene_news(&dim, at, &format!("Образец погиб в пробирке: {}", m::pair_title(pair)));
+            m::note_gene_news(&dim, at, &m::pair_learned_message(pair));
+        }
+    }
     if ready != m::SeqStatus::Working {
         return idle(entity);
     }

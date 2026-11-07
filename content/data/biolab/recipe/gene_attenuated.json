@@ -1,0 +1,11 @@
+{
+ "type": "biolab:extractor",
+ "ingredient": "biolab:culture_weakened",
+ "result": {
+  "id": "biolab:dna_fragment",
+  "count": 1
+ },
+ "gene": "attenuated",
+ "strength": 1,
+ "time": 140
+}

@@ -27,7 +27,7 @@ use std::sync::{Mutex, OnceLock};
 
 /// Имена генов в том же порядке, что и в бинарнике. Имя уходит в сейв, так
 /// что менять его можно только вместе с чтением старых миров.
-pub const GENE_NAMES: [&str; 50] = [
+pub const GENE_NAMES: [&str; 54] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -80,6 +80,12 @@ pub const GENE_NAMES: [&str; 50] = [
     "bloated_torso",
     "sunken_chest",
     "asymmetry",
+    // M9: предохранители (GDD 4.23 п. 10) - ослабляют творение. Срок и вид
+    // ведёт `biolab-core`; аттенуацию - `expressed` здесь.
+    "self_limiting",
+    "host_restriction",
+    "kill_switch",
+    "attenuated",
 ];
 
 /// Сколько генов в таблице: геном хранит силу каждого.
@@ -159,7 +165,7 @@ impl Genome {
 
 /// Цена гена за единицу силы: чем сильнее признак, тем дороже стабильность.
 pub fn gene_cost(index: usize) -> i32 {
-    const COSTS: [i32; 50] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 1, 1];
+    const COSTS: [i32; 54] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1];
     COSTS.get(index).copied().unwrap_or(9)
 }
 
@@ -181,7 +187,7 @@ pub fn gene_index(name: &str) -> Option<usize> {
 pub fn tint_rgb(genome: &Genome) -> Option<u32> {
     // Устойчивость к снотворному (последняя) своего цвета не даёт: по виду
     // мутанта её не угадать — это и делает его неприятной добычей.
-    const TINTS: [Option<u32>; 50] = [Some(0xC8A064), Some(0xD8C8A0), Some(0xFF7A5A), Some(0x6E7A52), Some(0xE0DCC8), Some(0xB04030), Some(0xC06848), Some(0x90C070), Some(0xF0D8D0), Some(0x7CFF4A), Some(0xF4F0EC), Some(0x202024), Some(0x5AA0E0), Some(0xA05A28), Some(0xD8D0C8), Some(0x8A4AC8), Some(0xE86AA0), Some(0xE0803A), Some(0x8AD8F0), Some(0xC8C0B0), Some(0x4AB8C8), Some(0x9CC84A), Some(0x9CE04A), Some(0xB44AE0), Some(0x6A7A4A), Some(0x7AC86A), Some(0xD8D0B0), Some(0xF0A0C8), Some(0x6A4A3A), Some(0x8A7A5A), Some(0x70C0F0), Some(0x9A3A3A), Some(0xC89A8A), Some(0xB8A090), Some(0xC8B898), Some(0xA08060), Some(0x9A6A9A), Some(0xD0C060), Some(0xD88A7A), Some(0x7A6A80), None, None, None, None, None, None, None, None, None, None];
+    const TINTS: [Option<u32>; 54] = [Some(0xC8A064), Some(0xD8C8A0), Some(0xFF7A5A), Some(0x6E7A52), Some(0xE0DCC8), Some(0xB04030), Some(0xC06848), Some(0x90C070), Some(0xF0D8D0), Some(0x7CFF4A), Some(0xF4F0EC), Some(0x202024), Some(0x5AA0E0), Some(0xA05A28), Some(0xD8D0C8), Some(0x8A4AC8), Some(0xE86AA0), Some(0xE0803A), Some(0x8AD8F0), Some(0xC8C0B0), Some(0x4AB8C8), Some(0x9CC84A), Some(0x9CE04A), Some(0xB44AE0), Some(0x6A7A4A), Some(0x7AC86A), Some(0xD8D0B0), Some(0xF0A0C8), Some(0x6A4A3A), Some(0x8A7A5A), Some(0x70C0F0), Some(0x9A3A3A), Some(0xC89A8A), Some(0xB8A090), Some(0xC8B898), Some(0xA08060), Some(0x9A6A9A), Some(0xD0C060), Some(0xD88A7A), Some(0x7A6A80), None, None, None, None, None, None, None, None, None, None, None, None, None, None];
     genome
         .list()
         .find_map(|g| TINTS.get(g.index).copied().flatten())
@@ -189,7 +195,7 @@ pub fn tint_rgb(genome: &Genome) -> Option<u32> {
 
 /// Во сколько раз мутант крупнее обычного моба: размеры генов перемножаются.
 pub fn scale(genome: &Genome) -> f32 {
-    const STEPS: [f32; 50] = [0.22, -0.18, -0.04, 0.05, 0.04, 0.06, 0.0, 0.0, -0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.06, 0.0, 0.08, 0.0, 0.0, 0.04, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    const STEPS: [f32; 54] = [0.22, -0.18, -0.04, 0.05, 0.04, 0.06, 0.0, 0.0, -0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.06, 0.0, 0.08, 0.0, 0.0, 0.04, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
     genome.list().fold(1.0, |acc, g| {
         acc * (1.0 + STEPS.get(g.index).copied().unwrap_or(0.0) * g.strength as f32)
     })
@@ -199,7 +205,7 @@ pub fn scale(genome: &Genome) -> f32 {
 /// здоровье, скорость в долях базы, урон, броня, сопротивление отбрасыванию.
 /// Статы ставит эта библиотека, а не бинарник: так ген, вживлённый уколом уже
 /// живому мобу, получает свои прибавки там же, где читаются метки.
-pub const GENE_STATS: [[f64; 5]; 50] = [
+pub const GENE_STATS: [[f64; 5]; 54] = [
     [6.00, -0.08, 1.50, 0.00, 0.10],
     [-3.00, 0.14, -0.50, 0.00, -0.10],
     [-2.00, 0.22, 1.00, 0.00, 0.00],
@@ -253,6 +259,12 @@ pub const GENE_STATS: [[f64; 5]; 50] = [
     [0.00, 0.00, 0.00, 0.00, 0.00],
     [0.00, 0.00, 0.00, 0.00, 0.00],
     [0.00, 0.00, 0.00, 0.00, 0.00],
+    // M9: предохранители (GDD 4.23 п. 10): своих чисел нет. Аттенуация
+    // ослабляет чужие — её считает `expressed`.
+    [0.00, 0.00, 0.00, 0.00, 0.00],
+    [0.00, 0.00, 0.00, 0.00, 0.00],
+    [0.00, 0.00, 0.00, 0.00, 0.00],
+    [0.00, 0.00, 0.00, 0.00, 0.00],
 ];
 
 /// Модификаторы, которыми геном меняет атрибуты: по одному на атрибут.
@@ -264,8 +276,42 @@ pub const STAT_MODIFIERS: [&str; 5] = [
     "biolab:genome_knockback",
 ];
 
-/// Суммарные прибавки генома.
+/// Аттенуация (GDD 4.23 п. 10): ген, который ослабляет остальные. Её сила —
+/// сколько ступеней снимается с каждого другого гена.
+pub const ATTENUATED: &str = "attenuated";
+
+/// Сила аттенуации в геноме; 0 — такого гена нет.
+pub fn attenuation(genome: &Genome) -> i32 {
+    match gene_index(ATTENUATED) {
+        Some(i) => i32::from(genome.strengths[i]),
+        None => 0,
+    }
+}
+
+/// Геном, как он выражен: аттенуация ослабляет каждый другой ген на свою
+/// силу, но не ниже 1 — ген не выключается совсем, иначе его было бы не
+/// отличить от отсутствующего. Через эту одну функцию слабеют и прибавки, и
+/// поведение, а вид (оттенок, размер, наросты) остаётся прежним: аттенуация
+/// глушит работу гена, а не стирает его.
+pub fn expressed(genome: &Genome) -> Genome {
+    let weaker = attenuation(genome);
+    if weaker <= 0 {
+        return *genome;
+    }
+    let mut out = *genome;
+    let keep = gene_index(ATTENUATED);
+    for (i, slot) in out.strengths.iter_mut().enumerate() {
+        if *slot == 0 || Some(i) == keep {
+            continue;
+        }
+        *slot = (i32::from(*slot) - weaker).max(1) as u8;
+    }
+    out
+}
+
+/// Суммарные прибавки генома, уже ослабленные аттенуацией.
 pub fn stats(genome: &Genome) -> [f64; 5] {
+    let genome = &expressed(genome);
     let mut total = [0.0; 5];
     for gene in genome.list() {
         let Some(row) = GENE_STATS.get(gene.index) else {
@@ -309,7 +355,7 @@ pub fn tint_over(vanilla: u32, tint: u32) -> u32 {
 
 /// Что ген делает, кроме чисел: по этим меткам работают тик моба и тик мира.
 /// Пусто — ген только меняет характеристики или внешность.
-pub const GENE_FLAGS: [&[&str]; 50] = [
+pub const GENE_FLAGS: [&[&str]; 54] = [
     &[],
     &[],
     &[],
@@ -361,11 +407,19 @@ pub const GENE_FLAGS: [&[&str]; 50] = [
     &[],
     &[],
     &["lopsided"],
+    // M9: предохранители (GDD 4.23 п. 10): поведения у них нет - срок,
+    // индуктор и вид ведёт `biolab-core`, аттенуацию - `expressed`.
+    &[],
+    &[],
+    &[],
+    &[],
 ];
 
-/// Сила гена с таким поведением в этом геноме; 0 — такого гена нет.
+/// Сила гена с таким поведением в этом геноме; 0 — такого гена нет. Сила —
+/// выраженная: аттенуация (GDD 4.23 п. 10) ослабляет поведение так же, как
+/// прибавки (`expressed`).
 pub fn flag_strength(genome: &Genome, flag: &str) -> i32 {
-    genome
+    expressed(genome)
         .list()
         .filter(|g| {
             GENE_FLAGS
@@ -497,7 +551,7 @@ pub fn genome(id: u32) -> Option<Genome> {
 
 /// Метки генома старого формата (до M11): имя модификатора с геном. Мод их
 /// больше не ставит; список держим, чтобы сверять его с миграцией бинарника.
-pub const GENE_MARKERS: [&str; 150] = [
+pub const GENE_MARKERS: [&str; 162] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -649,6 +703,19 @@ pub const GENE_MARKERS: [&str; 150] = [
     "biolab:gene/asymmetry/1",
     "biolab:gene/asymmetry/2",
     "biolab:gene/asymmetry/3",
+    // M9: предохранители (GDD 4.23, п. 10)
+    "biolab:gene/self_limiting/1",
+    "biolab:gene/self_limiting/2",
+    "biolab:gene/self_limiting/3",
+    "biolab:gene/host_restriction/1",
+    "biolab:gene/host_restriction/2",
+    "biolab:gene/host_restriction/3",
+    "biolab:gene/kill_switch/1",
+    "biolab:gene/kill_switch/2",
+    "biolab:gene/kill_switch/3",
+    "biolab:gene/attenuated/1",
+    "biolab:gene/attenuated/2",
+    "biolab:gene/attenuated/3",
 ];
 
 /// Ген по метке: `biolab:gene/gigantism/2`.

@@ -1,0 +1,13 @@
+{
+ "type": "biolab:lab_bench",
+ "ingredients": [
+  "biolab:syringe",
+  "biolab:element_redstonium",
+  "biolab:agar"
+ ],
+ "result": {
+  "id": "biolab:syringe_inductor",
+  "count": 1
+ },
+ "time": 40
+}

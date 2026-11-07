@@ -386,3 +386,115 @@ fn proportions_agree_across_bundles() {
     let st = proportions::strengths(&|name: &str| genome.strength_of(name));
     assert_eq!(st, [2, 0, 0, 0, 0, 0, 0, 0, 1]);
 }
+
+/// Сочетания и предохранители (GDD 4.23 пп. 5, 10). Правила живут в
+/// `biolab-core`, но геном бинарник складывает и сам — при броске и у
+/// детёныша, — поэтому у него своя копия таблицы пар. Копии обязаны
+/// совпадать до строчки: иначе пара, которую игрок узнал по уколу, у
+/// детёныша сработала бы иначе.
+#[test]
+fn gene_pairs_agree_across_bundles() {
+    assert_eq!(biolab_core::GENE_PAIRS.len(), biolab_deep::GENE_PAIRS.len());
+    assert_eq!(biolab_core::DEFORMITIES, biolab_deep::DEFORMITIES);
+    assert_eq!(biolab_core::SAFEGUARDS, biolab_deep::SAFEGUARD_GENES);
+    for (i, pair) in biolab_core::GENE_PAIRS.iter().enumerate() {
+        let (a, b, kind) = biolab_deep::GENE_PAIRS[i];
+        assert_eq!((pair.a, pair.b, pair.kind.id()), (a, b, kind), "пара {i}");
+        // Имена — настоящие гены, и номера у обеих копий одни.
+        let (first, second, _) = biolab_deep::pair_of(i).unwrap_or_else(|| panic!("пара {i}: {a} + {b}"));
+        assert_eq!(mutants::GENE_NAMES[first], a);
+        assert_eq!(mutants::GENE_NAMES[second], b);
+        assert_ne!(first, second, "пара {i}: ген сам с собой");
+        assert_eq!(biolab_deep::pair_kind(second, first), Some(kind), "порядок пары неважен");
+        assert!(biolab_core::gene(a).is_some() && biolab_core::gene(b).is_some(), "пара {i}");
+    }
+    // Предохранители: цена 1, в человеке не приживаются, своих чисел нет.
+    for name in biolab_core::SAFEGUARDS {
+        let kind = biolab_core::gene(name).unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(kind.cost, 1, "{name}");
+        assert!(!biolab_core::takes_in_humans(kind), "{name}: это не для человека");
+        let i = mutants::gene_index(name).unwrap_or_else(|| panic!("{name}"));
+        assert!(biolab_deep::is_safeguard(i), "{name}");
+        assert_eq!(mutants::GENE_STATS[i], [0.0; 5], "{name}");
+        assert_eq!(mutants::GENE_FLAGS[i], biolab_core::GENE_BEHAVIOUR[i], "{name}");
+    }
+    // Аттенуация ослабляет чужие гены, свою силу держит, вид не меняет.
+    let big = mutants::gene_index("gigantism").expect("gigantism");
+    let att = mutants::gene_index("attenuated").expect("attenuated");
+    let genome = mutants::genome_of(&[(big, 3), (att, 2)]);
+    assert_eq!(mutants::attenuation(&genome), 2);
+    assert_eq!(i32::from(mutants::expressed(&genome).strength(big)), 1);
+    assert_eq!(i32::from(mutants::expressed(&genome).strength(att)), 2);
+    let plain = mutants::genome_of(&[(big, 3)]);
+    assert!(mutants::stats(&genome)[0] < mutants::stats(&plain)[0], "прибавки слабее");
+    assert_eq!(mutants::scale(&genome), mutants::scale(&plain), "вид не меняется");
+    // Правила core и копия deep сходятся на одном геноме.
+    let acid = mutants::gene_index("acid_glands").expect("acid_glands");
+    let thin = mutants::gene_index("thin_skin").expect("thin_skin");
+    assert!(biolab_deep::lethal_in(&[(acid, 1), (thin, 1)]).is_some());
+    assert!(biolab_core::lethal_in(&[("acid_glands", 1), ("thin_skin", 1)]).is_some());
+    assert!(biolab_deep::lethal_in(&[(acid, 1)]).is_none());
+}
+
+/// Природный бросок не собирает ни предохранителей, ни несовместимых пар:
+/// иначе мутант родился бы мёртвым или с лабораторной кассетой.
+#[test]
+fn no_rolled_genome_is_born_doomed() {
+    use biolab_deep::Temperament as T;
+    for (draw, temper) in (0..100_000u32).flat_map(|d| [(d, T::Hostile), (d, T::Neutral), (d, T::Passive)]) {
+        let rolled = biolab_deep::roll(draw, 100, temper);
+        assert!(biolab_deep::lethal_in(&rolled).is_none(), "бросок {draw}: {rolled:?}");
+        for (gene, _) in &rolled {
+            assert!(!biolab_deep::is_safeguard(*gene), "бросок {draw}: {}", mutants::GENE_NAMES[*gene]);
+        }
+    }
+}
+
+/// У детёныша пары работают: разлад ослабляет, крупный дорастит уродство.
+#[test]
+fn pairs_work_when_a_baby_inherits() {
+    let big = mutants::gene_index("gigantism").expect("gigantism");
+    let small = mutants::gene_index("dwarfism").expect("dwarfism");
+    let fast = mutants::gene_index("hypermetabolism").expect("hypermetabolism");
+    // Мелкий разлад: слабейший теряет ступень — карликовость уходит вовсе.
+    let kids = biolab_deep::inherit(&[(big, 3), (small, 1)], &[(big, 3), (small, 1)], 7);
+    assert!(kids.iter().all(|(g, _)| *g != small), "{kids:?}");
+    // Крупный разлад: сверх набора вырос один лишний признак.
+    let both = biolab_deep::apply_pairs(vec![(big, 2), (fast, 2)], 3);
+    let extra = both
+        .iter()
+        .filter(|(g, _)| biolab_deep::DEFORMITIES.contains(&mutants::GENE_NAMES[*g]))
+        .count();
+    assert_eq!(extra, 1, "{both:?}");
+    // Больше одного лишнего признака за раз не вырастает.
+    let violet = mutants::gene_index("violet_blood").expect("violet_blood");
+    let toxic = mutants::gene_index("toxic_blood").expect("toxic_blood");
+    let many = biolab_deep::apply_pairs(vec![(big, 2), (fast, 2), (violet, 1), (toxic, 1)], 5);
+    let grown = many
+        .iter()
+        .filter(|(g, _)| biolab_deep::DEFORMITIES.contains(&mutants::GENE_NAMES[*g]))
+        .count();
+    assert_eq!(grown, 1, "{many:?}");
+    // Геном lib принимает всё, что собрало наследование.
+    let mut genome = mutants::Genome::default();
+    for (gene, strength) in &many {
+        assert!(genome.add(mutants::Gene { index: *gene, strength: *strength }), "{many:?}");
+    }
+}
+
+/// Видоспецифичность (GDD 4.23 п. 10): превращение гасит геном целиком —
+/// кассета собрана под один вид. Решает `converted_genome` в бинарнике
+/// (часы гена живут только в core и новому мобу не достаются), а тик мира
+/// core сверяет вид по часам второй проверкой.
+#[test]
+fn a_species_locked_genome_does_not_survive_a_conversion() {
+    let host = mutants::gene_index("host_restriction").expect("host_restriction");
+    let big = mutants::gene_index("gigantism").expect("gigantism");
+    let locked = biolab_deep::genome_text(&[(host, 1), (big, 2)]);
+    assert_eq!(biolab_deep::converted_genome(Some(&locked), true), Some(String::new()));
+    let free = biolab_deep::genome_text(&[(big, 2)]);
+    assert_eq!(biolab_deep::converted_genome(Some(&free), true), Some(free.clone()));
+    // Обычный моб превращение проходит как раньше.
+    assert_eq!(biolab_deep::converted_genome(None, true), Some(String::new()));
+    assert_eq!(biolab_deep::converted_genome(None, false), None);
+}

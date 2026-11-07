@@ -426,4 +426,67 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
             mob.health = (mob.health + 0.5).min(mob.attrs.max_health);
         }
     }
+
+    // Предохранители (GDD 4.23 п. 10) и несовместимые пары (п. 5). Это
+    // единственное место, где срок, доза и вид проверяются у всех мутантов
+    // сразу, поэтому сюда же сходится и «такой геном не жилец»: мутаген,
+    // рождение и превращение собирают геном не через `combine`, а пара
+    // убивает образец, откуда бы он ни взялся. Правила — раздел «M9:
+    // сочетания и ограничители» в `runtime.rs`.
+    let now = game.world.game_time;
+    let dim = game.dim.id().to_string();
+    let world = game.world_root.clone();
+    for (id, at, _, _, genes) in &mobs {
+        if genes.is_empty() {
+            continue;
+        }
+        if let Some(pair) = m::lethal_in(genes) {
+            if m::learn_pair(&world, pair) {
+                m::note_gene_news(&dim, *at, &m::pair_learned_message(pair));
+            }
+            m::note_gene_news(&dim, *at, &m::lethal_mob_message(pair));
+            m::note_lab_event(&dim, *at, "mutant_died", &m::pair_title(pair));
+            game.native_kill_mob(&dim, *id);
+            continue;
+        }
+        let mut clock = data::clock(game, *id);
+        // Предохранителя в геноме нет — часы ни к чему (антисмысл его убрал).
+        if !m::needs_clock(genes) {
+            if clock != m::GeneClock::default() {
+                data::set_clock(game, *id, &m::GeneClock::default());
+            }
+            continue;
+        }
+        let kind = game
+            .mobs
+            .iter()
+            .find(|mob| mob.id == *id)
+            .map(|mob| mob.kind.id.to_string())
+            .unwrap_or_default();
+        // Часы пускаются при первом проходе: с этого мига идёт срок, и
+        // этот вид кассета считает своим.
+        if clock.set == 0 || now < clock.set {
+            clock.set = now;
+            clock.dose = clock.dose.min(now);
+            if clock.host.is_empty() {
+                clock.host = m::full_kind(&kind);
+            }
+            data::set_clock(game, *id, &clock);
+            continue;
+        }
+        let verdict = m::safeguard_verdict(genes, &clock, &kind, now);
+        if verdict == m::SafeguardVerdict::Fine {
+            continue;
+        }
+        if let Some(line) = m::safeguard_message(verdict, &kind) {
+            m::note_gene_news(&dim, *at, &line);
+        }
+        if verdict == m::SafeguardVerdict::Killed {
+            game.native_kill_mob(&dim, *id);
+        } else {
+            // Геном погас: мутант снова обычный моб, часы больше не нужны.
+            data::set_genes(game, *id, &[]);
+            data::set_clock(game, *id, &m::GeneClock::default());
+        }
+    }
 }
