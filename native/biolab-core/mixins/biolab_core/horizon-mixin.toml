@@ -1042,3 +1042,42 @@ id = "quarantine"
 file = "crates/horizon-client/src/game.rs"
 name = "biolab_quarantine"
 source = "quarantine.rs"
+
+# ---- M9: доза и болезнь (GDD 4.23 п. 1, 2, 8, 12) ----
+# Тик дозы: очередь доз сквозь спецодежду, порог и заражение, приступы со
+# стуком сердца, дозиметр (анализатор в руке) и дыхание в маске. Тик игрока
+# (API 31), только свой сервер или выделенный. Правила — раздел «M9: доза и
+# болезнь» в `runtime.rs`. Источники доз — прежние хуки (`infection.rs`,
+# `infected_tick.rs`, `remedy.rs`), тревога утечки — `quarantine.rs`.
+[[injection]]
+id = "dose-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "dose_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Доза от сервера к клиенту (`biolab_core:dose`). Стабильный хук API 40.
+[[injection]]
+id = "dose-net"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_net_from_server"
+helper = "dose_net.rs"
+bindings = [
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+# Панель под анализатором: доза, болезнь против иммунитета, прогноз.
+# Стабильный хук API 1; встаёт после `hud` (анализатора) — сразу под ним.
+[[injection]]
+id = "dose-hud"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_hud"
+helper = "dose_hud.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "corners", ty = "&mut horizon_client::extras_hud::Corners", value = "&mut *corners" },
+]

@@ -5,7 +5,8 @@
 // * скот, которого ударил заражённый, заболевает (эффект `biolab:infection`
 //   на десять минут — его видит пульт);
 // * игрок, которого ранил заражённый, получает его штамм через ту же болезнь,
-//   что и близость к зомби (`infect_world_player`). Кто ударил игрока, хук в
+//   что и близость к зомби: удар даёт дозу по контакту (`queue_dose`, M9 —
+//   заразит ли, решает тик дозы `dose_tick.rs`). Кто ударил игрока, хук в
 //   пине не говорит — берём ближайшего охотящегося на игрока в пределах удара,
 //   как гадает сама игра (`hurt_player_from`);
 // * раз в шаг болезни больной скот заражает соседей вплотную, с шансом по
@@ -77,14 +78,7 @@ fn biolab_core_infected_tick(game: &mut crate::game::Game<'_>) {
             });
             if by_infected {
                 let uuid = game.native_acting_id();
-                let world = game.world_root.clone();
-                // Штамм записывается, только если игрок был здоров: с нуля
-                // уровень после удара — ровно шаг удара.
-                if m::infect_world_player(&world, uuid, &m::INFECTED_STRAIN, m::INFECTED_HIT_STEP)
-                    == Some(m::INFECTED_HIT_STEP)
-                {
-                    crate::game::biolab_say::say(game, m::INFECTED_HIT_MESSAGE);
-                }
+                m::queue_dose(uuid, m::DoseChannel::Contact, m::INFECTED_HIT_DOSE, Some(m::INFECTED_STRAIN));
             }
         }
     }

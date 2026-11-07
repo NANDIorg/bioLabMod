@@ -1741,10 +1741,18 @@ pub enum Cue {
     GrenadeBreak,
     /// Облако эфира вспыхнуло от огня рядом.
     GasFlash,
+    /// Щелчок дозиметра: чем опаснее вокруг, тем чаще (M9, GDD 4.23 п. 12).
+    DosimeterClick,
+    /// Своё дыхание в маске или костюме (M9, GDD 4.23 п. 12, 4.25).
+    Breath,
+    /// Перед приступом болезни (M9, GDD 4.23 п. 2).
+    SeizureWarning,
+    /// Тревога: тяжёлый штамм утекает из машины вне карантина (M9).
+    LeakAlarm,
 }
 
 impl Cue {
-    pub const ALL: [Cue; 26] = [
+    pub const ALL: [Cue; 30] = [
         Cue::Overheat,
         Cue::SyringeSelf,
         Cue::SyringeMob,
@@ -1771,11 +1779,15 @@ impl Cue {
         Cue::GasConnect,
         Cue::GrenadeBreak,
         Cue::GasFlash,
+        Cue::DosimeterClick,
+        Cue::Breath,
+        Cue::SeizureWarning,
+        Cue::LeakAlarm,
     ];
 }
 
 /// Событие → звук.
-pub const SOUNDS: [(Cue, Sound); 26] = [
+pub const SOUNDS: [(Cue, Sound); 30] = [
     // Набат: содержимое пропало, это надо услышать и из соседней комнаты.
     (Cue::Overheat, block("minecraft:block.bell.use", 1.0, 0.6)),
     // Укол — свой: щелчок поршня и «пфф» раствора (жало пчелы звучало
@@ -1832,12 +1844,22 @@ pub const SOUNDS: [(Cue, Sound); 26] = [
     (Cue::GrenadeBreak, player("minecraft:entity.splash_potion.break", 0.8, 1.0)),
     // Вспышка эфира — хлопок огненного заряда, ниже обычного: облако, а не шар.
     (Cue::GasFlash, block("minecraft:item.firecharge.use", 1.0, 0.7)),
+    // Дозиметр — свой сухой щелчок; темп задаёт код (`click_interval`), тихо:
+    // он щёлкает часто.
+    (Cue::DosimeterClick, player("biolab:item.dosimeter.click", 0.35, 1.0)),
+    // Дыхание в маске — ванильный вдох-выдох игрока, ниже и глуше обычного.
+    (Cue::Breath, player("minecraft:entity.player.breath", 0.25, 0.8)),
+    // Перед приступом — удар сердца (как у стража): тревожно, но не громко.
+    (Cue::SeizureWarning, player("minecraft:entity.warden.heartbeat", 0.6, 1.0)),
+    // Тревога утечки — высокий звон колокольчика нотного блока: его слышно
+    // из соседней комнаты, и он не спутается с набатом перегрева.
+    (Cue::LeakAlarm, block("minecraft:block.note_block.bell", 0.9, 1.8)),
 ];
 
 /// Свои события, которые объявлены в `sounds.json`, но код их пока не
-/// играет: щелчок дозиметра ждёт заражённости чанков (M9, GDD 4.23 п. 12).
-/// Без этого списка тест принял бы заготовку за забытый звук.
-pub const RESERVED_SOUNDS: [&str; 1] = ["biolab:item.dosimeter.click"];
+/// играет. Без этого списка тест принял бы заготовку за забытый звук. Щелчок
+/// дозиметра здесь больше не лежит: его играет тик дозы (M9, GDD 4.23 п. 12).
+pub const RESERVED_SOUNDS: [&str; 0] = [];
 
 /// Звук события.
 pub fn sound(cue: Cue) -> Option<Sound> {
@@ -16511,6 +16533,777 @@ mod quarantine_tests {
         assert_eq!(leaks.near("minecraft:the_end", [0.5, 64.0, 0.5], 100), None);
         assert_eq!(leaks.near(ow, [0.5, 64.0, 0.5], LEAK_HOLD_MS), None, "отметка истекла");
         assert!(leak_catches(&heavy, 29) && !leak_catches(&heavy, 30));
+    }
+}
+
+// ---- M9: доза и болезнь (GDD 4.23 п. 1, 2, 8, 12) ----
+//
+// Доза вместо мгновенного заражения (п. 1). Источник — лужа под ногами, зомби
+// вплотную, удар заражённого, утечка тяжёлого штамма, съеденное — больше не
+// поднимает заражение сам, а кладёт сырую дозу в очередь (`queue_dose`). Тик
+// дозы (`dose_tick.rs`) разбирает очередь, режет каждую порцию множителем
+// спецодежды по каналу (`suit_multiplier`) и копит. Раз в `DOSE_EVERY` —
+// проверка: доза дошла до порога — порог снимается, и игрок заражается
+// штаммом самой крупной порции (как раньше заражал источник); не дошла —
+// тает (×0,97). Короткая ошибка прощается, долгая работа рядом с заразой — нет.
+//
+// Приступы (п. 2): симптомы не держатся всю стадию, а накатывают волной на
+// 5–10 с (тяжесть штамма); промежуток сокращается к поздней стадии, за 2 с до
+// приступа — стук сердца. Управление не отбираем: симптомы — прежние ванильные
+// эффекты. Часы — `game.ticks`.
+//
+// Гонка (п. 8): сила болезни — на сколько заражение растёт за шаг болезни,
+// иммунитет — сколько за тот же шаг снимает лекарство в окне. Две полосы —
+// доли этой пары, и короткий прогноз.
+//
+// Звук опасности (п. 12): анализатор в руке работает дозиметром — щёлкает тем
+// чаще, чем выше доза, свежий поток и источники рядом; в маске слышно своё
+// дыхание (`suit_multiplier(…, Air) < 1`); утечка звенит тревогой.
+
+/// Порог дозы: дошла — заражение.
+pub const DOSE_THRESHOLD: f32 = 100.0;
+/// Во сколько раз доза тает за проверку, пока не дошла до порога.
+pub const DOSE_DECAY: f32 = 0.97;
+/// Как часто проверка дозы, в тиках (раз в секунду).
+pub const DOSE_EVERY: u64 = 20;
+/// Ниже этого доза считается нулём и забывает свой источник.
+pub const DOSE_FLOOR: f32 = 0.5;
+/// На сколько поднимает заражение доза, пробившая порог: прежний шаг удара
+/// заражённого (`INFECTED_HIT_STEP`) — заражение как раньше, но только когда
+/// доза набрана.
+pub const DOSE_INFECTION: u32 = 10;
+
+/// Сырая доза от зомби вплотную за шаг болезни (`INFECTION_EVERY`, 3 с):
+/// без защиты порог набирается за ~15 с, при множителе контакта 0,25 — никогда.
+pub const CONTACT_DOSE: f32 = 24.0;
+/// Сырая доза утечки тяжёлого штамма рядом за шаг болезни: ~12 с без маски.
+pub const LEAK_DOSE: f32 = 30.0;
+/// Удар заражённого: один прощается, два за ~13 с — заражение.
+pub const INFECTED_HIT_DOSE: f32 = 60.0;
+/// Доза лужи за единицу её заразности (`Fluid::infects`) за срабатывание
+/// (`FLUID_EVERY`): заразная слизь (4) заражает за ~6 с стояния в ней.
+pub const PUDDLE_DOSE_PER_POINT: f32 = 5.0;
+/// Доза съеденного за единицу прежнего «заражения едой» (`TAINTED_FOOD`):
+/// одна гнилая плоть прощается, две подряд — нет.
+pub const FOOD_DOSE_PER_POINT: f32 = 4.0;
+
+/// Сырая доза лужи с заразностью `infects` за одно срабатывание.
+pub fn puddle_dose(infects: u32) -> f32 {
+    infects as f32 * PUDDLE_DOSE_PER_POINT
+}
+
+/// Сырая доза заражённой еды; `None` — еда чистая.
+pub fn tainted_food_dose(item: &str) -> Option<f32> {
+    tainted_food(item).map(|amount| amount as f32 * FOOD_DOSE_PER_POINT)
+}
+
+/// Чем пробила порог доза: канал и штамм источника (`None` — дикий).
+pub type DoseSource = (DoseChannel, Option<Strain>);
+
+/// Накопленная доза игрока. Живёт в памяти сервера: без источника она за
+/// пару минут сходит на нет, писать её на диск незачем.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Exposure {
+    /// Сколько накоплено (уже после спецодежды).
+    pub amount: f32,
+    /// Откуда самая крупная порция текущего накопления — её штамм заразит.
+    pub source: Option<DoseSource>,
+    /// Величина этой порции (тает вместе с дозой).
+    pub biggest: f32,
+    /// Сырой поток (до спецодежды) с прошлой проверки — для дозиметра.
+    pub incoming: f32,
+    /// Сырой поток прошлых проверок, сглаженный (`FLOW_FADE`).
+    pub recent: f32,
+}
+
+impl Exposure {
+    /// Порция сырой дозы `raw` по каналу; до игрока доходит `raw × multiplier`.
+    pub fn add(&mut self, channel: DoseChannel, raw: f32, multiplier: f32, strain: Option<Strain>) {
+        // `!(x > 0)` отсекает и ноль, и NaN.
+        if !(raw > 0.0) {
+            return;
+        }
+        self.incoming += raw;
+        let taken = raw * multiplier.max(0.0);
+        if !(taken > 0.0) {
+            return;
+        }
+        self.amount += taken;
+        if taken >= self.biggest {
+            self.biggest = taken;
+            self.source = Some((channel, strain));
+        }
+    }
+
+    /// Проверка раз в `DOSE_EVERY`. Доза у порога и заражаться можно
+    /// (`may_infect`: не в карантине) — порог снимается и возвращается
+    /// источник; иначе доза тает.
+    pub fn check(&mut self, may_infect: bool) -> Option<DoseSource> {
+        self.recent = self.recent * FLOW_FADE + self.incoming;
+        self.incoming = 0.0;
+        if self.recent < 0.01 {
+            self.recent = 0.0;
+        }
+        if may_infect && self.amount >= DOSE_THRESHOLD {
+            self.amount -= DOSE_THRESHOLD;
+            let source = self.source.unwrap_or((DoseChannel::Contact, None));
+            // Следующее накопление выбирает источник заново.
+            self.biggest = 0.0;
+            if self.amount < DOSE_FLOOR {
+                self.amount = 0.0;
+                self.source = None;
+            }
+            return Some(source);
+        }
+        self.amount *= DOSE_DECAY;
+        self.biggest *= DOSE_DECAY;
+        if self.amount < DOSE_FLOOR {
+            self.amount = 0.0;
+            self.biggest = 0.0;
+            self.source = None;
+        }
+        None
+    }
+
+    /// Доза в процентах порога (для анализатора).
+    pub fn percent(&self) -> u32 {
+        (self.amount / DOSE_THRESHOLD * 100.0).round().clamp(0.0, 999.0) as u32
+    }
+}
+
+/// Пора ли проверять дозу.
+pub fn dose_check_due(ticks: u64) -> bool {
+    ticks % DOSE_EVERY == 0
+}
+
+fn exposures() -> &'static std::sync::Mutex<std::collections::HashMap<u128, Exposure>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u128, Exposure>>> =
+        std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Доза игрока на запись. Только сервер.
+pub fn with_exposure<R>(player: u128, f: impl FnOnce(&mut Exposure) -> R) -> Option<R> {
+    let mut table = exposures().lock().ok()?;
+    Some(f(table.entry(player).or_default()))
+}
+
+/// Состояние игрока без шага тика (`player_tick` прибавил бы тик): `None` —
+/// игрок в этом мире ещё не тикал.
+pub fn world_player_state(world: &std::path::Path, uuid: u128) -> Option<PlayerState> {
+    states().lock().ok()?.get(&(world.to_path_buf(), uuid)).copied()
+}
+
+/// Что сказать игроку, которого доза только что заразила.
+pub fn dose_infected_message(channel: DoseChannel, strain: Option<&Strain>) -> String {
+    let heavy = strain.is_some_and(|s| s.severity >= LEAK_SEVERITY);
+    match channel {
+        DoseChannel::Air if heavy => LEAK_MESSAGE.to_string(),
+        DoseChannel::Air => "Доза из воздуха перешла порог: вы заражены".to_string(),
+        DoseChannel::Contact => "Доза от контакта перешла порог: вы заражены".to_string(),
+        DoseChannel::Splash => "Брызги: доза перешла порог — вы заражены".to_string(),
+        DoseChannel::Ingest => "Съеденное: доза перешла порог — вы заражены".to_string(),
+    }
+}
+
+/// Канал, по которому сервер шлёт клиенту дозу (процент порога, байт).
+pub const NET_DOSE: &str = "biolab_core:dose";
+
+/// Пакет дозы: процент порога, обрезанный до байта.
+pub fn dose_packet(exposure: &Exposure) -> Vec<u8> {
+    vec![exposure.percent().min(255) as u8]
+}
+
+/// Процент дозы из пакета; пустой пакет — не наш.
+pub fn dose_from_packet(data: &[u8]) -> Option<u32> {
+    data.first().map(|v| u32::from(*v))
+}
+
+fn known_dose() -> &'static std::sync::atomic::AtomicU64 {
+    static VALUE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+    &VALUE
+}
+
+/// Клиент получил дозу от сервера.
+pub fn remember_dose(percent: u32) {
+    known_dose().store(u64::from(percent), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Доза для анализатора; `None` — сервер ещё не присылал.
+pub fn shown_dose() -> Option<u32> {
+    match known_dose().load(std::sync::atomic::Ordering::Relaxed) {
+        u64::MAX => None,
+        percent => Some(percent as u32),
+    }
+}
+
+// Приступы (п. 2).
+
+/// За сколько тиков до приступа стучит сердце.
+pub const SEIZURE_WARN: u64 = 40;
+/// Промежуток между приступами в начале стадии симптомов (60 с)…
+pub const SEIZURE_GAP_EARLY: u64 = 1_200;
+/// …и к концу кризиса (15 с).
+pub const SEIZURE_GAP_LATE: u64 = 300;
+/// Самый длинный приступ (тяжесть 5), тиков.
+pub const SEIZURE_MAX_LENGTH: u64 = 200;
+
+/// Длина приступа: 5 с у лёгкого штамма, до 10 с у тяжёлого.
+pub fn seizure_length(strain: &Strain) -> u64 {
+    100 + 25 * (strain.severity.clamp(1, 5) as u64 - 1)
+}
+
+/// Как далеко зашла болезнь: 0 — симптомы только начались, 1 — заражение 100.
+pub fn disease_progress(infection: u32, strain: &Strain) -> f32 {
+    let onset = strain_onset(strain) as f32;
+    ((infection as f32 - onset) / (100.0 - onset).max(1.0)).clamp(0.0, 1.0)
+}
+
+/// Промежуток до следующего приступа: от `SEIZURE_GAP_EARLY` к
+/// `SEIZURE_GAP_LATE` по ходу болезни, ±15 % от зерна — не метроном.
+pub fn seizure_gap(progress: f32, seed: u64) -> u64 {
+    let (early, late) = (SEIZURE_GAP_EARLY as f32, SEIZURE_GAP_LATE as f32);
+    let base = early + (late - early) * progress.clamp(0.0, 1.0);
+    let spread = (seed % 31) as f32 / 30.0 * 0.3 - 0.15;
+    (base * (1.0 + spread)).round() as u64
+}
+
+/// Расписание приступов одного игрока.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Seizure {
+    /// Когда начнётся следующий (0 — не назначен).
+    pub next: u64,
+    /// Когда кончится идущий (0 или прошлое — не идёт).
+    pub until: u64,
+    /// Предупреждение перед `next` уже прозвучало.
+    pub warned: bool,
+    /// Сколько приступов было: подмешивается в зерно промежутка.
+    pub count: u64,
+}
+
+/// Что случилось с приступом на этом тике.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeizureEvent {
+    /// Затишье.
+    Calm,
+    /// Через `SEIZURE_WARN` тиков приступ: пора стучать сердцу.
+    Warn,
+    /// Приступ начался.
+    Start,
+    /// Приступ идёт.
+    Attack,
+    /// Приступ кончился.
+    End,
+}
+
+impl SeizureEvent {
+    /// Держать ли симптомы на игроке.
+    pub fn symptoms(self) -> bool {
+        matches!(self, SeizureEvent::Start | SeizureEvent::Attack)
+    }
+}
+
+/// Шаг расписания на тике `now`. Приступы бывают только в стадиях симптомов
+/// и кризиса; `seed` — своё у игрока, чтобы двое не болели в такт.
+pub fn seizure_step(s: &mut Seizure, now: u64, infection: u32, strain: &Strain, seed: u64) -> SeizureEvent {
+    let ill = matches!(stage_with(infection, strain), Stage::Symptoms | Stage::Crisis);
+    if !ill {
+        let was_on = s.until > now;
+        *s = Seizure::default();
+        return if was_on { SeizureEvent::End } else { SeizureEvent::Calm };
+    }
+    // Часы ушли назад (мир загружен заново): прошлое расписание не годится.
+    if s.until > now + 2 * SEIZURE_MAX_LENGTH || s.next > now + 2 * SEIZURE_GAP_EARLY {
+        *s = Seizure::default();
+    }
+    let progress = disease_progress(infection, strain);
+    if s.until > now {
+        return SeizureEvent::Attack;
+    }
+    if s.until != 0 {
+        s.until = 0;
+        s.next = now + seizure_gap(progress, seed ^ s.count.wrapping_mul(0x9E37_79B9));
+        s.warned = false;
+        return SeizureEvent::End;
+    }
+    if s.next == 0 {
+        // Первый приступ — через полпромежутка после начала симптомов.
+        s.next = now + seizure_gap(progress, seed) / 2;
+        s.warned = false;
+        return SeizureEvent::Calm;
+    }
+    if now >= s.next {
+        s.until = now + seizure_length(strain);
+        s.next = 0;
+        s.warned = false;
+        s.count += 1;
+        return SeizureEvent::Start;
+    }
+    if !s.warned && now + SEIZURE_WARN >= s.next {
+        s.warned = true;
+        return SeizureEvent::Warn;
+    }
+    SeizureEvent::Calm
+}
+
+fn seizures() -> &'static std::sync::Mutex<std::collections::HashMap<u128, Seizure>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u128, Seizure>>> =
+        std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Зерно приступов игрока.
+pub fn seizure_seed(player: u128) -> u64 {
+    (player as u64) ^ ((player >> 64) as u64)
+}
+
+/// Шаг приступов игрока (тик дозы, сервер).
+pub fn seizure_tick(player: u128, now: u64, infection: u32, strain: &Strain) -> SeizureEvent {
+    let Ok(mut table) = seizures().lock() else {
+        return SeizureEvent::Calm;
+    };
+    let s = table.entry(player).or_default();
+    seizure_step(s, now, infection, strain, seizure_seed(player))
+}
+
+/// Идёт ли у игрока приступ: тогда тик болезни держит симптомы.
+pub fn seizure_now(player: u128, now: u64) -> bool {
+    seizures().lock().is_ok_and(|table| table.get(&player).is_some_and(|s| s.until > now))
+}
+
+// Две полосы: болезнь против иммунитета (п. 8).
+
+/// Прогноз для анализатора.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Forecast {
+    /// Не болен.
+    Healthy,
+    /// Лекарство сильнее: заражение уйдёт примерно за столько секунд.
+    Recovering { seconds: u32 },
+    /// Силы равны: заражение стоит.
+    Even,
+    /// Болезнь сильнее; `underdosed` — лекарство есть, но ниже окна.
+    Losing { underdosed: bool },
+}
+
+/// Гонка: доли силы болезни и иммунитета (в сумме 1, у здорового — нули).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Race {
+    pub disease: f32,
+    pub defense: f32,
+    pub forecast: Forecast,
+}
+
+/// Гонка по тому, что знает анализатор: заражение, штамм и кровь. Болезнь
+/// за шаг (`INFECTION_EVERY`) прибавляет `strain_step`, лекарство в окне за
+/// тот же шаг снимает `cures` на каждом шаге кинетики (`PHARMA_EVERY`).
+pub fn disease_race(infection: u32, strain: &Strain, drugs: &[DrugState; DRUG_COUNT]) -> Race {
+    if infection == 0 {
+        return Race { disease: 0.0, defense: 0.0, forecast: Forecast::Healthy };
+    }
+    let pharma_steps = (INFECTION_EVERY / PHARMA_EVERY).max(1) as u32;
+    let growth = strain_step(strain);
+    let mut cure = 0;
+    let mut underdosed = false;
+    for (drug, state) in DRUGS.iter().zip(drugs) {
+        if drug.cures == 0 {
+            continue;
+        }
+        match level_of(drug, state) {
+            Level::Therapeutic => cure += drug.cures * pharma_steps,
+            Level::Subtherapeutic => underdosed = true,
+            _ => {}
+        }
+    }
+    let forecast = if cure > growth {
+        let steps = infection.div_ceil(cure - growth);
+        Forecast::Recovering { seconds: steps * (INFECTION_EVERY / 20) as u32 }
+    } else if cure == growth {
+        Forecast::Even
+    } else {
+        Forecast::Losing { underdosed }
+    };
+    let total = (growth + cure).max(1) as f32;
+    Race { disease: growth as f32 / total, defense: cure as f32 / total, forecast }
+}
+
+/// Прогноз строкой.
+pub fn forecast_text(forecast: Forecast) -> String {
+    match forecast {
+        Forecast::Healthy => "Прогноз: здоровы".to_string(),
+        Forecast::Recovering { seconds } if seconds >= 60 => {
+            format!("Прогноз: выздоравливаете (~{} мин)", seconds.div_ceil(60))
+        }
+        Forecast::Recovering { seconds } => format!("Прогноз: выздоравливаете (~{seconds} с)"),
+        Forecast::Even => "Прогноз: равновесие".to_string(),
+        Forecast::Losing { underdosed: true } => "Прогноз: болезнь сильнее, лекарства мало".to_string(),
+        Forecast::Losing { underdosed: false } => "Прогноз: болезнь сильнее".to_string(),
+    }
+}
+
+/// Цвета полос (ARGB): доза, болезнь, иммунитет и подложка.
+pub const BAR_DOSE: u32 = 0xFFFF_A040;
+pub const BAR_DISEASE: u32 = 0xFFE0_4040;
+pub const BAR_DEFENSE: u32 = 0xFF50_D050;
+pub const BAR_TRACK: u32 = 0x60FF_FFFF;
+/// Длина полосы в пикселях интерфейса.
+pub const BAR_WIDTH: f32 = 60.0;
+
+/// Строка панели дозы: текст и, может быть, полоса (доля 0–1 и цвет).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HudRow {
+    pub text: String,
+    pub bar: Option<(f32, u32)>,
+}
+
+/// Панель под анализатором: доза, две полосы (если болен) и прогноз.
+pub fn dose_rows(dose_percent: u32, infection: u32, strain: &Strain, drugs: &[DrugState; DRUG_COUNT]) -> Vec<HudRow> {
+    let mut rows = vec![HudRow {
+        text: format!("Доза: {dose_percent}% порога"),
+        bar: Some(((dose_percent as f32 / 100.0).clamp(0.0, 1.0), BAR_DOSE)),
+    }];
+    let race = disease_race(infection, strain, drugs);
+    if infection > 0 {
+        rows.push(HudRow { text: "Болезнь".to_string(), bar: Some((race.disease, BAR_DISEASE)) });
+        rows.push(HudRow { text: "Иммунитет".to_string(), bar: Some((race.defense, BAR_DEFENSE)) });
+    }
+    rows.push(HudRow { text: forecast_text(race.forecast), bar: None });
+    rows
+}
+
+// Звук опасности (п. 12).
+
+/// Радиус, в котором дозиметр чует источники (заражённых мобов, утечку).
+pub const DOSIMETER_RANGE: f64 = 8.0;
+/// Как тает сглаженный сырой поток за проверку.
+pub const FLOW_FADE: f32 = 0.5;
+/// Сырой поток за проверку, при котором дозиметр трещит без остановки.
+pub const FLOW_FULL: f32 = 30.0;
+/// Как часто слышно дыхание в маске, тиков.
+pub const BREATH_EVERY: u64 = 70;
+
+/// Вклад источника на расстоянии `distance`: 1 вплотную, 0 на краю радиуса.
+pub fn source_weight(distance: f64) -> f32 {
+    (1.0 - distance / DOSIMETER_RANGE).clamp(0.0, 1.0) as f32
+}
+
+/// Опасность 0–1 для дозиметра: накопленная доза, свежий сырой поток и
+/// источники рядом (сумма `source_weight`; два вплотную — максимум).
+pub fn danger_level(exposure: &Exposure, sources_near: f32) -> f32 {
+    let dose = exposure.amount / DOSE_THRESHOLD;
+    let flow = exposure.recent / FLOW_FULL;
+    let near = sources_near / 2.0;
+    let level = dose.max(flow).max(near);
+    if level.is_nan() { 0.0 } else { level.clamp(0.0, 1.0) }
+}
+
+/// Промежуток между щелчками дозиметра в тиках; `None` — молчит.
+pub fn click_interval(level: f32) -> Option<u64> {
+    if !(level >= 0.02) {
+        return None;
+    }
+    Some((40.0 - 37.0 * level.clamp(0.0, 1.0).sqrt()).round().max(3.0) as u64)
+}
+
+/// Пора ли щёлкнуть: прошёл промежуток с прошлого щелчка (или часы ушли назад).
+pub fn click_due(now: u64, last: u64, interval: Option<u64>) -> bool {
+    interval.is_some_and(|every| now < last || now >= last + every)
+}
+
+/// Слышно ли дыхание: маска или костюм режут воздух.
+pub fn breathes(air_multiplier: f32) -> bool {
+    air_multiplier < 1.0
+}
+
+/// Пора ли вдох: раз в `BREATH_EVERY`, у каждого игрока свой такт.
+pub fn breath_due(now: u64, seed: u64) -> bool {
+    (now + seed % BREATH_EVERY) % BREATH_EVERY == 0
+}
+
+/// Дозиметр игрока: тик прошлого щелчка и опасность с последней проверки.
+fn dosimeters() -> &'static std::sync::Mutex<std::collections::HashMap<u128, (u64, f32)>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u128, (u64, f32)>>> =
+        std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Запомнить опасность вокруг игрока (раз в проверку дозы).
+pub fn set_danger(player: u128, level: f32) {
+    if let Ok(mut table) = dosimeters().lock() {
+        table.entry(player).or_insert((0, 0.0)).1 = level;
+    }
+}
+
+/// Щёлкнуть ли дозиметру игрока сейчас (по запомненной опасности); если
+/// да — щелчок запоминается.
+pub fn dosimeter_tick(player: u128, now: u64) -> bool {
+    let Ok(mut table) = dosimeters().lock() else {
+        return false;
+    };
+    let (last, level) = table.entry(player).or_insert((0, 0.0));
+    if click_due(now, *last, click_interval(*level)) {
+        *last = now;
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+mod dose_tests {
+    use super::*;
+
+    /// Тики до первого пробоя: каждые `every` тиков порция `raw × mult`,
+    /// проверка раз в `DOSE_EVERY`. `None` — за `limit` тиков не пробило.
+    fn breakthrough_after(every: u64, raw: f32, mult: f32, limit: u64) -> Option<u64> {
+        let mut e = Exposure::default();
+        for t in 1..=limit {
+            if t % every == 0 {
+                e.add(DoseChannel::Contact, raw, mult, Some(WILD));
+            }
+            if dose_check_due(t) && e.check(true).is_some() {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn dose_below_threshold_fades_by_three_percent() {
+        let mut e = Exposure::default();
+        e.add(DoseChannel::Contact, 50.0, 1.0, None);
+        assert_eq!(e.check(true), None);
+        assert!((e.amount - 48.5).abs() < 1e-3, "{}", e.amount);
+        for _ in 0..400 {
+            e.check(true);
+        }
+        assert_eq!(e.amount, 0.0, "сошла на нет");
+        assert_eq!(e.source, None, "источник забыт");
+    }
+
+    #[test]
+    fn dose_at_threshold_infects_with_the_biggest_source() {
+        let heavy = Strain::of([4, 2, 5, 3]);
+        let mut e = Exposure::default();
+        e.add(DoseChannel::Contact, 20.0, 1.0, None);
+        e.add(DoseChannel::Air, 70.0, 1.0, Some(heavy));
+        e.add(DoseChannel::Ingest, 30.0, 1.0, None);
+        assert_eq!(e.check(true), Some((DoseChannel::Air, Some(heavy))));
+        assert!((e.amount - 20.0).abs() < 1e-3, "порог снят, остаток держится");
+        assert_eq!(e.percent(), 20);
+        // В карантине доза не пробивает, а тает.
+        let mut quarantined = Exposure::default();
+        quarantined.add(DoseChannel::Contact, 150.0, 1.0, None);
+        assert_eq!(quarantined.check(false), None);
+        assert!(quarantined.amount < 150.0);
+    }
+
+    #[test]
+    fn suit_divides_the_flow_and_buys_time() {
+        let mut e = Exposure::default();
+        e.add(DoseChannel::Contact, 120.0, 0.1, None);
+        assert_eq!(e.check(true), None, "защита 90 %: двенадцать из ста двадцати");
+        assert!((e.incoming - 0.0).abs() < 1e-6 && (e.recent - 120.0).abs() < 1e-3, "дозиметр видит сырой поток");
+        // Зомби вплотную: без защиты ~15 с, при множителе 0,5 — втрое дольше,
+        // при 0,25 (костюм на контакт) — никогда.
+        let bare = breakthrough_after(INFECTION_EVERY, CONTACT_DOSE, 1.0, 20 * 600).unwrap();
+        assert!((200..=400).contains(&bare), "без защиты за {bare} тиков");
+        let half = breakthrough_after(INFECTION_EVERY, CONTACT_DOSE, 0.5, 20 * 600).unwrap();
+        assert!(half >= 2 * bare, "{half} против {bare}");
+        assert_eq!(breakthrough_after(INFECTION_EVERY, CONTACT_DOSE, 0.25, 20 * 600), None);
+        // Утечка: без маски ~12 с, респиратор без фильтра (0,6) — дольше, с
+        // фильтром (0,15) — держит.
+        let leak = breakthrough_after(INFECTION_EVERY, LEAK_DOSE, 1.0, 20 * 600).unwrap();
+        assert!(leak <= bare);
+        assert!(breakthrough_after(INFECTION_EVERY, LEAK_DOSE, 0.6, 20 * 600).unwrap() > leak);
+        assert_eq!(breakthrough_after(INFECTION_EVERY, LEAK_DOSE, 0.15, 20 * 600), None);
+        // Заразная слизь под ногами — несколько секунд.
+        let puddle = breakthrough_after(FLUID_EVERY, puddle_dose(4), 1.0, 20 * 60).unwrap();
+        assert!((80..=200).contains(&puddle), "лужа за {puddle} тиков");
+        assert!(LEAK_DOSE > CONTACT_DOSE && INFECTED_HIT_DOSE > CONTACT_DOSE);
+    }
+
+    #[test]
+    fn one_hit_or_one_meal_is_forgiven_two_are_not() {
+        for raw in [INFECTED_HIT_DOSE, tainted_food_dose("minecraft:rotten_flesh").unwrap()] {
+            let mut e = Exposure::default();
+            e.add(DoseChannel::Contact, raw, 1.0, None);
+            let mut infected = false;
+            for _ in 0..30 {
+                infected |= e.check(true).is_some();
+            }
+            assert!(!infected, "одна порция {raw} прощается");
+            let mut e2 = Exposure::default();
+            e2.add(DoseChannel::Contact, raw, 1.0, None);
+            for _ in 0..5 {
+                e2.check(true);
+            }
+            e2.add(DoseChannel::Contact, raw, 1.0, None);
+            assert!(e2.check(true).is_some(), "две за пять секунд — заражение");
+        }
+        assert_eq!(tainted_food_dose("minecraft:bread"), None);
+        assert!(tainted_food_dose("minecraft:spider_eye").unwrap() < DOSE_THRESHOLD);
+    }
+
+    #[test]
+    fn nonsense_doses_change_nothing() {
+        let mut e = Exposure::default();
+        e.add(DoseChannel::Air, 0.0, 1.0, None);
+        e.add(DoseChannel::Air, -5.0, 1.0, None);
+        e.add(DoseChannel::Air, f32::NAN, 1.0, None);
+        e.add(DoseChannel::Air, 10.0, f32::NAN, None);
+        assert_eq!(e.amount, 0.0);
+        assert_eq!(e.source, None);
+        assert_eq!(danger_level(&e, f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn infection_messages_name_the_channel() {
+        let heavy = Strain::of([3, 2, 4, 2]);
+        assert_eq!(dose_infected_message(DoseChannel::Air, Some(&heavy)), LEAK_MESSAGE);
+        assert!(dose_infected_message(DoseChannel::Air, Some(&WILD)).contains("воздуха"));
+        assert!(dose_infected_message(DoseChannel::Ingest, None).contains("Съеденное"));
+        let mut e = Exposure::default();
+        e.add(DoseChannel::Contact, 37.4, 1.0, None);
+        assert_eq!(dose_from_packet(&dose_packet(&e)), Some(37));
+        assert_eq!(dose_from_packet(&[]), None);
+    }
+
+    #[test]
+    fn seizures_come_in_waves_after_a_heartbeat() {
+        let strain = WILD;
+        let onset = strain_onset(&strain);
+        let mut s = Seizure::default();
+        // Инкубация — без приступов.
+        assert_eq!(seizure_step(&mut s, 100, onset - 1, &strain, 7), SeizureEvent::Calm);
+        assert_eq!(s, Seizure::default());
+        // Симптомы: волны с предупреждением.
+        let mut events = Vec::new();
+        for t in 1_000..1_000 + 20 * 300 {
+            events.push((t, seizure_step(&mut s, t, onset + 5, &strain, 7)));
+        }
+        let starts: Vec<u64> = events.iter().filter(|(_, e)| *e == SeizureEvent::Start).map(|(t, _)| *t).collect();
+        let warns: Vec<u64> = events.iter().filter(|(_, e)| *e == SeizureEvent::Warn).map(|(t, _)| *t).collect();
+        let ends: Vec<u64> = events.iter().filter(|(_, e)| *e == SeizureEvent::End).map(|(t, _)| *t).collect();
+        assert!(starts.len() >= 3, "приступы повторяются: {starts:?}");
+        for start in &starts {
+            assert!(warns.contains(&(start - SEIZURE_WARN)), "стук сердца за 2 с до {start}");
+        }
+        for (start, end) in starts.iter().zip(&ends) {
+            let length = end - start;
+            assert!((100..=200).contains(&length), "приступ {length} тиков");
+        }
+        let on = events.iter().filter(|(_, e)| e.symptoms()).count();
+        assert!(on * 2 < events.len(), "между приступами — затишье");
+        // Выздоровел посреди приступа — приступ кончился.
+        s.until = 1_000_000;
+        assert_eq!(seizure_step(&mut s, 999_000, 0, &strain, 7), SeizureEvent::End);
+        assert_eq!(s, Seizure::default());
+    }
+
+    #[test]
+    fn seizures_grow_closer_and_longer() {
+        let mild = Strain::of([2, 3, 1, 1]);
+        let severe = Strain::of([2, 3, 5, 1]);
+        assert_eq!(seizure_length(&mild), 100);
+        assert_eq!(seizure_length(&severe), 200);
+        let onset = strain_onset(&mild);
+        assert_eq!(disease_progress(onset, &mild), 0.0);
+        assert_eq!(disease_progress(100, &mild), 1.0);
+        for seed in 0..64 {
+            let early = seizure_gap(0.0, seed);
+            let late = seizure_gap(1.0, seed);
+            assert!(late < early, "к поздней стадии чаще");
+            assert!((1_020..=1_380).contains(&early) && (255..=345).contains(&late));
+        }
+        // Часы ушли назад (мир перезагружен): расписание сбрасывается, а не
+        // держит приступ на час.
+        let mut s = Seizure { next: 0, until: 50_000, warned: false, count: 3 };
+        assert_ne!(seizure_step(&mut s, 10, onset + 1, &mild, 1), SeizureEvent::Attack);
+        assert!(s.until <= 10 + SEIZURE_MAX_LENGTH);
+    }
+
+    #[test]
+    fn race_shows_who_wins() {
+        let none = [DrugState::default(); DRUG_COUNT];
+        assert_eq!(disease_race(0, &WILD, &none).forecast, Forecast::Healthy);
+        let sick = disease_race(40, &WILD, &none);
+        assert_eq!(sick.forecast, Forecast::Losing { underdosed: false });
+        assert_eq!((sick.disease, sick.defense), (1.0, 0.0));
+
+        let penicillin = &DRUGS[COURSE_DRUG];
+        let (min, max) = penicillin.window;
+        let mut window = none;
+        window[COURSE_DRUG].blood = (min + max) / 2;
+        let healing = disease_race(40, &WILD, &window);
+        assert!(healing.defense > healing.disease);
+        assert!((healing.disease + healing.defense - 1.0).abs() < 1e-6);
+        let Forecast::Recovering { seconds } = healing.forecast else { panic!("{:?}", healing.forecast) };
+        assert!(seconds > 0 && seconds < 60, "{seconds}");
+        assert!(forecast_text(healing.forecast).starts_with("Прогноз: выздоравливаете"));
+
+        let mut low = none;
+        low[COURSE_DRUG].blood = 1.max(min / 2);
+        assert_eq!(disease_race(40, &WILD, &low).forecast, Forecast::Losing { underdosed: true });
+        assert!(forecast_text(Forecast::Losing { underdosed: true }).contains("мало"));
+        assert_eq!(forecast_text(Forecast::Recovering { seconds: 125 }), "Прогноз: выздоравливаете (~3 мин)");
+
+        let rows = dose_rows(37, 40, &WILD, &none);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].text, "Доза: 37% порога");
+        assert_eq!(rows[0].bar.map(|b| b.1), Some(BAR_DOSE));
+        assert_eq!(rows[3].text, "Прогноз: болезнь сильнее");
+        let healthy = dose_rows(0, 0, &WILD, &none);
+        assert_eq!(healthy.len(), 2, "здоровому — только доза и прогноз");
+        assert_eq!(dose_rows(250, 0, &WILD, &none)[0].bar.map(|b| b.0), Some(1.0));
+    }
+
+    #[test]
+    fn dosimeter_clicks_faster_near_danger() {
+        assert_eq!(click_interval(0.0), None, "чисто — молчит");
+        let mut last = u64::MAX;
+        for step in 1..=10 {
+            let interval = click_interval(step as f32 / 10.0).unwrap();
+            assert!(interval <= last && interval >= 3, "{interval}");
+            last = interval;
+        }
+        assert_eq!(click_interval(1.0), Some(3));
+        assert!(click_due(100, 60, Some(40)) && !click_due(99, 60, Some(40)));
+        assert!(click_due(5, 60, Some(40)), "часы ушли назад");
+        assert!(!click_due(1_000, 0, None));
+
+        let mut e = Exposure::default();
+        assert_eq!(danger_level(&e, 0.0), 0.0);
+        assert_eq!(danger_level(&e, 2.0), 1.0, "двое вплотную");
+        assert_eq!(source_weight(0.0), 1.0);
+        assert_eq!(source_weight(DOSIMETER_RANGE + 1.0), 0.0);
+        e.add(DoseChannel::Contact, CONTACT_DOSE, 0.05, None);
+        e.check(true);
+        assert!(danger_level(&e, 0.0) > 0.5, "в костюме доза мала, но поток виден");
+
+        let player = 0xD05E_u128;
+        assert!(!dosimeter_tick(player, 1_000), "опасность ещё не измерена");
+        set_danger(player, 1.0);
+        assert!(dosimeter_tick(player, 1_001));
+        assert!(!dosimeter_tick(player, 1_002) && dosimeter_tick(player, 1_004), "треск раз в 3 тика");
+        set_danger(player, 0.0);
+        assert!(!dosimeter_tick(player, 2_000), "ушёл — замолчал");
+    }
+
+    #[test]
+    fn breath_only_behind_a_mask() {
+        assert!(!breathes(suit_multiplier(&Worn::default(), DoseChannel::Air)), "без маски не слышно");
+        assert!(breathes(0.15) && !breathes(1.0));
+        let beats = (0..BREATH_EVERY * 4).filter(|t| breath_due(*t, 12345)).count();
+        assert_eq!(beats, 4);
+    }
+
+    #[test]
+    fn new_sounds_are_wired() {
+        for cue in [Cue::DosimeterClick, Cue::Breath, Cue::SeizureWarning, Cue::LeakAlarm] {
+            assert!(sound(cue).is_some(), "{cue:?}");
+        }
+        assert_eq!(sound(Cue::DosimeterClick).map(|s| s.event), Some("biolab:item.dosimeter.click"));
+        assert!(!RESERVED_SOUNDS.contains(&"biolab:item.dosimeter.click"));
     }
 }
 

@@ -107,8 +107,9 @@ pub fn broken(game: &mut crate::game::Game<'_>, pos: [i32; 3]) {
 /// Утечка (GDD 4.18 п. 4, 4.10 «Утечка»): машина работает (лампа горела в
 /// прошлом тике) с культурой тяжёлого штамма во входе и стоит не в камере —
 /// раз в `LEAK_EVERY` тиков скот рядом заболевает с шансом по заразности, а
-/// утечка отмечается: игрок рядом получает штамм на своём шаге болезни
-/// (`infection.rs`, `leak_near`). Зовёт тик машины только на своём сервере.
+/// утечка отмечается: игрок рядом получает дозу по воздуху на своём шаге
+/// болезни (`infection.rs`, `leak_near`; M9 — доза, а не сразу штамм), и
+/// звенит тревога. Зовёт тик машины только на своём сервере.
 pub fn leak(game: &mut crate::game::Game<'_>, pos: [i32; 3], entity: &ModBlockEntity) {
     let Some(machine) = m::machine(&entity.id) else {
         return;
@@ -133,6 +134,13 @@ pub fn leak(game: &mut crate::game::Game<'_>, pos: [i32; 3], entity: &ModBlockEn
     };
     let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5];
     m::note_leak(&dimension, at, strain);
+    // Тревога (M9, GDD 4.23 п. 12): утечку слышно у машины, а не только
+    // видно по дозе.
+    if let Some(sound) = m::sound(m::Cue::LeakAlarm) {
+        let _ = game.with_level(|_, level, _| {
+            level.native_play_sound(sound.event, at, sound.source, sound.volume, sound.pitch)
+        });
+    }
     let ticks = game.ticks;
     let source = (pos[0] as u32).wrapping_mul(31) ^ (pos[2] as u32);
     for mob in game.mobs.iter_mut() {

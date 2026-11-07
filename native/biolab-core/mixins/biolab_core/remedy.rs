@@ -320,12 +320,12 @@ fn biolab_core_use_item(
         return;
     }
 
-    // Заражённую еду не перехватываем: игрок всё равно её ест, просто платит
-    // за это уровнем заражения — если не привит.
-    if let Some(amount) = m::tainted_food(&stack.item)
-        && let Some(state) = m::player_tick(&world, uuid)
+    // Заражённую еду не перехватываем: игрок всё равно её ест и получает дозу
+    // по каналу «съеденное» (M9, GDD 4.23 п. 1). Заразит ли она, решает тик
+    // дозы (`dose_tick.rs`); привитого не заразит (`infect_world_player`).
+    if let Some(dose) = m::tainted_food_dose(&stack.item)
+        && (game.serving.is_some() || game.options.dedicated.is_some())
     {
-        let next = m::after_exposure_with(state.infection, amount, state.immunity > 0);
-        m::set_infection(&world, uuid, next);
+        m::queue_dose(uuid, m::DoseChannel::Ingest, dose, None);
     }
 }

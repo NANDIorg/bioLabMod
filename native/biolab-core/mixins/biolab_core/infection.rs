@@ -84,8 +84,10 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
                 crate::game::biolab_say::say(game, &m::mutagen_message(name));
                 play(game, m::Cue::Mutagen);
             }
+            // Заразная лужа не заражает сразу, а даёт дозу по контакту (M9,
+            // GDD 4.23 п. 1): копит и решает тик дозы (`dose_tick.rs`).
             if fluid.infects > 0 {
-                m::infect_world_player(&world, uuid, &m::WILD, fluid.infects);
+                m::queue_dose(uuid, m::DoseChannel::Contact, m::puddle_dose(fluid.infects), None);
             }
             // Лужа тратится: слой за срабатывание, последний высыхает.
             let layers = game
@@ -219,19 +221,17 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
         }
     }
 
-    // Утечка тяжёлого штамма из машины рядом (вне камеры): тот же шаг
-    // болезни, что у близости к зомби, но сильнее.
+    // Утечка тяжёлого штамма из машины рядом (вне камеры): доза по воздуху,
+    // сильнее близости к зомби (M9: копит тик дозы, он же скажет «заражены»).
     if state.ticks % m::INFECTION_EVERY == 0
         && !clean
         && let Some(player) = game.native_player()
         && let Some(strain) = m::leak_near(player.dimension, [player.x, player.y, player.z])
-        && m::infect_world_player(&world, uuid, &strain, m::LEAK_STEP) == Some(m::LEAK_STEP)
     {
-        // Штамм записан только здоровому: с нуля уровень — ровно шаг утечки.
-        crate::game::biolab_say::say(game, m::LEAK_MESSAGE);
+        m::queue_dose(uuid, m::DoseChannel::Air, m::LEAK_DOSE, Some(strain));
     }
 
-    // Близкий контакт с заражённым мобом поднимает уровень.
+    // Близкий контакт с заражённым мобом даёт дозу по контакту (M9).
     if state.ticks % m::INFECTION_EVERY == 0
         && !clean
         && let Some(player) = game.native_player()
@@ -252,7 +252,7 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
             .collect();
         if !near.is_empty() {
             let strain = m::contact_strain(near);
-            m::infect_world_player(&world, uuid, &strain, m::CONTACT_STEP);
+            m::queue_dose(uuid, m::DoseChannel::Contact, m::CONTACT_DOSE, Some(strain));
         }
     }
 
@@ -339,7 +339,11 @@ fn biolab_core_player_tick(game: &mut crate::game::Game<'_>) {
     if stage != m::Stage::Clear {
         game.add_player_effect(EffectInstance::new(m::INFECTION_EFFECT, 40, 0));
     }
-    for name in m::symptoms_with(stage, &strain) {
-        game.add_player_effect(EffectInstance::new(name, 40, 0));
+    // Симптомы накатывают приступами (M9, GDD 4.23 п. 2): расписание ведёт
+    // тик дозы (`dose_tick.rs`), здесь они держатся, только пока приступ идёт.
+    if m::seizure_now(uuid, game.ticks) {
+        for name in m::symptoms_with(stage, &strain) {
+            game.add_player_effect(EffectInstance::new(name, 40, 0));
+        }
     }
 }
