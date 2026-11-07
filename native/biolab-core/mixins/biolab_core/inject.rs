@@ -307,6 +307,14 @@ fn biolab_core_interact_entity(
             }
         }
         crate::game::biolab_say::say(game, &m::splice_message(result, name, strength));
+        // M9 (GDD 4.24): ген рук корове или ног слизню прижился, но спит.
+        if result == m::Splice::Done
+            && let Some(note) = target
+                .and_then(|id| game.mobs.iter().find(|mob| mob.id == id))
+                .and_then(|mob| m::proportion_note(&mob.kind.id, name))
+        {
+            crate::game::biolab_say::say(game, note);
+        }
         if result == m::Splice::Done {
             let target = game
                 .mobs

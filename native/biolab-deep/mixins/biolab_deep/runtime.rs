@@ -23,7 +23,7 @@ pub const ID: &str = "biolab_deep";
 // `tests/modules.rs` следит, чтобы копии не разошлись.
 
 /// Гены по номерам: тот же порядок, что `mutants::GENE_NAMES`.
-pub const GENE_NAMES: [&str; 41] = [
+pub const GENE_NAMES: [&str; 50] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -66,10 +66,20 @@ pub const GENE_NAMES: [&str; 41] = [
     "membranes",
     // M5 (GDD 4.20): масса для снотворного +1 за силу; считает `biolab-core`.
     "sedation_resistance",
+    // M9: пропорции (GDD 4.24) - форма частей тела; рисует `biolab_proportions`.
+    "long_arms",
+    "heavy_arms",
+    "macrocephaly",
+    "microcephaly",
+    "short_legs",
+    "stilt_legs",
+    "bloated_torso",
+    "sunken_chest",
+    "asymmetry",
 ];
 
 /// Цена гена за единицу силы (та же, что в lib).
-pub const GENE_COSTS: [i32; 41] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2];
+pub const GENE_COSTS: [i32; 50] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 1, 1];
 
 /// Сколько генов влезает в природный геном и какую сумму цен он выдерживает.
 /// Это правило только природного броска (`roll`): лаборатория — укол
@@ -92,7 +102,7 @@ pub const STAT_MODIFIERS: [&str; 5] = [
 /// Метки генома старого формата (до M11): модификатор дальности
 /// преследования с нулевой прибавкой, чьё имя и есть ген. Новых таких меток
 /// мод не ставит; список нужен только миграции старых миров.
-pub const GENE_MARKERS: [&str; 123] = [
+pub const GENE_MARKERS: [&str; 150] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -216,6 +226,34 @@ pub const GENE_MARKERS: [&str; 123] = [
     "biolab:gene/sedation_resistance/1",
     "biolab:gene/sedation_resistance/2",
     "biolab:gene/sedation_resistance/3",
+    // M9: пропорции (GDD 4.24)
+    "biolab:gene/long_arms/1",
+    "biolab:gene/long_arms/2",
+    "biolab:gene/long_arms/3",
+    "biolab:gene/heavy_arms/1",
+    "biolab:gene/heavy_arms/2",
+    "biolab:gene/heavy_arms/3",
+    "biolab:gene/macrocephaly/1",
+    "biolab:gene/macrocephaly/2",
+    "biolab:gene/macrocephaly/3",
+    "biolab:gene/microcephaly/1",
+    "biolab:gene/microcephaly/2",
+    "biolab:gene/microcephaly/3",
+    "biolab:gene/short_legs/1",
+    "biolab:gene/short_legs/2",
+    "biolab:gene/short_legs/3",
+    "biolab:gene/stilt_legs/1",
+    "biolab:gene/stilt_legs/2",
+    "biolab:gene/stilt_legs/3",
+    "biolab:gene/bloated_torso/1",
+    "biolab:gene/bloated_torso/2",
+    "biolab:gene/bloated_torso/3",
+    "biolab:gene/sunken_chest/1",
+    "biolab:gene/sunken_chest/2",
+    "biolab:gene/sunken_chest/3",
+    "biolab:gene/asymmetry/1",
+    "biolab:gene/asymmetry/2",
+    "biolab:gene/asymmetry/3",
 ];
 
 // ---- Кто бывает мутантом ----
@@ -385,7 +423,10 @@ pub fn roll(draw: u32, percent: u32, temperament: Temperament) -> Vec<(usize, i3
         let step = 1 + ((draw / 2700) % (count - 1)) as usize;
         let second = pool[(pick + step) % pool.len()];
         let strength = 1 + ((draw / 8100) % 3) as i32;
-        if spent + GENE_COSTS[second] * strength <= STABILITY {
+        // M9 (GDD 4.24): природный мутант несёт не больше одной черты пропорций.
+        if spent + GENE_COSTS[second] * strength <= STABILITY
+            && !(is_proportion(first) && is_proportion(second))
+        {
             genome.push((second, strength));
         }
     }
@@ -1198,6 +1239,70 @@ mod infected_tests {
         assert_eq!(hook_kind("zombie"), "minecraft:zombie");
         assert_eq!(hook_kind("minecraft:zombie"), "minecraft:zombie");
         assert_eq!(hook_kind("biolab:infected"), "biolab:infected");
+    }
+}
+
+// ---- M9: пропорции (GDD 4.24) ----
+//
+// Девять генов меняют не набор частей тела, а их форму: руки, голову, ноги,
+// корпус, одну сторону. Масштаб частей и числа (прибавки к атрибутам с
+// учётом того, есть ли у вида руки и ноги) — lib-модуль `biolab_proportions`
+// (`proportions.rs`): его зовут поза модели (HEAD на `anim::setup`) и мост
+// (`biolab_bridge`), а бинарник lib не видит и наоборот. Здесь — то, что
+// решает бинарник: природный бросок.
+
+/// Гены пропорций — в том же порядке, что `biolab_proportions::GENES`
+/// (сверяет `tests/modules.rs`).
+pub const PROPORTION_GENES: [&str; 9] = [
+    "long_arms",
+    "heavy_arms",
+    "macrocephaly",
+    "microcephaly",
+    "short_legs",
+    "stilt_legs",
+    "bloated_torso",
+    "sunken_chest",
+    "asymmetry",
+];
+
+/// Ген пропорций ли это (по номеру в `GENE_NAMES`). Природный мутант несёт
+/// не больше одной такой черты — этого хватает, чтобы он читался издалека,
+/// а полный набор (и пары-противоположности вроде большой и маленькой
+/// головы) собирается только в лаборатории.
+pub fn is_proportion(gene: usize) -> bool {
+    GENE_NAMES.get(gene).is_some_and(|name| PROPORTION_GENES.contains(name))
+}
+
+#[cfg(test)]
+mod proportion_tests {
+    use super::*;
+
+    #[test]
+    fn proportion_genes_are_in_the_table() {
+        for name in PROPORTION_GENES {
+            let i = GENE_NAMES.iter().position(|n| *n == name).expect(name);
+            assert!(is_proportion(i));
+            assert!(GENE_COSTS[i] <= 2, "{name}: черта дешёвая, природе по карману");
+        }
+        assert!(!is_proportion(0), "гигантизм тянет всё тело — не пропорция");
+        assert!(!is_proportion(GENE_NAMES.len()));
+    }
+
+    #[test]
+    fn a_natural_mutant_has_at_most_one_proportion() {
+        let mut seen = [false; PROPORTION_GENES.len()];
+        for draw in 0..200_000u32 {
+            for temper in [Temperament::Hostile, Temperament::Passive] {
+                let rolled = roll(draw, 100, temper);
+                let shapes: Vec<usize> = rolled.iter().map(|(g, _)| *g).filter(|g| is_proportion(*g)).collect();
+                assert!(shapes.len() <= 1, "бросок {draw}: {rolled:?}");
+                for g in shapes {
+                    let at = PROPORTION_GENES.iter().position(|n| *n == GENE_NAMES[g]).unwrap();
+                    seen[at] = true;
+                }
+            }
+        }
+        assert!(seen.iter().all(|s| *s), "природе выпадают все черты: {seen:?}");
     }
 }
 

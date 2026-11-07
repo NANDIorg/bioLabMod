@@ -1042,3 +1042,17 @@ id = "quarantine"
 file = "crates/horizon-client/src/game.rs"
 name = "biolab_quarantine"
 source = "quarantine.rs"
+
+# ---- M9: пропорции тела (GDD 4.24) ----
+# Дальний удар длинных рук и глаз большой головы — всем мобам разом, раз в
+# `BEHAVIOUR_EVERY` тиков. Тот же тик игрока, что у поведения мутантов
+# (`level-tick`): он работает и без трейт-модов, в одиночной игре тоже.
+# Вид и числа генов пропорций — в `biolab-deep` (`biolab_proportions`).
+[[injection]]
+id = "proportions-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "proportions.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
