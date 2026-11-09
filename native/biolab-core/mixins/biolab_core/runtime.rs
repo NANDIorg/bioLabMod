@@ -23120,6 +23120,9 @@ pub const BATTERY_SOUND: Sound = Sound { event: "minecraft:block.respawn_anchor.
 /// запас (Вт·с) и «нет питания» (1 — машина хочет работать, а заряда нет).
 pub const POWER_DATA: usize = 2;
 pub const NO_POWER: &str = "Нет питания";
+/// Надпись плашки на экране: полное «Нет питания» в полосу 60 пикселей не
+/// влезает и обрезалось до «Нет пита…» (проверено в игре 09.11.2026).
+pub const NO_POWER_BADGE: &str = "Нет тока";
 
 /// Первый слот запаса машины; None — машине питание не нужно.
 pub fn power_data(id: &str) -> Option<usize> {

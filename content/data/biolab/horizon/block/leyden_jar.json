@@ -3,11 +3,28 @@
  "properties": {
   "hardness": 1.0,
   "requires_tool": true,
-  "sounds": "minecraft:glass"
+  "sounds": "minecraft:glass",
+  "occludes": false
  },
- "occludes": false,
  "shapes": {
-  "default": [[0, 0, 0, 1, 0.0625, 1], [0.25, 0.0625, 0.25, 0.75, 1, 0.75]]
+  "default": [
+   [
+    0,
+    0,
+    0,
+    1,
+    0.0625,
+    1
+   ],
+   [
+    0.25,
+    0.0625,
+    0.25,
+    0.75,
+    1,
+    0.75
+   ]
+  ]
  },
  "item": true
 }

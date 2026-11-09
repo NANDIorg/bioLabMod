@@ -184,7 +184,7 @@ fn biolab_core_screen_draw(
         if power.starved {
             pen.fill(r, m::SCREEN_EDGE);
             pen.fill([r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0], 0xFF_4A1C18);
-            let label = pen.fit(m::NO_POWER, r[2] - 4.0);
+            let label = pen.fit(m::NO_POWER_BADGE, r[2] - 4.0);
             let lw = pen.width(&label);
             pen.text(&label, [r[0] + ((r[2] - lw) / 2.0).floor(), r[1] + 1.0], 0xFF_7A6A, false);
         } else {

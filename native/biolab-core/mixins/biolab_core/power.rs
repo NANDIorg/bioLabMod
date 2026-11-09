@@ -478,6 +478,20 @@ pub fn click(game: &mut crate::game::Game<'_>, pos: [i32; 3]) -> bool {
     if !serving(game) {
         return false;
     }
+    // Один клик по кабелю доходил дважды с разницей в тик — сводка сети
+    // печаталась два раза (проверено в игре 09.11.2026). Тот же блок в
+    // ближайшие 4 тика — тот же клик: забираем, но молчим.
+    static LAST: std::sync::Mutex<Option<([i32; 3], u64)>> = std::sync::Mutex::new(None);
+    let now = game.ticks as u64;
+    if let Ok(mut last) = LAST.lock() {
+        if let Some((at, tick)) = *last
+            && at == pos
+            && now.saturating_sub(tick) <= 4
+        {
+            return m::is_conductor(&game.native_block(pos)) || m::is_storage(&game.native_block(pos));
+        }
+        *last = Some((pos, now));
+    }
     let block = game.native_block(pos);
     let main = game.selected as i32;
     let held = game.native_carried_stack(main).map(|s| s.clone());
