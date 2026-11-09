@@ -156,6 +156,8 @@
  "effect.biolab.paralysis": "Паралич",
  "death.attack.biolab.acid": "%1$s растворила кислота",
  "death.attack.biolab.acid.player": "%1$s растворила кислота в бою с %2$s",
+ "death.attack.biolab.electric": "%1$s убило током",
+ "death.attack.biolab.electric.player": "%1$s убило током в бою с %2$s",
  "death.attack.biolab.toxin": "%1$s убил яд",
  "death.attack.biolab.toxin.player": "%1$s убил яд в бою с %2$s",
  "death.attack.biolab.infection": "%1$s сгубила болезнь",

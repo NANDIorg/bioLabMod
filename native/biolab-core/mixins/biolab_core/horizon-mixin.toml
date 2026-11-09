@@ -1275,3 +1275,54 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
+
+# ---- M10: контракт энергосети (GDD 4.27) ----
+# Исполнение на живой игре: запас, выработка, расход, добор из сети
+# (`crate::game::biolab_power`) и тики генераторов трёх агентов.
+[[module]]
+id = "power"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_power"
+source = "power.rs"
+
+[[module]]
+id = "gen-early"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_gen_early"
+source = "gen_early.rs"
+
+[[module]]
+id = "gen-late"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_gen_late"
+source = "gen_late.rs"
+
+[[module]]
+id = "gen-living"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_gen_living"
+source = "gen_living.rs"
+
+# Буфер энергии блоков мода по `energy_spec` (API 142, `Capabilities.Energy.BLOCK`).
+[[injection]]
+id = "block-entity-energy"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_block_entity_energy"
+helper = "energy.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "energy", ty = "&mut Option<horizon_client::containers::ModEnergyBuffer>", value = "&mut *energy" },
+]
+
+# Тик накопителей и генераторов: вторая инъекция на тик блок-сущности рядом
+# с `machine-tick` (машины тикают там).
+[[injection]]
+id = "power-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_block_entity_tick"
+helper = "power_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
+]

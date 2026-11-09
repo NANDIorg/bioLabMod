@@ -12919,7 +12919,7 @@ pub fn port_faces(port: &Port) -> ([Vec<usize>; 6], Vec<usize>, Vec<usize>) {
 
 /// Нужна ли блоку блок-сущность мода: машинам, грядке и портам.
 pub fn has_block_entity(id: &str) -> bool {
-    is_machine(id) || id == GM_PLOT || port(id).is_some() || id == CRYOBANK
+    is_machine(id) || id == GM_PLOT || port(id).is_some() || id == CRYOBANK || energy_spec(id).is_some()
 }
 
 /// Куда смотрит лицо контроллера (`facing` шаблона печи: сторона, где лицо).
@@ -22343,6 +22343,249 @@ pub fn in_quarantine(dimension: &str, pos: [i32; 3]) -> bool {
 /// режет поток (доза), а не бросает «да/нет».
 pub fn quarantine_leak(dimension: &str, pos: [i32; 3]) -> f32 {
     quarantine_rooms().lock().map_or(1.0, |rooms| rooms.leak_at(dimension, pos, quarantine_clock()))
+}
+
+// ---- M10: контракт параллельной работы (GDD 4.27) ----
+//
+// Энергия (4.22, 4.27 пп. 4–11): запас блока — целое `energy` в сейве его
+// блок-сущности, как у `SimpleEnergyHandler` (Forge Energy); буфер объявляет
+// хук `native_block_entity_energy` (`energy.rs`) по `energy_spec`. Тянет
+// потребитель: генераторы и накопители лишь копят в своём буфере, машина на
+// своём тике добирает из сети (`biolab_power::consume`). Каждый агент кладёт
+// свои блоки в свою таблицу (`GRID_SPECS`, `EARLY_GENERATORS`,
+// `LATE_GENERATORS`, `LIVING_GENERATORS`) — `energy_spec` смотрит во все.
+//
+// Порча ландшафта (4.21, 4.27 пп. 1–3): источники кладут вклад в очередь
+// `queue_world_contamination`, тик заражения её разбирает; заражённость
+// точки спрашивают `contamination_level_at`.
+//
+// Сигнатуры не менять: тела заполняют агенты.
+
+/// Ключ запаса энергии в сейве блок-сущности (так его читают хелперы
+/// платформы `native_energy*`).
+pub const ENERGY_KEY: &str = "energy";
+
+/// Тип урона током (`data/biolab/damage_type/electric.json`): замыкание,
+/// разряд конденсатора, удар электрического мутанта.
+pub const ELECTRIC_DAMAGE: &str = "biolab:electric";
+
+/// Сколько тиков работы держит буфер машины-потребителя (10 с).
+pub const CONSUMER_RESERVE_TICKS: i32 = 200;
+
+/// Роль блока в сети.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerRole {
+    /// Копит выработанное в своём буфере; из него тянут.
+    Generator,
+    /// Накопитель: тянет из генераторов, отдаёт потребителям.
+    Storage,
+    /// Машина: тянет на свою работу.
+    Consumer,
+}
+
+/// Буфер блока сети.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnergySpec {
+    pub role: PowerRole,
+    /// Ёмкость, Вт·с.
+    pub capacity: i32,
+    /// Предел одного ввода (0 — не берёт).
+    pub max_in: i32,
+    /// Предел одного вывода (0 — не отдаёт).
+    pub max_out: i32,
+    /// Генератор — выработка за тик по паспорту (для книги и экрана);
+    /// накопитель — поток за тик; потребитель — расход за тик работы.
+    pub rate: i32,
+}
+
+impl EnergySpec {
+    /// Генератор: отдаёт сколько угодно, сам не берёт.
+    pub const fn generator(capacity: i32, rate: i32) -> Self {
+        EnergySpec { role: PowerRole::Generator, capacity, max_in: 0, max_out: capacity, rate }
+    }
+    /// Накопитель с потоком `rate` в обе стороны.
+    pub const fn storage(capacity: i32, rate: i32) -> Self {
+        EnergySpec { role: PowerRole::Storage, capacity, max_in: rate, max_out: rate, rate }
+    }
+    /// Потребитель с расходом `draw` за тик работы: буфер на
+    /// `CONSUMER_RESERVE_TICKS`, наполняется целиком за раз.
+    pub const fn consumer(draw: i32) -> Self {
+        let capacity = draw * CONSUMER_RESERVE_TICKS;
+        EnergySpec { role: PowerRole::Consumer, capacity, max_in: capacity, max_out: 0, rate: draw }
+    }
+}
+
+/// Буфер блока `block`, если он в сети. Ищет во всех таблицах агентов.
+pub fn energy_spec(block: &str) -> Option<EnergySpec> {
+    [GRID_SPECS, EARLY_GENERATORS, LATE_GENERATORS, LIVING_GENERATORS]
+        .iter()
+        .flat_map(|table| table.iter())
+        .find(|(id, _)| *id == block)
+        .map(|(_, spec)| *spec)
+}
+
+/// Роль блока в сети.
+pub fn power_role(block: &str) -> Option<PowerRole> {
+    energy_spec(block).map(|spec| spec.role)
+}
+
+/// Расход машины за тик работы; 0 — машине питание не нужно (4.27 п. 7).
+pub fn machine_draw(block: &str) -> i32 {
+    energy_spec(block).filter(|s| s.role == PowerRole::Consumer).map_or(0, |s| s.rate)
+}
+
+/// Положить `amount` в запас `stored` ёмкостью `capacity`: (новый запас,
+/// сколько вошло).
+pub fn add_energy(stored: i32, amount: i32, capacity: i32) -> (i32, i32) {
+    let stored = stored.clamp(0, capacity.max(0));
+    let put = amount.max(0).min(capacity.max(0) - stored);
+    (stored + put, put)
+}
+
+/// Вклад в заражённость мира от источника (4.21): разбитая колба, утечка,
+/// труп заражённого, разлитый мутаген, изотопная батарея.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QueuedContamination {
+    pub dimension: String,
+    pub pos: [i32; 3],
+    /// Сколько прибавить заражённости чанку (уровень 0–5; 1.0 — ступень).
+    pub amount: f32,
+    /// Штамм источника; `None` — дикий или не штамм (мутаген, изотоп).
+    pub strain: Option<Strain>,
+}
+
+/// Очередь вкладов в заражённость мира. Только сервер.
+pub fn world_contamination_queue() -> &'static std::sync::Mutex<Vec<QueuedContamination>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Vec<QueuedContamination>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Положить вклад в заражённость чанка с точкой `pos`.
+pub fn queue_world_contamination(dimension: &str, pos: [i32; 3], amount: f32, strain: Option<Strain>) {
+    if let Ok(mut queue) = world_contamination_queue().lock()
+        && queue.len() < 1024
+    {
+        queue.push(QueuedContamination { dimension: dimension.to_string(), pos, amount, strain });
+    }
+}
+
+/// Забрать все вклады (их разбирает тик заражения мира).
+pub fn take_world_contamination() -> Vec<QueuedContamination> {
+    world_contamination_queue().lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
+}
+
+/// Заражённость чанка с точкой `pos`, 0–5 (0 — чисто или чанк не загружен).
+/// Тело — агента «порча ландшафта»; остальные только зовут.
+pub fn contamination_level_at(dimension: &str, pos: [i32; 3]) -> u8 {
+    chunk_contamination(dimension, [pos[0] >> 4, pos[2] >> 4])
+}
+
+#[cfg(test)]
+mod m10_contract_tests {
+    use super::*;
+
+    #[test]
+    fn the_listed_machines_draw_power_and_the_rest_do_not() {
+        assert_eq!(machine_draw(INCUBATOR), 2);
+        assert_eq!(machine_draw(FERMENTER), 5);
+        assert_eq!(machine_draw(CENTRIFUGE), 20);
+        assert_eq!(machine_draw(EXTRACTOR), 30);
+        assert_eq!(machine_draw(CLONING_VAT), 60);
+        assert_eq!(machine_draw(SEQUENCER), 80);
+        assert_eq!(machine_draw(QUARANTINE), 15);
+        for free in ["biolab:still", REACTOR, SYNTHESIZER, "biolab:press", SPECTROMETER, LAB_BENCH, BIOREACTOR] {
+            assert_eq!(machine_draw(free), 0, "{free}");
+        }
+    }
+
+    #[test]
+    fn a_consumer_buffer_holds_ten_seconds_of_work() {
+        let spec = energy_spec(INCUBATOR).unwrap();
+        assert_eq!(spec.capacity, 2 * 200);
+        assert_eq!(spec.max_out, 0);
+    }
+
+    #[test]
+    fn every_block_is_in_one_table_only() {
+        let all: Vec<&str> = [GRID_SPECS, EARLY_GENERATORS, LATE_GENERATORS, LIVING_GENERATORS]
+            .iter()
+            .flat_map(|t| t.iter().map(|(id, _)| *id))
+            .collect();
+        for id in &all {
+            assert_eq!(all.iter().filter(|x| *x == id).count(), 1, "{id}");
+            assert!(id.starts_with("biolab:"), "{id}");
+        }
+    }
+
+    #[test]
+    fn energy_fills_up_to_the_capacity() {
+        assert_eq!(add_energy(0, 50, 100), (50, 50));
+        assert_eq!(add_energy(80, 50, 100), (100, 20));
+        assert_eq!(add_energy(100, 50, 100), (100, 0));
+        assert_eq!(add_energy(-5, 10, 100), (10, 10));
+        assert_eq!(add_energy(0, -10, 100), (0, 0));
+    }
+
+    #[test]
+    fn the_contamination_queue_hands_everything_over_once() {
+        take_world_contamination();
+        queue_world_contamination("minecraft:overworld", [1, 64, 2], 0.5, None);
+        let got = take_world_contamination();
+        assert_eq!(got.len(), 1);
+        assert!(take_world_contamination().is_empty());
+    }
+}
+
+// ---- M10: энергосеть (GDD 4.27 А) ----
+//
+// Кабели, повторитель, накопители, потребление машин, батарея-предмет,
+// аварии. Исполнение на игре — `power.rs` (`crate::game::biolab_power`).
+
+/// Потребители (4.27 п. 7) и накопители сети.
+pub const GRID_SPECS: &[(&str, EnergySpec)] = &[
+    (INCUBATOR, EnergySpec::consumer(2)),
+    (FERMENTER, EnergySpec::consumer(5)),
+    (CENTRIFUGE, EnergySpec::consumer(20)),
+    (EXTRACTOR, EnergySpec::consumer(30)),
+    (CLONING_VAT, EnergySpec::consumer(60)),
+    (SEQUENCER, EnergySpec::consumer(80)),
+    (QUARANTINE, EnergySpec::consumer(15)),
+];
+
+// ---- M10: генераторы 0–2 (GDD 4.27 Б1) ----
+//
+// Электрофорная машина, нажимная пластина, вольтов столб, термопара, паровой
+// котёл с динамо, водяное колесо, ветрогенератор. Исполнение — `gen_early.rs`.
+
+/// Генераторы тиров 0–2.
+pub const EARLY_GENERATORS: &[(&str, EnergySpec)] = &[];
+
+// ---- M10: генераторы 3–5 (GDD 4.27 Б2) ----
+//
+// Солнечная панель, двигатель-генератор, геотермальный съёмник, изотопная
+// батарея. Исполнение — `gen_late.rs`.
+
+/// Генераторы тиров 3–5.
+pub const LATE_GENERATORS: &[(&str, EnergySpec)] = &[];
+
+// ---- M10: живые генераторы (GDD 4.27 В) ----
+//
+// Микробный топливный элемент, фотобиореактор, глюкозный элемент,
+// электроцитная батарея; ген электрических органов. Исполнение —
+// `gen_living.rs`.
+
+/// Живые генераторы.
+pub const LIVING_GENERATORS: &[(&str, EnergySpec)] = &[];
+
+// ---- M10: порча ландшафта (GDD 4.27 Г) ----
+//
+// Заражённость чанка 0–5, источники, три блока порчи, перекраска зоны,
+// чистка.
+
+/// Заражённость загруженного чанка `chunk` уровня `dimension`, 0–5.
+pub fn chunk_contamination(dimension: &str, chunk: [i32; 2]) -> u8 {
+    let _ = (dimension, chunk);
+    0
 }
 
 // ---- Экраны машин ----

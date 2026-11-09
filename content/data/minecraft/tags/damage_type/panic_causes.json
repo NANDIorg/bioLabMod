@@ -1,8 +1,24 @@
 {
   "values": [
-    { "id": "biolab:acid", "required": false },
-    { "id": "biolab:toxin", "required": false },
-    { "id": "biolab:infection", "required": false },
-    { "id": "biolab:mutation", "required": false }
+    {
+      "id": "biolab:acid",
+      "required": false
+    },
+    {
+      "id": "biolab:toxin",
+      "required": false
+    },
+    {
+      "id": "biolab:infection",
+      "required": false
+    },
+    {
+      "id": "biolab:mutation",
+      "required": false
+    },
+    {
+      "id": "biolab:electric",
+      "required": false
+    }
   ]
 }

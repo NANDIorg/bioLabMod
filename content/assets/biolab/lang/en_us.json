@@ -156,6 +156,8 @@
  "effect.biolab.paralysis": "Paralysis",
  "death.attack.biolab.acid": "%1$s was dissolved by acid",
  "death.attack.biolab.acid.player": "%1$s was dissolved by acid while fighting %2$s",
+ "death.attack.biolab.electric": "%1$s was electrocuted",
+ "death.attack.biolab.electric.player": "%1$s was electrocuted while fighting %2$s",
  "death.attack.biolab.toxin": "%1$s was poisoned to death",
  "death.attack.biolab.toxin.player": "%1$s was poisoned to death while fighting %2$s",
  "death.attack.biolab.infection": "%1$s succumbed to infection",
