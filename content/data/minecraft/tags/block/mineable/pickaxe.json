@@ -39,6 +39,12 @@
     "biolab:steam_boiler",
     "biolab:dynamo",
     "biolab:water_wheel",
-    "biolab:wind_turbine"
+    "biolab:wind_turbine",
+    "biolab:copper_cable",
+    "biolab:power_cable",
+    "biolab:cable_repeater",
+    "biolab:leyden_jar",
+    "biolab:lead_battery",
+    "biolab:capacitor_bank"
   ]
 }

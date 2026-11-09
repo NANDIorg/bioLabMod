@@ -207,5 +207,12 @@
  "block.biolab.water_wheel": "Водяное колесо",
  "block.biolab.wind_turbine": "Ветрогенератор",
  "item.biolab.zinc_plate": "Цинковая пластина",
- "item.biolab.copper_plate": "Медная пластина"
+ "item.biolab.copper_plate": "Медная пластина",
+ "block.biolab.copper_cable": "Медный кабель",
+ "block.biolab.power_cable": "Силовой кабель",
+ "block.biolab.cable_repeater": "Повторитель кабеля",
+ "block.biolab.leyden_jar": "Лейденская банка",
+ "block.biolab.lead_battery": "Свинцовый аккумулятор",
+ "block.biolab.capacitor_bank": "Конденсаторная сборка",
+ "item.biolab.battery": "Батарея"
 }

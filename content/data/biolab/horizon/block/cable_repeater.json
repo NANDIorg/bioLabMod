@@ -1,0 +1,12 @@
+{
+ "template": "minecraft:chorus_plant",
+ "connects_to": "#biolab:cable_connects",
+ "thickness": 10,
+ "properties": {
+  "hardness": 1.5,
+  "light": 2,
+  "requires_tool": false,
+  "sounds": "minecraft:copper_block"
+ },
+ "item": true
+}

@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/block",
+  "ambientocclusion": false,
+  "textures": {"cable": "biolab:block/cable_repeater", "particle": "biolab:block/cable_repeater"},
+  "elements": [
+    {"from": [3, 3, 3], "to": [13, 13, 13], "faces": {"down": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "up": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "north": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "south": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "west": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "east": {"uv": [3, 3, 13, 13], "texture": "#cable"}}}
+  ]
+}

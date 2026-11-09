@@ -160,6 +160,10 @@ pub fn work(
             return idle(entity);
         }
         m::write_seq(&mut entity.data, mode, m::SeqStatus::Reading, &[], known);
+        // Питание (M10, GDD 4.27 п. 7): нет заряда — чтение стоит.
+        if !crate::game::biolab_power::work(game, pos, entity) {
+            return crate::game::biolab_power::stall(entity);
+        }
         let step = advance(entity, mode.time());
         if step == m::Step::Finish {
             take(entity, m::SEQ_SLOT_PHOSPHORUS, 1);
@@ -197,6 +201,10 @@ pub fn work(
     }
     if ready != m::SeqStatus::Working {
         return idle(entity);
+    }
+    // Питание (M10, GDD 4.27 п. 7): нет заряда — сборка стоит, лампа гаснет.
+    if !crate::game::biolab_power::work(game, pos, entity) {
+        return crate::game::biolab_power::stall(entity);
     }
     let step = advance(entity, mode.time());
     if step != m::Step::Finish {

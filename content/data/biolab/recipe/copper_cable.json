@@ -1,0 +1,17 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "www",
+  "ccc",
+  "www"
+ ],
+ "key": {
+  "w": "#minecraft:wool",
+  "c": "minecraft:copper_ingot"
+ },
+ "result": {
+  "id": "biolab:copper_cable",
+  "count": 6
+ }
+}

@@ -207,5 +207,12 @@
  "block.biolab.water_wheel": "Water Wheel",
  "block.biolab.wind_turbine": "Wind Turbine",
  "item.biolab.zinc_plate": "Zinc Plate",
- "item.biolab.copper_plate": "Copper Plate"
+ "item.biolab.copper_plate": "Copper Plate",
+ "block.biolab.copper_cable": "Copper Cable",
+ "block.biolab.power_cable": "Power Cable",
+ "block.biolab.cable_repeater": "Cable Repeater",
+ "block.biolab.leyden_jar": "Leyden Jar",
+ "block.biolab.lead_battery": "Lead-Acid Battery",
+ "block.biolab.capacitor_bank": "Capacitor Bank",
+ "item.biolab.battery": "Battery"
 }

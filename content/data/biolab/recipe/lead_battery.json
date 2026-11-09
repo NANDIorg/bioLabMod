@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "crc",
+  "isi",
+  "isi"
+ ],
+ "key": {
+  "c": "minecraft:copper_ingot",
+  "r": "minecraft:redstone",
+  "i": "minecraft:iron_block",
+  "s": "biolab:element_sulfur"
+ },
+ "result": {
+  "id": "biolab:lead_battery",
+  "count": 1
+ }
+}

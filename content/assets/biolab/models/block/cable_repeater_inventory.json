@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {"cable": "biolab:block/cable_repeater", "particle": "biolab:block/cable_repeater", "arm": "biolab:block/copper_cable"},
+  "elements": [
+    {"from": [6, 6, 0], "to": [10, 10, 3], "faces": {"down": {"uv": [6, 13, 10, 16], "texture": "#arm"}, "up": {"uv": [6, 0, 10, 3], "texture": "#arm"}, "north": {"uv": [6, 6, 10, 10], "texture": "#arm"}, "south": {"uv": [6, 6, 10, 10], "texture": "#arm"}, "west": {"uv": [0, 6, 3, 10], "texture": "#arm"}, "east": {"uv": [13, 6, 16, 10], "texture": "#arm"}}},
+    {"from": [3, 3, 3], "to": [13, 13, 13], "faces": {"down": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "up": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "north": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "south": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "west": {"uv": [3, 3, 13, 13], "texture": "#cable"}, "east": {"uv": [3, 3, 13, 13], "texture": "#cable"}}},
+    {"from": [6, 6, 13], "to": [10, 10, 16], "faces": {"down": {"uv": [6, 0, 10, 3], "texture": "#arm"}, "up": {"uv": [6, 13, 10, 16], "texture": "#arm"}, "north": {"uv": [6, 6, 10, 10], "texture": "#arm"}, "south": {"uv": [6, 6, 10, 10], "texture": "#arm"}, "west": {"uv": [13, 6, 16, 10], "texture": "#arm"}, "east": {"uv": [0, 6, 3, 10], "texture": "#arm"}}}
+  ]
+}

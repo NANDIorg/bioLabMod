@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  " l ",
+  "cbc",
+  " c "
+ ],
+ "key": {
+  "l": "minecraft:lightning_rod",
+  "c": "minecraft:copper_ingot",
+  "b": "minecraft:glass_bottle"
+ },
+ "result": {
+  "id": "biolab:leyden_jar",
+  "count": 1
+ }
+}

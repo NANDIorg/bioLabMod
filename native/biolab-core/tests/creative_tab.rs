@@ -115,6 +115,10 @@ fn group(item: &str) -> usize {
         // Векторы секвенатора — тоже генетика.
         "gene_vector" | "antisense_vector" => 6,
         _ if name.ends_with("_bucket") => 7,
+        // Энергосеть (M10, GDD 4.27): кабели, накопители, батарея — после
+        // жидкостей, своей группой; генераторы — сюда же.
+        "copper_cable" | "power_cable" | "cable_repeater" | "leyden_jar" | "lead_battery"
+        | "capacitor_bank" | "battery" => 8,
         // Новый предмет без группы падает к веществам — тест ниже скажет, если
         // он встал не на своё место.
         _ => 4,

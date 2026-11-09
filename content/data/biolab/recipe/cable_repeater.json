@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ici",
+  "cRc",
+  "ici"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "c": "biolab:copper_cable",
+  "R": "minecraft:repeater"
+ },
+ "result": {
+  "id": "biolab:cable_repeater",
+  "count": 1
+ }
+}

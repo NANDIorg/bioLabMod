@@ -158,6 +158,13 @@
     "biolab:acid_puddle_bucket",
     "biolab:mutagen_bucket",
     "biolab:slime_bucket",
-    "biolab:sludge_bucket"
+    "biolab:sludge_bucket",
+    "biolab:battery",
+    "biolab:cable_repeater",
+    "biolab:capacitor_bank",
+    "biolab:copper_cable",
+    "biolab:lead_battery",
+    "biolab:leyden_jar",
+    "biolab:power_cable"
   ]
 }
