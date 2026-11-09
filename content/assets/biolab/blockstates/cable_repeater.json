@@ -1,0 +1,9 @@
+{ "multipart": [
+  {"apply": {"model": "biolab:block/cable_repeater_core"}},
+  {"when": {"north": "true"}, "apply": {"model": "biolab:block/cable_repeater_side"}},
+  {"when": {"east": "true"}, "apply": {"model": "biolab:block/cable_repeater_side", "y": 90}},
+  {"when": {"south": "true"}, "apply": {"model": "biolab:block/cable_repeater_side", "y": 180}},
+  {"when": {"west": "true"}, "apply": {"model": "biolab:block/cable_repeater_side", "y": 270}},
+  {"when": {"up": "true"}, "apply": {"model": "biolab:block/cable_repeater_side", "x": 270}},
+  {"when": {"down": "true"}, "apply": {"model": "biolab:block/cable_repeater_side", "x": 90}}
+] }

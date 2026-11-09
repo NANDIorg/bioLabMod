@@ -1,0 +1,17 @@
+{
+  "values": [
+    "biolab:copper_cable",
+    "biolab:power_cable",
+    "biolab:cable_repeater",
+    "biolab:leyden_jar",
+    "biolab:lead_battery",
+    "biolab:capacitor_bank",
+    "biolab:incubator",
+    "biolab:fermenter",
+    "biolab:centrifuge",
+    "biolab:extractor",
+    "biolab:cloning_vat",
+    "biolab:sequencer",
+    "biolab:quarantine"
+  ]
+}

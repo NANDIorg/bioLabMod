@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 123] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 130] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -243,7 +243,14 @@ pub const ITEM_HINTS: [(&str, &[&str]); 123] = [
     // Карта протокола (GDD 4.23 п. 3, раздел «M9: машины»).
     ("biolab:protocol_card", &["ПКМ по ферментеру или экстрактору", "Пустая — запишет найденный режим"]),
     // Предохранители (M9, GDD 4.23 п. 10).
-    ("biolab:syringe_inductor", &["ПКМ по мутанту — доза генному выключателю", "Без дозы такой мутант гибнет"]),
+    ("biolab:syringe_inductor", &["ПКМ по мутанту — доза генному выключателю", "Без дозы такой мутант гибнет"]),    // Энергосеть (M10, GDD 4.27 А).
+    ("biolab:copper_cable", &["Сеть: 128 Вт·с/тик, до 16 кабелей подряд", "ПКМ пустой рукой — сведения о сети"]),
+    ("biolab:power_cable", &["Сеть: 1024 Вт·с/тик, до 16 кабелей подряд", "Для секвенатора и чана без перегрузки"]),
+    ("biolab:cable_repeater", &["Сбрасывает счёт: ещё 16 кабелей дальше", "ПКМ пустой рукой — сведения о сети"]),
+    ("biolab:leyden_jar", &["Накопитель на 2 000 Вт·с, дешёвый", "Сам разряжается за несколько минут"]),
+    ("biolab:lead_battery", &["Накопитель на 50 000 Вт·с", "Полный разряд отнимает 5 % ёмкости"]),
+    ("biolab:capacitor_bank", &["Накопитель на 200 000 Вт·с, отдаёт сразу", "Сломать заряженный — удар током"]),
+    ("biolab:battery", &["ПКМ по накопителю — зарядить", "ПКМ по машине — отдать заряд"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -585,14 +592,23 @@ pub const DATA_STRAIN: usize = 4;
 /// `BENCH_RESULTS` или `BENCH_EMPTY`, `BENCH_NONE`, `BENCH_UNLISTED`.
 pub const DATA_BENCH_RESULT: usize = 4;
 
-/// Сколько слотов данных у машины: четыре общих и её собственные.
+/// Сколько слотов данных у машины: четыре общих, её собственные и, у
+/// машин на питании, запас (`POWER_DATA`, раздел «M10: энергосеть»).
 pub fn machine_data_slots(id: &str) -> usize {
+    base_machine_data_slots(id) + if machine_draw(id) > 0 { POWER_DATA } else { 0 }
+}
+
+/// Слоты данных машины без запаса энергии.
+pub fn base_machine_data_slots(id: &str) -> usize {
     match id {
         REACTOR => DATA_RANGE_MAX + 1,
         SYNTHESIZER => DATA_SYNTH_ELEMENTS + ELEMENTS.len(),
         // Спектрометр: спектр и панель опознания пробы (раздел «M9: машины»).
         SPECTROMETER => DATA_PROBE_END,
         CLONING_VAT => DATA_GENE_STRENGTH + 1,
+        // Экстрактор: последний ген и его сила (тик пишет их в 4 и 5). При
+        // слиянии M9 строка пропала, и числа писались мимо массива.
+        EXTRACTOR => DATA_GENE_STRENGTH + 1,
         "biolab:incubator" => DATA_STRAIN + 4,
         LAB_BENCH => DATA_BENCH_RESULT + 1,
         // Генный секвенатор: режим, итог и гены на мониторе (раздел «M8»).
@@ -7475,6 +7491,8 @@ mod tests {
             THERMOBOX,
             // Карта протокола (GDD 4.23 п. 3): режим — в её данных.
             PROTOCOL_CARD,
+            // Батарея (M10): заряд в данных стека.
+            BATTERY,
         ];
         let mut checked = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -9749,9 +9767,9 @@ mod tests {
         assert_eq!(machine_data_slots(SYNTHESIZER), DATA_SYNTH_ELEMENTS + water.len());
         // У экстрактора — только числа гена: ручки режима ему не достались,
         // их место на экране занял праймер (раздел «M9: машины»).
-        assert_eq!(machine_data_slots(EXTRACTOR), 4, "ген и его сила");
+        assert_eq!(base_machine_data_slots(EXTRACTOR), DATA_GENE_STRENGTH + 1, "ген и его сила");
         assert!(DATA_PROTO_TEMP > DATA_GENE_STRENGTH, "числа гена панель не затирает");
-        assert_eq!(machine_data_slots(CENTRIFUGE), DATA_SLOTS);
+        assert_eq!(base_machine_data_slots(CENTRIFUGE), DATA_SLOTS);
     }
 
     /// Все звуки мода: машин и событий.
@@ -10375,7 +10393,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 71] = [
+pub const RESEARCH: [Research; 72] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10475,7 +10493,9 @@ pub const RESEARCH: [Research; 71] = [
     // Сочетания и предохранители (M9, GDD 4.23 пп. 5, 6, 10) — генетика.
     // Пары узнаются опытом, поэтому у узла своё условие.
     node("pairs", 4, (2, 2), "biolab:microscope", "Совместимость генов", &["fragment"], Unlock::GenePairs(1), "Вживите два гена, которые не ладят."),
-    node("safeguards", 4, (5, 3), "biolab:syringe_inductor", "Гены-предохранители", &["sequencer"], Unlock::Item(&["biolab:syringe_inductor"]), "Соберите индуктор на лабораторном столе."),
+    node("safeguards", 4, (5, 3), "biolab:syringe_inductor", "Гены-предохранители", &["sequencer"], Unlock::Item(&["biolab:syringe_inductor"]), "Соберите индуктор на лабораторном столе."),    // Энергосеть (M10, GDD 4.27 А) — в Основах, после установок: питание
+    // нужно машинам всех наук.
+    node("power", 0, (5, 1), "biolab:copper_cable", "Энергосеть", &["multiblock"], Unlock::Item(&["biolab:copper_cable", "biolab:power_cable", "biolab:cable_repeater", "biolab:leyden_jar", "biolab:lead_battery", "biolab:capacitor_bank", "biolab:battery"]), "Сделайте медный кабель: медь и шерсть."),
 ];
 
 /// Номер узла по id.
@@ -14906,7 +14926,7 @@ mod sequencer_tests {
         assert_eq!(quick_move_targets(m, BROTH_ID), vec![SEQ_SLOT_BROTH]);
         assert_eq!(quick_move_targets(m, FRAGMENT_ID), vec![0, 1, 2]);
         assert!(is_output_slot(SEQUENCER, SEQ_SLOT_OUTPUT) && !is_output_slot(SEQUENCER, 0));
-        assert_eq!(machine_data_slots(SEQUENCER), DATA_SEQ_END);
+        assert_eq!(base_machine_data_slots(SEQUENCER), DATA_SEQ_END);
     }
 
     #[test]
@@ -15112,7 +15132,7 @@ mod sequencer_tests {
             }
         }
         let menu = Json::parse(&std::fs::read_to_string(root.join("menu/sequencer.json")).unwrap()).unwrap();
-        assert_eq!(menu.get("data_slots").and_then(Json::num), Some(DATA_SEQ_END as f64));
+        assert_eq!(menu.get("data_slots").and_then(Json::num), Some((DATA_SEQ_END + POWER_DATA) as f64));
         for item in [GENE_VECTOR, ANTISENSE_VECTOR] {
             let name = item.trim_start_matches("biolab:");
             assert!(root.join(format!("item/{name}.json")).exists(), "нет предмета {item}");
@@ -16762,7 +16782,7 @@ mod quarantine_tests {
         let detail = take_room_check(FILTER.origin).expect("подробности");
         assert!(take_room_check(FILTER.origin).is_none(), "забираются один раз");
         let mut data = vec![0; machine_data_slots(QUARANTINE)];
-        assert_eq!(data.len(), DATA_QR_END);
+        assert_eq!(data.len(), DATA_QR_END + POWER_DATA, "после чисел камеры — запас энергии");
         write_verdict(&mut data, &verdict);
         write_room(&mut data, &detail);
         let sealed = detail.as_ref().expect("камера");
@@ -20959,7 +20979,7 @@ mod machine9_tests {
     fn the_panel_fits_both_machines() {
         for id in PROTOCOL_MACHINES {
             let screen = machine_screen(id).expect("машина со своим экраном");
-            assert_eq!(machine_data_slots(id), DATA_PROTO_END, "{id}: числа панели");
+            assert_eq!(base_machine_data_slots(id), DATA_PROTO_END, "{id}: числа панели");
             let panel = proto_panel();
             // Панель не лезет ни на слоты, ни на прибор, ни на шкалу, ни на
             // подпись инвентаря.
@@ -22550,7 +22570,919 @@ pub const GRID_SPECS: &[(&str, EnergySpec)] = &[
     (CLONING_VAT, EnergySpec::consumer(60)),
     (SEQUENCER, EnergySpec::consumer(80)),
     (QUARANTINE, EnergySpec::consumer(15)),
+    // Накопители (4.22 «Хранение и передача»): поток за тик в обе стороны.
+    // Банка дешёвая и течёт, аккумулятор изнашивается от полных разрядов,
+    // конденсатор отдаёт сразу много.
+    (LEYDEN_JAR, EnergySpec::storage(2_000, 64)),
+    (LEAD_BATTERY, EnergySpec::storage(50_000, 256)),
+    (CAPACITOR_BANK, EnergySpec::storage(200_000, 8_192)),
 ];
+
+/// Медный кабель: класс 128 Вт·с/тик.
+pub const COPPER_CABLE: &str = "biolab:copper_cable";
+/// Силовой кабель: класс 1024, дороже.
+pub const POWER_CABLE: &str = "biolab:power_cable";
+/// Повторитель: сбрасывает счёт длины линии.
+pub const CABLE_REPEATER: &str = "biolab:cable_repeater";
+pub const LEYDEN_JAR: &str = "biolab:leyden_jar";
+pub const LEAD_BATTERY: &str = "biolab:lead_battery";
+pub const CAPACITOR_BANK: &str = "biolab:capacitor_bank";
+/// Батарея-предмет (4.27 п. 9): заряд — `custom_data.horizon_energy`.
+pub const BATTERY: &str = "biolab:battery";
+pub const BATTERY_CAPACITY: i32 = 10_000;
+
+/// Проводники сети и их класс — предел потока за тик (Вт·с). Повторитель
+/// пропускает как силовой кабель.
+pub const CONDUCTORS: [(&str, i32); 3] = [(COPPER_CABLE, 128), (POWER_CABLE, 1024), (CABLE_REPEATER, 1024)];
+
+/// Класс проводника; None — блок не проводник.
+pub fn cable_class(block: &str) -> Option<i32> {
+    CONDUCTORS.iter().find(|(id, _)| *id == block).map(|(_, class)| *class)
+}
+
+/// Кабель или повторитель.
+pub fn is_conductor(block: &str) -> bool {
+    cable_class(block).is_some()
+}
+
+/// Накопитель сети (банка, аккумулятор, конденсатор).
+pub fn is_storage(block: &str) -> bool {
+    power_role(block) == Some(PowerRole::Storage)
+}
+
+/// Сколько кабелей подряд держит линия без повторителя.
+pub const CABLE_REACH: u32 = 16;
+/// Потолок обхода: столько проводников, дальше сеть не читается.
+pub const GRID_NODE_CAP: usize = 512;
+/// Сколько тиков живёт обход сети в кэше (сломанный или поставленный блок
+/// сети сбрасывает кэш сразу — `bump_grid_revision`).
+pub const GRID_CACHE_TICKS: u64 = 40;
+/// Машина доливает буфер из сети раз в столько тиков (и сразу, если на тик
+/// работы не хватает — `consume`).
+pub const TOP_UP_EVERY: u64 = 10;
+/// Накопитель тянет из генераторов раз в столько тиков.
+pub const STORAGE_PULL_EVERY: u64 = 5;
+
+/// Шесть сторон в порядке `Direction` платформы: низ, верх, север, юг,
+/// запад, восток. Противоположная сторона — `i ^ 1`.
+pub const GRID_FACES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
+
+fn grid_step(at: [i32; 3], face: usize) -> [i32; 3] {
+    let d = GRID_FACES[face];
+    [at[0] + d[0], at[1] + d[1], at[2] + d[2]]
+}
+
+/// Блок сети на конце линии: генератор, накопитель или потребитель.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GridNode {
+    pub pos: [i32; 3],
+    pub block: String,
+    pub role: PowerRole,
+    /// Класс самого слабого проводника на пути; `i32::MAX` — стоит вплотную.
+    pub class: i32,
+    /// Проводники пути от блока к началу обхода, с классами.
+    pub path: Vec<([i32; 3], i32)>,
+    /// Сторона блока, которой он смотрит на путь (номер в `GRID_FACES`).
+    pub face: usize,
+}
+
+/// Обход сети от точки: найденные блоки и проводники.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GridScan {
+    pub nodes: Vec<GridNode>,
+    pub cables: Vec<([i32; 3], i32)>,
+    /// Упёрлись в `GRID_NODE_CAP`.
+    pub truncated: bool,
+}
+
+impl GridScan {
+    /// Откуда тянет блок роли `puller`, по порядку (4.27 п. 5): потребитель —
+    /// сначала генераторы, потом накопители; накопитель — только генераторы
+    /// (без перекачки по кругу); генератор не тянет. Номера в `nodes`.
+    pub fn feeders(&self, puller: PowerRole) -> Vec<usize> {
+        let of = |role: PowerRole| self.nodes.iter().enumerate().filter(move |(_, n)| n.role == role).map(|(i, _)| i);
+        match puller {
+            PowerRole::Generator => Vec::new(),
+            PowerRole::Storage => of(PowerRole::Generator).collect(),
+            PowerRole::Consumer => of(PowerRole::Generator).chain(of(PowerRole::Storage)).collect(),
+        }
+    }
+}
+
+/// Обход сети от `origin` по кабелям (BFS): `block_at` — id блока без
+/// свойств, как `native_block` (незагруженное — воздух). Линия держит не
+/// больше `CABLE_REACH` кабелей подряд, повторитель сбрасывает счёт; на
+/// блоках сети обход останавливается (сквозь машину ток не идёт). Начало —
+/// блок сети (тянет он) или проводник (сведения по ПКМ).
+pub fn scan_grid(origin: [i32; 3], mut block_at: impl FnMut([i32; 3]) -> String) -> GridScan {
+    use std::collections::{HashMap, HashSet, VecDeque};
+    let mut scan = GridScan::default();
+    // Проводники обхода: место и откуда пришли (для пути).
+    let mut steps: Vec<([i32; 3], Option<usize>, i32)> = Vec::new();
+    let mut best: HashMap<[i32; 3], u32> = HashMap::new();
+    let mut ids: HashMap<[i32; 3], String> = HashMap::new();
+    let mut found: HashSet<[i32; 3]> = HashSet::new();
+    let mut frontier: VecDeque<(Option<usize>, [i32; 3], u32, i32)> = VecDeque::new();
+    let first = block_at(origin);
+    if let Some(class) = cable_class(&first) {
+        let since = u32::from(first != CABLE_REPEATER);
+        steps.push((origin, None, class));
+        best.insert(origin, since);
+        scan.cables.push((origin, class));
+        frontier.push_back((Some(0), origin, since, class));
+    } else {
+        frontier.push_back((None, origin, 0, i32::MAX));
+    }
+    ids.insert(origin, first);
+    while let Some((step, at, since, class)) = frontier.pop_front() {
+        for face in 0..6 {
+            let next = grid_step(at, face);
+            if next == origin {
+                continue;
+            }
+            let id = ids.entry(next).or_insert_with(|| block_at(next)).clone();
+            if let Some(c) = cable_class(&id) {
+                let s = if id == CABLE_REPEATER { 0 } else { since + 1 };
+                if s > CABLE_REACH || best.get(&next).is_some_and(|b| *b <= s) {
+                    continue;
+                }
+                if !best.contains_key(&next) {
+                    if scan.cables.len() >= GRID_NODE_CAP {
+                        scan.truncated = true;
+                        continue;
+                    }
+                    scan.cables.push((next, c));
+                }
+                best.insert(next, s);
+                steps.push((next, step, c));
+                frontier.push_back((Some(steps.len() - 1), next, s, class.min(c)));
+            } else if let Some(spec) = energy_spec(&id)
+                && found.insert(next)
+            {
+                let mut path = Vec::new();
+                let mut back = step;
+                while let Some(i) = back {
+                    path.push((steps[i].0, steps[i].2));
+                    back = steps[i].1;
+                }
+                scan.nodes.push(GridNode { pos: next, block: id, role: spec.role, class, path, face: face ^ 1 });
+            }
+        }
+    }
+    scan
+}
+
+/// Ревизия сетей: растёт, когда блок сети поставили, сломали или он сгорел,
+/// — обходы в кэше с прошлой ревизией устарели.
+fn grid_revision_cell() -> &'static std::sync::atomic::AtomicU64 {
+    static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    &REVISION
+}
+
+pub fn grid_revision() -> u64 {
+    grid_revision_cell().load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn bump_grid_revision() {
+    grid_revision_cell().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Нагрузка проводников (4.27 п. 10, «перегрузка»): сколько за тик тянут
+/// работающие машины через каждый кабель. Ток определяет нагрузка — сумма
+/// расходов машин за этим кабелем, — а не долив буферов: долив кабель
+/// пропускает не больше своего класса. Сумма расходов больше класса — кабель
+/// плавится.
+#[derive(Default)]
+pub struct GridLoad {
+    /// (измерение, кабель) → (тик, нагрузка в этот тик, нагрузка прошлого).
+    cables: std::collections::HashMap<(String, [i32; 3]), (u64, i32, i32)>,
+}
+
+impl GridLoad {
+    /// Машина тянет `draw` в тик `tick` по пути `path`. Первый кабель, чья
+    /// нагрузка стала больше класса, — он и плавится.
+    pub fn add(&mut self, dimension: &str, path: &[([i32; 3], i32)], draw: i32, tick: u64) -> Option<[i32; 3]> {
+        if self.cables.len() > 8192 {
+            self.cables.retain(|_, (t, _, _)| tick.saturating_sub(*t) < 40);
+        }
+        let mut over = None;
+        for (pos, class) in path {
+            let entry = self.cables.entry((dimension.to_string(), *pos)).or_insert((tick, 0, 0));
+            if entry.0 != tick {
+                let last = if entry.0 + 1 == tick { entry.1 } else { 0 };
+                *entry = (tick, 0, last);
+            }
+            entry.1 += draw;
+            if over.is_none() && entry.1 > *class {
+                over = Some(*pos);
+            }
+        }
+        over
+    }
+
+    /// Нагрузка кабеля для сведений: этот тик или прошлый, что больше.
+    pub fn shown(&self, dimension: &str, pos: [i32; 3], tick: u64) -> i32 {
+        match self.cables.get(&(dimension.to_string(), pos)) {
+            Some((t, now, last)) if *t == tick => (*now).max(*last),
+            Some((t, now, _)) if *t + 1 == tick => *now,
+            _ => 0,
+        }
+    }
+
+    pub fn forget(&mut self, dimension: &str, pos: [i32; 3]) {
+        self.cables.remove(&(dimension.to_string(), pos));
+    }
+}
+
+fn grid_load() -> &'static std::sync::Mutex<GridLoad> {
+    static LOAD: std::sync::OnceLock<std::sync::Mutex<GridLoad>> = std::sync::OnceLock::new();
+    LOAD.get_or_init(Default::default)
+}
+
+/// Записать расход машины на путь; Some — этот кабель перегружен.
+pub fn grid_load_add(dimension: &str, path: &[([i32; 3], i32)], draw: i32, tick: u64) -> Option<[i32; 3]> {
+    grid_load().lock().ok()?.add(dimension, path, draw, tick)
+}
+
+pub fn grid_load_shown(dimension: &str, pos: [i32; 3], tick: u64) -> i32 {
+    grid_load().lock().map_or(0, |l| l.shown(dimension, pos, tick))
+}
+
+pub fn grid_load_forget(dimension: &str, pos: [i32; 3]) {
+    if let Ok(mut l) = grid_load().lock() {
+        l.forget(dimension, pos);
+    }
+}
+
+// == Накопители ==
+
+/// Лейденская банка течёт: раз в секунду теряет процент, но не меньше 7 —
+/// полная пустеет минуты за три-четыре.
+pub const LEYDEN_LEAK_EVERY: u64 = 20;
+
+pub fn leyden_leak(stored: i32) -> i32 {
+    if stored <= 0 { 0 } else { (stored / 100).max(7).min(stored) }
+}
+
+/// Износ свинцового аккумулятора: число полных разрядов (в сейве блока).
+pub const BATTERY_WEAR_KEY: &str = "biolab_wear";
+/// Аккумулятор был заряжен (≥ 20 %) и ещё не разряжался до нуля.
+pub const BATTERY_CHARGED_KEY: &str = "biolab_charged";
+/// Каждый полный разряд отнимает 5 % ёмкости, но не больше половины.
+pub const BATTERY_WEAR_STEP: i32 = 5;
+pub const BATTERY_WEAR_MAX: i32 = 50;
+
+/// Ёмкость накопителя с учётом износа (у аккумулятора), Вт·с.
+pub fn storage_capacity(block: &str, wear: i32) -> i32 {
+    let Some(spec) = energy_spec(block) else {
+        return 0;
+    };
+    if block != LEAD_BATTERY {
+        return spec.capacity;
+    }
+    let lost = (wear.max(0) * BATTERY_WEAR_STEP).min(BATTERY_WEAR_MAX);
+    spec.capacity / 100 * (100 - lost)
+}
+
+/// Цикл аккумулятора: (заряжен ли теперь, был ли сейчас полный разряд).
+/// Полный разряд — до нуля после заряда хотя бы на пятую часть.
+pub fn battery_cycle(stored: i32, capacity: i32, charged: bool) -> (bool, bool) {
+    if stored <= 0 && charged {
+        (false, true)
+    } else if capacity > 0 && stored >= capacity / 5 {
+        (true, false)
+    } else {
+        (charged, false)
+    }
+}
+
+/// Урон разрядом в того, кто ломает заряженный накопитель (4.27 п. 10):
+/// конденсатор бьёт по запасу, до 12 сердец; банка щиплет, до двух.
+pub fn discharge_damage(block: &str, stored: i32) -> f32 {
+    match block {
+        CAPACITOR_BANK if stored >= 2_000 => (stored as f32 / 8_000.0).clamp(1.0, 24.0),
+        LEYDEN_JAR if stored >= 500 => (stored / 500).min(4) as f32,
+        _ => 0.0,
+    }
+}
+
+// == Короткое замыкание ==
+
+/// Как часто блок сети проверяет, не мокнет ли его сеть.
+pub const SHORT_CHECK_EVERY: u64 = 100;
+/// Одно место замыкает не чаще раза в 5 с.
+pub const SHORT_COOLDOWN: u64 = 100;
+/// Бьёт током тех, кто в 2 блоках, на полтора сердца.
+pub const SHORT_RADIUS: f64 = 2.0;
+pub const SHORT_DAMAGE: f32 = 3.0;
+/// Дождь сильнее этого — уже мокро.
+pub const RAIN_WET: f32 = 0.2;
+/// Сколько проводников за проверку смотрим (остальные — в следующий раз).
+pub const SHORT_PROBE: usize = 64;
+
+/// Вода рядом с блоком сети.
+pub fn is_wet_block(block: &str) -> bool {
+    matches!(block, "minecraft:water" | "minecraft:bubble_column")
+}
+
+/// Мокнет ли блок: вода в соседях или дождь, а над ним открытое небо (свет
+/// неба 15 в клетке над ним).
+pub fn exposed(neighbours: &[String], rain: f32, sky_above: u8) -> bool {
+    neighbours.iter().any(|b| is_wet_block(b)) || (rain >= RAIN_WET && sky_above >= 15)
+}
+
+/// Сколько заряда уходит в землю при замыкании: половина.
+pub fn short_drain(stored: i32) -> i32 {
+    stored.max(0) / 2
+}
+
+// == События сети для игроков ==
+
+/// Что сеть сделала у игроков: удар током и строка в чат. Бьёт и говорит
+/// тик игрока (`power_player.rs`): урон своего типа даётся только игроку,
+/// на чьём тике идёт хук.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GridEvent {
+    pub dimension: String,
+    pub at: [f64; 3],
+    /// Кого бьёт (0 — никого) и на сколько.
+    pub hurt_radius: f64,
+    pub damage: f32,
+    pub hurt_line: String,
+    /// Кто слышит строку `line`.
+    pub hear_radius: f64,
+    pub line: String,
+    seq: u64,
+    until: u64,
+}
+
+/// Сколько событие ждёт игроков, мс.
+pub const GRID_EVENT_HOLD_MS: u64 = 1_500;
+
+#[derive(Default)]
+pub struct GridEvents {
+    list: Vec<GridEvent>,
+    next: u64,
+    heard: std::collections::HashMap<u128, u64>,
+}
+
+impl GridEvents {
+    #[allow(clippy::too_many_arguments)]
+    pub fn note(&mut self, dimension: &str, at: [f64; 3], hurt: (f64, f32, &str), hear: (f64, &str), now: u64) {
+        self.list.retain(|e| e.until > now);
+        if self.list.len() >= 64 {
+            return;
+        }
+        self.next += 1;
+        self.list.push(GridEvent {
+            dimension: dimension.to_string(),
+            at,
+            hurt_radius: hurt.0,
+            damage: hurt.1,
+            hurt_line: hurt.2.to_string(),
+            hear_radius: hear.0,
+            line: hear.1.to_string(),
+            seq: self.next,
+            until: now + GRID_EVENT_HOLD_MS,
+        });
+    }
+
+    /// Что достаётся игроку в точке `at`: урон и строки. Каждое событие —
+    /// игроку один раз.
+    pub fn take(&mut self, player: u128, dimension: &str, at: [f64; 3], now: u64) -> (f32, Vec<String>) {
+        let heard = self.heard.get(&player).copied().unwrap_or(0);
+        let mut damage = 0.0;
+        let mut lines = Vec::new();
+        for e in self.list.iter().filter(|e| e.seq > heard && e.until > now && e.dimension == dimension) {
+            if e.damage > 0.0 && within(e.at, at, e.hurt_radius) {
+                damage += e.damage;
+                lines.push(e.hurt_line.clone());
+            } else if !e.line.is_empty() && within(e.at, at, e.hear_radius) {
+                lines.push(e.line.clone());
+            }
+        }
+        self.heard.insert(player, self.next);
+        lines.dedup();
+        (damage, lines)
+    }
+}
+
+fn grid_events() -> &'static std::sync::Mutex<GridEvents> {
+    static EVENTS: std::sync::OnceLock<std::sync::Mutex<GridEvents>> = std::sync::OnceLock::new();
+    EVENTS.get_or_init(Default::default)
+}
+
+/// Сеть ударила током (`hurt`: радиус, урон, строка ударенному) и/или
+/// сказала строку тем, кто рядом (`hear`: радиус, строка).
+pub fn note_grid_event(dimension: &str, at: [f64; 3], hurt: (f64, f32, &str), hear: (f64, &str)) {
+    if let Ok(mut events) = grid_events().lock() {
+        events.note(dimension, at, hurt, hear, quarantine_clock());
+    }
+}
+
+pub fn take_grid_events(player: u128, dimension: &str, at: [f64; 3]) -> (f32, Vec<String>) {
+    match grid_events().lock() {
+        Ok(mut events) => events.take(player, dimension, at, quarantine_clock()),
+        Err(_) => (0.0, Vec::new()),
+    }
+}
+
+/// Тексты аварий.
+pub const MELT_LINE: &str = "Кабель расплавился: машины за ним тянут больше его класса";
+pub const SHORT_HURT_LINE: &str = "Удар током: короткое замыкание";
+pub const SHORT_LINE: &str = "Короткое замыкание: сеть в воде или под дождём";
+pub const QUARANTINE_UNPOWERED_LINE: &str = "Фильтр карантинной камеры обесточен: камера не держит";
+
+// == Звуки сети ==
+
+/// Кабель сгорел — шипение гаснущего факела, ниже обычного.
+pub const MELT_SOUND: Sound = Sound { event: "minecraft:block.redstone_torch.burnout", volume: 0.8, pitch: 0.7, source: SOURCE_BLOCK };
+/// Замыкание и разряд — треск молнии, тихо и высоко.
+pub const SHORT_SOUND: Sound = Sound { event: "minecraft:entity.lightning_bolt.impact", volume: 0.35, pitch: 1.8, source: SOURCE_BLOCK };
+/// Батарея зарядилась или отдала — заряд якоря возрождения, высоко.
+pub const BATTERY_SOUND: Sound = Sound { event: "minecraft:block.respawn_anchor.charge", volume: 0.4, pitch: 1.7, source: SOURCE_PLAYER };
+
+// == Запас на экране машины ==
+
+/// Слоты данных запаса у потребителя — после всех своих чисел машины:
+/// запас (Вт·с) и «нет питания» (1 — машина хочет работать, а заряда нет).
+pub const POWER_DATA: usize = 2;
+pub const NO_POWER: &str = "Нет питания";
+
+/// Первый слот запаса машины; None — машине питание не нужно.
+pub fn power_data(id: &str) -> Option<usize> {
+    (machine_draw(id) > 0).then(|| base_machine_data_slots(id))
+}
+
+/// Записать запас и «нет питания» в числа меню (данные уже нужной длины).
+pub fn write_power(id: &str, data: &mut [i32], stored: i32, starved: bool) {
+    if let Some(at) = power_data(id)
+        && data.len() >= at + POWER_DATA
+    {
+        // Слоты данных 16-битные: запас потребителя ≤ 80 × 200 = 16 000.
+        data[at] = stored.clamp(0, i32::from(i16::MAX));
+        data[at + 1] = i32::from(starved);
+    }
+}
+
+/// Запас машины для экрана.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PowerShown {
+    pub stored: i32,
+    pub capacity: i32,
+    pub draw: i32,
+    pub starved: bool,
+}
+
+impl PowerShown {
+    pub fn fraction(&self) -> f32 {
+        if self.capacity <= 0 { 0.0 } else { (self.stored as f32 / self.capacity as f32).clamp(0.0, 1.0) }
+    }
+}
+
+pub fn power_shown(id: &str, data: &[i32]) -> Option<PowerShown> {
+    let at = power_data(id)?;
+    let spec = energy_spec(id)?;
+    Some(PowerShown {
+        stored: screen_datum(data, at, 0),
+        capacity: spec.capacity,
+        draw: spec.rate,
+        starved: screen_datum(data, at + 1, 0) > 0,
+    })
+}
+
+/// Полоса запаса на экране: над инвентарём справа, в строке подписи
+/// «Инвентарь» (та — слева).
+pub fn power_bar(id: &str) -> Option<[f32; 4]> {
+    power_data(id)?;
+    let screen = machine_screen(id)?;
+    Some([108.0, screen.inventory[1] - 11.0, 60.0, 9.0])
+}
+
+/// Подсказка над полосой запаса.
+pub fn power_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Option<Vec<String>> {
+    let bar = power_bar(id)?;
+    if !(at[0] >= bar[0] && at[0] < bar[0] + bar[2] && at[1] >= bar[1] && at[1] < bar[1] + bar[3]) {
+        return None;
+    }
+    let shown = power_shown(id, data)?;
+    let mut lines = vec![
+        format!("Заряд: {} / {} Вт·с", spaced(shown.stored), spaced(shown.capacity)),
+        format!("Расход в работе: {} Вт·с/тик", shown.draw),
+    ];
+    if shown.starved {
+        lines.push(format!("§c{NO_POWER}: работа стоит"));
+        lines.push("§7Подключите кабель к генератору или накопителю".to_string());
+    } else {
+        lines.push("§7Буфер — на 10 с работы, доливается из сети".to_string());
+    }
+    Some(lines)
+}
+
+/// Число с пробелами по тысячам: 12 400.
+pub fn spaced(n: i32) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    if n < 0 { format!("-{out}") } else { out }
+}
+
+// == Сведения о сети (ПКМ пустой рукой по кабелю, 4.27 А п. 8) ==
+
+/// Сводка сети вокруг кабеля.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GridReport {
+    pub cable: String,
+    pub class: i32,
+    /// Нагрузка этого кабеля за тик.
+    pub load: i32,
+    pub cables: usize,
+    pub truncated: bool,
+    pub generators: u32,
+    /// Выработка по паспорту, Вт·с/тик.
+    pub generation: i32,
+    /// Сколько лежит в буферах генераторов.
+    pub generator_charge: i32,
+    pub storages: u32,
+    pub stored: i32,
+    pub capacity: i32,
+    pub consumers: u32,
+    /// Расход всех потребителей в работе, Вт·с/тик.
+    pub draw: i32,
+}
+
+/// Имя проводника для сведений.
+pub fn conductor_title(block: &str) -> &'static str {
+    match block {
+        COPPER_CABLE => "Медный кабель",
+        POWER_CABLE => "Силовой кабель",
+        CABLE_REPEATER => "Повторитель",
+        _ => "Кабель",
+    }
+}
+
+/// Строки сведений о сети.
+pub fn grid_report_lines(r: &GridReport) -> Vec<String> {
+    let percent = if r.class > 0 { r.load * 100 / r.class } else { 0 };
+    let mut lines = vec![format!(
+        "{}: поток {} из {} Вт·с/тик ({percent} %)",
+        conductor_title(&r.cable),
+        spaced(r.load),
+        spaced(r.class)
+    )];
+    lines.push(if r.generators == 0 {
+        "Генераторов нет".to_string()
+    } else {
+        format!(
+            "Генераторов: {} · выработка до {} Вт·с/тик · в буферах {}",
+            r.generators,
+            spaced(r.generation),
+            spaced(r.generator_charge)
+        )
+    });
+    lines.push(if r.storages == 0 {
+        "Накопителей нет".to_string()
+    } else {
+        format!("Накопители: {} · заряд {} / {} Вт·с", r.storages, spaced(r.stored), spaced(r.capacity))
+    });
+    lines.push(if r.consumers == 0 {
+        "Потребителей нет".to_string()
+    } else {
+        format!("Потребители: {} · в работе тянут {} Вт·с/тик", r.consumers, spaced(r.draw))
+    });
+    if r.draw > r.class {
+        lines.push(format!("§eРасход больше класса кабеля ({}) — он расплавится", spaced(r.class)));
+    }
+    if r.generators > 0 && r.draw > r.generation {
+        lines.push("§eРасход больше выработки — сеть живёт на накопителях".to_string());
+    }
+    let tail = if r.truncated { " — сеть большая, показана часть" } else { "" };
+    lines.push(format!("§7Кабелей в обходе: {}{tail}", r.cables));
+    lines
+}
+
+/// Строка о накопителе по ПКМ пустой рукой.
+pub fn storage_line(block: &str, stored: i32, wear: i32) -> String {
+    let title = match block {
+        LEYDEN_JAR => "Лейденская банка",
+        LEAD_BATTERY => "Свинцовый аккумулятор",
+        CAPACITOR_BANK => "Конденсаторная сборка",
+        _ => "Накопитель",
+    };
+    let capacity = storage_capacity(block, wear);
+    let mut line = format!("{title}: заряд {} / {} Вт·с", spaced(stored), spaced(capacity));
+    if block == LEAD_BATTERY && wear > 0 {
+        let lost = (wear * BATTERY_WEAR_STEP).min(BATTERY_WEAR_MAX);
+        line.push_str(&format!(" · износ {lost} % ({wear} полн. разрядов)"));
+    }
+    if block == LEYDEN_JAR {
+        line.push_str(" · течёт");
+    }
+    line
+}
+
+/// Строка о батарее-предмете.
+pub fn battery_line(stored: i32) -> String {
+    format!("Батарея: {} / {} Вт·с", spaced(stored), spaced(BATTERY_CAPACITY))
+}
+
+/// Полоска заряда батареи под иконкой (ширина 0–13, как у ванильной).
+pub fn battery_bar(stored: i32) -> (i32, u32) {
+    let width = (i64::from(stored.clamp(0, BATTERY_CAPACITY)) * 13 / i64::from(BATTERY_CAPACITY)) as i32;
+    (width, if stored * 5 < BATTERY_CAPACITY { 0xE0_A040 } else { 0x3F_D8C4 })
+}
+
+#[cfg(test)]
+mod grid_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    type World = HashMap<[i32; 3], &'static str>;
+
+    fn at(world: &World) -> impl FnMut([i32; 3]) -> String + '_ {
+        move |p| world.get(&p).copied().unwrap_or("minecraft:air").to_string()
+    }
+
+    /// Линия кабелей по X от x = 1 до x = n, машина в 0, генератор в n + 1.
+    fn line(n: i32, cable: &'static str) -> World {
+        let mut w = World::new();
+        w.insert([0, 0, 0], INCUBATOR);
+        for x in 1..=n {
+            w.insert([x, 0, 0], cable);
+        }
+        w.insert([n + 1, 0, 0], LEYDEN_JAR);
+        w
+    }
+
+    #[test]
+    fn a_line_holds_sixteen_cables_and_a_repeater_resets_the_count() {
+        let w = line(16, COPPER_CABLE);
+        let scan = scan_grid([0, 0, 0], at(&w));
+        assert_eq!(scan.nodes.len(), 1);
+        assert_eq!(scan.nodes[0].path.len(), 16);
+        assert_eq!(scan.nodes[0].class, 128);
+
+        let w = line(17, COPPER_CABLE);
+        assert!(scan_grid([0, 0, 0], at(&w)).nodes.is_empty(), "17 кабелей — уже не дотянуть");
+
+        let mut w = line(30, COPPER_CABLE);
+        w.insert([15, 0, 0], CABLE_REPEATER);
+        let scan = scan_grid([0, 0, 0], at(&w));
+        assert_eq!(scan.nodes.len(), 1, "повторитель сбрасывает счёт");
+        assert_eq!(scan.nodes[0].pos, [31, 0, 0]);
+    }
+
+    #[test]
+    fn the_weakest_cable_sets_the_class_and_the_path_runs_back_to_the_puller() {
+        let mut w = line(4, POWER_CABLE);
+        w.insert([2, 0, 0], COPPER_CABLE);
+        let scan = scan_grid([0, 0, 0], at(&w));
+        let jar = &scan.nodes[0];
+        assert_eq!(jar.class, 128);
+        assert_eq!(jar.path.first().map(|p| p.0), Some([4, 0, 0]), "путь — от блока к началу");
+        assert_eq!(jar.path.last().map(|p| p.0), Some([1, 0, 0]));
+        assert_eq!(GRID_FACES[jar.face], [-1, 0, 0], "банка смотрит на кабель западной стороной");
+    }
+
+    #[test]
+    fn neighbours_feed_directly_and_machines_do_not_conduct() {
+        let mut w = World::new();
+        w.insert([0, 0, 0], INCUBATOR);
+        w.insert([0, 1, 0], CAPACITOR_BANK);
+        w.insert([1, 0, 0], FERMENTER);
+        w.insert([2, 0, 0], LEAD_BATTERY);
+        let scan = scan_grid([0, 0, 0], at(&w));
+        assert_eq!(scan.nodes.len(), 2);
+        let cap = scan.nodes.iter().find(|n| n.block == CAPACITOR_BANK).unwrap();
+        assert_eq!((cap.class, cap.path.len()), (i32::MAX, 0));
+        assert!(scan.nodes.iter().all(|n| n.block != LEAD_BATTERY), "сквозь ферментер ток не идёт");
+    }
+
+    #[test]
+    fn a_consumer_takes_from_generators_first_and_storage_only_from_generators() {
+        let scan = GridScan {
+            nodes: [(LEAD_BATTERY, PowerRole::Storage), (INCUBATOR, PowerRole::Consumer), ("g", PowerRole::Generator)]
+                .iter()
+                .map(|(b, role)| GridNode {
+                    pos: [0, 0, 0],
+                    block: b.to_string(),
+                    role: *role,
+                    class: 1,
+                    path: Vec::new(),
+                    face: 0,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        assert_eq!(scan.feeders(PowerRole::Consumer), vec![2, 0]);
+        assert_eq!(scan.feeders(PowerRole::Storage), vec![2]);
+        assert!(scan.feeders(PowerRole::Generator).is_empty());
+    }
+
+    #[test]
+    fn the_scan_stops_at_the_cap_and_from_a_cable_both_ways() {
+        let mut w = World::new();
+        for x in -8..=8 {
+            w.insert([x, 0, 0], COPPER_CABLE);
+        }
+        w.insert([-9, 0, 0], INCUBATOR);
+        w.insert([9, 0, 0], LEYDEN_JAR);
+        let scan = scan_grid([0, 0, 0], at(&w));
+        assert_eq!(scan.nodes.len(), 2);
+        assert_eq!(scan.cables.len(), 17);
+
+        // Решётка повторителей (счёт длины не растёт) больше потолка.
+        let mut w = World::new();
+        for x in 0..30 {
+            for z in 0..30 {
+                w.insert([x, 0, z], CABLE_REPEATER);
+            }
+        }
+        let scan = scan_grid([0, 0, 0], at(&w));
+        assert!(scan.truncated);
+        assert_eq!(scan.cables.len(), GRID_NODE_CAP);
+    }
+
+    #[test]
+    fn machines_over_the_class_melt_the_shared_cable() {
+        let mut load = GridLoad::default();
+        let trunk = [([1, 0, 0], 128), ([2, 0, 0], 128)];
+        assert_eq!(load.add("o", &trunk, 80, 10), None, "один секвенатор — 80 из 128");
+        assert_eq!(load.add("o", &trunk, 60, 10), Some([1, 0, 0]), "секвенатор и чан — 140 > 128");
+        assert_eq!(load.add("o", &trunk, 80, 11), None, "новый тик — счёт заново");
+        assert_eq!(load.shown("o", [1, 0, 0], 11), 140, "сведения — наибольшее за тик и прошлый");
+        let power = [([1, 0, 0], 1024)];
+        let mut load = GridLoad::default();
+        for _ in 0..12 {
+            assert_eq!(load.add("o", &power, 80, 5), None);
+        }
+        assert_eq!(load.add("o", &power, 80, 5), Some([1, 0, 0]));
+    }
+
+    #[test]
+    fn storages_leak_wear_and_discharge() {
+        let mut left = 2_000;
+        let mut seconds = 0;
+        while left > 0 {
+            left -= leyden_leak(left);
+            seconds += 1;
+        }
+        assert!((150..=300).contains(&seconds), "банка пустеет за несколько минут: {seconds} с");
+
+        assert_eq!(storage_capacity(LEAD_BATTERY, 0), 50_000);
+        assert_eq!(storage_capacity(LEAD_BATTERY, 2), 45_000);
+        assert_eq!(storage_capacity(LEAD_BATTERY, 99), 25_000, "износ — не больше половины");
+        assert_eq!(storage_capacity(CAPACITOR_BANK, 5), 200_000);
+        assert_eq!(battery_cycle(20_000, 50_000, false), (true, false));
+        assert_eq!(battery_cycle(0, 50_000, true), (false, true), "полный разряд после заряда");
+        assert_eq!(battery_cycle(0, 50_000, false), (false, false), "пустой стоял — не износ");
+        assert_eq!(battery_cycle(5_000, 50_000, true), (true, false));
+
+        assert_eq!(discharge_damage(CAPACITOR_BANK, 200_000), 24.0);
+        assert_eq!(discharge_damage(CAPACITOR_BANK, 1_000), 0.0);
+        assert_eq!(discharge_damage(LEYDEN_JAR, 2_000), 4.0);
+        assert_eq!(discharge_damage(LEAD_BATTERY, 50_000), 0.0);
+    }
+
+    #[test]
+    fn water_or_open_rain_shorts_the_grid() {
+        let dry = vec!["minecraft:air".to_string(); 6];
+        assert!(!exposed(&dry, 0.0, 15));
+        assert!(exposed(&dry, 1.0, 15), "дождь и небо над головой");
+        assert!(!exposed(&dry, 1.0, 14), "дождь, но крыша");
+        let mut wet = dry.clone();
+        wet[3] = "minecraft:water".to_string();
+        assert!(exposed(&wet, 0.0, 0));
+        assert_eq!(short_drain(1_001), 500);
+    }
+
+    #[test]
+    fn grid_events_hurt_the_near_and_tell_the_rest_once() {
+        let mut events = GridEvents::default();
+        events.note("o", [0.0, 0.0, 0.0], (2.0, 3.0, "удар"), (12.0, "замыкание"), 100);
+        assert_eq!(events.take(1, "o", [1.0, 0.0, 0.0], 200), (3.0, vec!["удар".to_string()]));
+        assert_eq!(events.take(1, "o", [1.0, 0.0, 0.0], 300), (0.0, vec![]), "второй раз — нет");
+        assert_eq!(events.take(2, "o", [8.0, 0.0, 0.0], 300), (0.0, vec!["замыкание".to_string()]));
+        assert_eq!(events.take(3, "n", [0.0, 0.0, 0.0], 300), (0.0, vec![]), "другое измерение");
+        assert_eq!(events.take(4, "o", [0.0, 0.0, 0.0], 100 + GRID_EVENT_HOLD_MS + 1), (0.0, vec![]));
+    }
+
+    #[test]
+    fn consumers_show_their_charge_after_their_own_numbers() {
+        for (id, spec) in GRID_SPECS.iter().filter(|(_, s)| s.role == PowerRole::Consumer) {
+            let at = power_data(id).unwrap();
+            assert_eq!(machine_data_slots(id), at + POWER_DATA, "{id}");
+            assert!(spec.capacity <= i32::from(i16::MAX), "{id}: запас не влезет в слот данных");
+            let mut data = vec![0; machine_data_slots(id)];
+            write_power(id, &mut data, 123, true);
+            let shown = power_shown(id, &data).unwrap();
+            assert_eq!((shown.stored, shown.starved, shown.capacity), (123, true, spec.capacity));
+        }
+        assert_eq!(power_data("biolab:still"), None);
+        assert_eq!(machine_data_slots("biolab:still"), DATA_SLOTS);
+    }
+
+    #[test]
+    fn the_charge_bar_sits_beside_the_inventory_label() {
+        for (id, _) in GRID_SPECS.iter().filter(|(_, s)| s.role == PowerRole::Consumer) {
+            let s = machine_screen(id).unwrap();
+            let bar = power_bar(id).unwrap();
+            assert!(bar[0] >= 64.0, "{id}: налезет на подпись «Инвентарь»");
+            assert!(bar[0] + bar[2] <= s.width - 4.0 && bar[1] >= SCREEN_HEADER, "{id}: {bar:?}");
+            for r in screen_rects(&s) {
+                assert!(!rects_overlap(bar, r), "{id}: полоса {bar:?} налезает на {r:?}");
+            }
+            for slot in inventory_slots(&s) {
+                assert!(!rects_overlap(bar, slot_frame(slot)), "{id}: полоса на инвентаре");
+            }
+            if has_protocol(id) {
+                assert!(!rects_overlap(bar, proto_panel()), "{id}: полоса на панели режима");
+            }
+            let inside = [bar[0] + 2.0, bar[1] + 2.0];
+            let data = vec![0; machine_data_slots(id)];
+            assert!(power_tooltip(id, &data, inside).is_some_and(|l| l[0].starts_with("Заряд")), "{id}");
+            assert_eq!(screen_tooltip(id, &data, inside).first().map(|l| l.starts_with("Заряд")), Some(true), "{id}");
+        }
+    }
+
+    #[test]
+    fn the_report_names_what_the_grid_holds() {
+        let r = GridReport {
+            cable: COPPER_CABLE.to_string(),
+            class: 128,
+            load: 140,
+            cables: 12,
+            generators: 1,
+            generation: 6,
+            generator_charge: 1_200,
+            storages: 1,
+            stored: 12_400,
+            capacity: 50_000,
+            consumers: 2,
+            draw: 140,
+            ..Default::default()
+        };
+        let lines = grid_report_lines(&r);
+        assert_eq!(lines[0], "Медный кабель: поток 140 из 128 Вт·с/тик (109 %)");
+        assert!(lines.iter().any(|l| l.contains("заряд 12 400 / 50 000")));
+        assert!(lines.iter().any(|l| l.contains("расплавится")));
+        assert!(lines.iter().any(|l| l.contains("на накопителях")));
+        assert_eq!(spaced(200_000), "200 000");
+        assert_eq!(spaced(999), "999");
+        assert_eq!(storage_line(LEAD_BATTERY, 100, 2), "Свинцовый аккумулятор: заряд 100 / 45 000 Вт·с · износ 10 % (2 полн. разрядов)");
+        assert_eq!(battery_bar(10_000), (13, 0x3F_D8C4));
+        assert_eq!(battery_bar(0).0, 0);
+    }
+
+    #[test]
+    fn grid_sounds_are_vanilla_and_gentle() {
+        for s in [MELT_SOUND, SHORT_SOUND, BATTERY_SOUND] {
+            assert!(s.event.starts_with("minecraft:"), "{}", s.event);
+            assert!((0.5..=2.0).contains(&s.pitch) && s.volume > 0.0 && s.volume <= 1.0, "{}", s.event);
+        }
+    }
+
+    fn content(path: &str) -> String {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        std::fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    }
+
+    #[test]
+    fn cables_join_every_block_of_the_grid() {
+        let tag = content("data/biolab/tags/block/cable_connects.json");
+        for (id, _) in GRID_SPECS.iter() {
+            assert!(tag.contains(&format!("\"{id}\"")), "{id} нет в #biolab:cable_connects");
+        }
+        for (id, _) in CONDUCTORS.iter() {
+            assert!(tag.contains(&format!("\"{id}\"")), "{id} нет в #biolab:cable_connects");
+            let block = content(&format!("data/biolab/horizon/block/{}.json", id.trim_start_matches("biolab:")));
+            assert!(block.contains("\"minecraft:chorus_plant\"") && block.contains("#biolab:cable_connects"), "{id}");
+        }
+    }
+
+    #[test]
+    fn grid_blocks_and_the_battery_are_named_crafted_and_hinted() {
+        let ru = content("assets/biolab/lang/ru_ru.json");
+        let en = content("assets/biolab/lang/en_us.json");
+        let blocks = [COPPER_CABLE, POWER_CABLE, CABLE_REPEATER, LEYDEN_JAR, LEAD_BATTERY, CAPACITOR_BANK];
+        for id in blocks.iter().chain([BATTERY].iter()) {
+            let short = id.trim_start_matches("biolab:");
+            let key = if *id == BATTERY { format!("item.biolab.{short}") } else { format!("block.biolab.{short}") };
+            assert!(ru.contains(&format!("\"{key}\"")) && en.contains(&format!("\"{key}\"")), "{key}");
+            content(&format!("data/biolab/recipe/{short}.json"));
+            assert!(!item_hint(id).is_empty(), "{id}: нет подсказки");
+        }
+        for id in blocks {
+            let short = id.trim_start_matches("biolab:");
+            assert!(content(&format!("data/biolab/loot_table/blocks/{short}.json")).contains(&format!("\"{id}\"")));
+        }
+    }
+}
 
 // ---- M10: генераторы 0–2 (GDD 4.27 Б1) ----
 //
@@ -23362,6 +24294,10 @@ pub fn screen_tooltip(id: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
     let Some(screen) = machine_screen(id) else {
         return Vec::new();
     };
+    // Полоса запаса энергии (M10, раздел «M10: энергосеть»).
+    if let Some(lines) = power_tooltip(id, data, at) {
+        return lines;
+    }
     if port(id).is_some() {
         let over = inside(screen.gauge, at) || inside(screen.progress, at);
         return if over { port_tooltip(id) } else { Vec::new() };
@@ -23839,7 +24775,7 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 36, "блоков стало больше — решите, выпадают ли новые");
+        assert_eq!(blocks.len(), 42, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,
@@ -23924,6 +24860,10 @@ mod drop_tests {
         assert!(pickaxe.contains(&OPERATING_TABLE.to_string()));
         // Части установок — металл и стекло в раме: киркой.
         for id in [CASING, CASING_GLASS, INPUT_PORT, OUTPUT_PORT, COLUMN, COLUMN_TRAY, COLUMN_CONDENSER, SEQUENCER, SEQUENCER_RACK, SEQUENCER_MONITOR, QUARANTINE, CLEAN_PANEL, CRYOBANK] {
+            assert!(pickaxe.contains(&id.to_string()), "{id}");
+        }
+        // Энергосеть (M10): кабели, повторитель и накопители — тоже киркой.
+        for id in [COPPER_CABLE, POWER_CABLE, CABLE_REPEATER, LEYDEN_JAR, LEAD_BATTERY, CAPACITOR_BANK] {
             assert!(pickaxe.contains(&id.to_string()), "{id}");
         }
     }

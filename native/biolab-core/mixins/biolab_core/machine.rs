@@ -168,6 +168,7 @@ fn biolab_core_machine_tick(
     /// клон готов; сам спавн делает тело хука — ему виден мир.
     fn grow_clone(
         entity: &mut horizon_client::chunk::block_entity::ModBlockEntity,
+        power: &mut dyn FnMut(&mut horizon_client::chunk::block_entity::ModBlockEntity) -> bool,
     ) -> Option<String> {
         use crate::game::biolab_core as m;
         use horizon_world::nbt::Tag;
@@ -218,6 +219,11 @@ fn biolab_core_machine_tick(
         }
 
         entity.data[m::DATA_TOTAL] = m::CLONE_TIME;
+        // Питание (M10, GDD 4.27 п. 7): без заряда рост стоит, лампа гаснет.
+        if !power(entity) {
+            entity.data[m::DATA_LIT] = 0;
+            return None;
+        }
         entity.data[m::DATA_LIT] = 1;
         entity.data[m::DATA_LIT_TOTAL] = 1;
         let progress = entity.data[m::DATA_PROGRESS] + 1;
@@ -327,6 +333,9 @@ fn biolab_core_machine_tick(
         // Утечка тяжёлого штамма вне карантинной камеры (GDD 4.18 п. 4):
         // тоже по числам прошлого тика, одной точкой на все машины.
         crate::game::biolab_quarantine::leak(game, pos, entity);
+        // Питание (M10, GDD 4.27 п. 7): запас на экран и долив буфера из
+        // сети. Не потребитель — сразу выход.
+        crate::game::biolab_power::machine(game, pos, entity);
     }
 
     // ГМ-грядка: растёт сама, а на последней стадии подмешивает ген соседа.
@@ -742,7 +751,8 @@ fn biolab_core_machine_tick(
     }
 
     if entity.id == m::CLONING_VAT {
-        let Some(text) = grow_clone(entity) else {
+        let grown = grow_clone(entity, &mut |e| crate::game::biolab_power::work(game, pos, e));
+        let Some(text) = grown else {
             // Работа или простой — по пламени, которое чан выставил себе сам.
             let step = if entity.data.get(m::DATA_LIT) == Some(&1) {
                 m::Step::Working(entity.data[m::DATA_PROGRESS])
@@ -903,6 +913,14 @@ fn biolab_core_machine_tick(
             .filter(|_| plan.is_some())
             .map(|(time, _)| *time);
         let step = m::step(time, progress);
+        // Питание (M10, GDD 4.27 п. 7): нет заряда — прогресс стоит, лампа
+        // гаснет, экран пишет «Нет питания».
+        if step != m::Step::Idle && !crate::game::biolab_power::work(game, pos, entity) {
+            entity.data[m::DATA_TOTAL] = time.unwrap_or(m::DEFAULT_TIME);
+            let step = crate::game::biolab_power::stall(entity);
+            machine_sound(game, pos, entity, step);
+            return;
+        }
         match step {
             m::Step::Idle => {
                 entity.data[m::DATA_PROGRESS] = 0;
@@ -1138,6 +1156,16 @@ fn biolab_core_machine_tick(
             None => *time,
         });
     let step = m::step(time, progress);
+    // Питание (M10, GDD 4.27 п. 7): инкубатору, ферментеру и экстрактору
+    // нужен заряд на каждый тик работы (куб, реактор и пресс тянут 0 — им
+    // `work` сразу отвечает «есть»). Нет заряда — прогресс стоит, лампа
+    // гаснет, экран пишет «Нет питания».
+    if step != m::Step::Idle && !crate::game::biolab_power::work(game, pos, entity) {
+        entity.data[m::DATA_TOTAL] = time.unwrap_or(m::DEFAULT_TIME);
+        let step = crate::game::biolab_power::stall(entity);
+        machine_sound(game, pos, entity, step);
+        return;
+    }
     match step {
         m::Step::Idle => {
             entity.data[m::DATA_PROGRESS] = 0;

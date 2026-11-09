@@ -178,6 +178,21 @@ fn biolab_core_screen_draw(
     let [ix, iy] = layout.inventory;
     pen.text("Инвентарь", [ix, iy - 11.0], 0xC8_D8DA, false);
 
+    // Запас энергии машины-потребителя (M10, GDD 4.27 А): полоса в строке
+    // подписи инвентаря, справа; без заряда — «Нет питания» на красном.
+    if let (Some(r), Some(power)) = (m::power_bar(block), m::power_shown(block, data)) {
+        if power.starved {
+            pen.fill(r, m::SCREEN_EDGE);
+            pen.fill([r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0], 0xFF_4A1C18);
+            let label = pen.fit(m::NO_POWER, r[2] - 4.0);
+            let lw = pen.width(&label);
+            pen.text(&label, [r[0] + ((r[2] - lw) / 2.0).floor(), r[1] + 1.0], 0xFF_7A6A, false);
+        } else {
+            let colour = if power.fraction() < 0.25 { m::SCREEN_AMBER } else { m::SCREEN_TEAL };
+            pen.bar(r, power.fraction(), colour);
+        }
+    }
+
     let g = layout.gauge;
     let p = layout.progress;
     match block {

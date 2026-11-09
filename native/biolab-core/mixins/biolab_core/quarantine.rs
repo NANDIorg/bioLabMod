@@ -57,7 +57,11 @@ pub fn work(
     // она пропускает — произведение множителей (`seal_factors`). Клетки и
     // герметичность приносит только проверка (раз в секунду), между
     // проверками запись лишь отмечается, герметичность — в числах экрана.
-    let registered = if assembly.is_some() {
+    // Питание (M10, GDD 4.27 пп. 7, 10): собранная камера тянет 15 Вт·с
+    // каждый тик. Без заряда фильтр не держит: реестр снимает камеру, как
+    // разобранную.
+    let powered = assembly.is_some() && crate::game::biolab_power::work(game, pos, entity);
+    let registered = if powered {
         match &checked {
             Some(Ok(sealed)) => {
                 let factors = m::seal_factors(sealed, left);

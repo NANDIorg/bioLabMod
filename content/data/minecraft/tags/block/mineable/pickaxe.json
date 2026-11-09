@@ -27,6 +27,12 @@
     "biolab:sequencer_rack",
     "biolab:quarantine",
     "biolab:clean_panel",
-    "biolab:cryobank"
+    "biolab:cryobank",
+    "biolab:copper_cable",
+    "biolab:power_cable",
+    "biolab:cable_repeater",
+    "biolab:leyden_jar",
+    "biolab:lead_battery",
+    "biolab:capacitor_bank"
   ]
 }

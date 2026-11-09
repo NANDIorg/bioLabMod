@@ -191,5 +191,12 @@
  "item.biolab.hazmat_pants": "Hazmat Trousers",
  "item.biolab.hazmat_boots": "Hazmat Boots",
  "item.biolab.protocol_card": "Protocol Card",
- "item.biolab.syringe_inductor": "Inducer Syringe"
+ "item.biolab.syringe_inductor": "Inducer Syringe",
+ "block.biolab.copper_cable": "Copper Cable",
+ "block.biolab.power_cable": "Power Cable",
+ "block.biolab.cable_repeater": "Cable Repeater",
+ "block.biolab.leyden_jar": "Leyden Jar",
+ "block.biolab.lead_battery": "Lead-Acid Battery",
+ "block.biolab.capacitor_bank": "Capacitor Bank",
+ "item.biolab.battery": "Battery"
 }

@@ -191,5 +191,12 @@
  "item.biolab.hazmat_pants": "Штаны химзащиты",
  "item.biolab.hazmat_boots": "Сапоги химзащиты",
  "item.biolab.protocol_card": "Карта протокола",
- "item.biolab.syringe_inductor": "Индуктор, инъекция"
+ "item.biolab.syringe_inductor": "Индуктор, инъекция",
+ "block.biolab.copper_cable": "Медный кабель",
+ "block.biolab.power_cable": "Силовой кабель",
+ "block.biolab.cable_repeater": "Повторитель кабеля",
+ "block.biolab.leyden_jar": "Лейденская банка",
+ "block.biolab.lead_battery": "Свинцовый аккумулятор",
+ "block.biolab.capacitor_bank": "Конденсаторная сборка",
+ "item.biolab.battery": "Батарея"
 }

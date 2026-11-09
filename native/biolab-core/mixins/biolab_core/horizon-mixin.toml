@@ -1326,3 +1326,92 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
 ]
+
+# ---- M10-А: энергосеть и аварии (GDD 4.27 А) ----
+# ПКМ по блоку сети: батарея заряжается от генератора или накопителя и
+# отдаёт заряд машине; пустая рука — сведения о сети (кабель) и заряд
+# (накопитель). Пустая рука до `native_use_item_on` не доходит — поэтому
+# правый клик по блоку (API 21, сервер), своей инъекцией рядом с `harvest.rs`.
+[[injection]]
+id = "power-click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_right_click_block"
+helper = "power_click.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# Блок сети сломан игроком: кэш обходов устарел, заряженный конденсатор
+# разряжается в ломающего. Хук ломания (API 14), рядом с `multiblock_broken.rs`.
+[[injection]]
+id = "power-broken"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_destroy_block"
+helper = "power_broken.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+]
+
+# Блок сети поставлен игроком: кэш обходов устарел. Хук постановки (API 14),
+# только слушает; вызывается без условия на трейт-моды (`game.rs` пина,
+# `BlockItem.place`).
+[[injection]]
+id = "power-placed"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_place_block"
+helper = "power_placed.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+]
+
+# Удар током от замыкания и строки аварий — игроку на его тике: урон своего
+# типа даётся только тому, на чьём тике идёт хук.
+[[injection]]
+id = "power-player"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "power_player.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Батарея-предмет: буфер энергии предмета (API 307, `Capabilities.Energy.ITEM`).
+[[injection]]
+id = "battery-buffer"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_item_energy_buffer"
+helper = "battery_buffer.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "item", ty = "&str", value = "item" },
+  { name = "buffer", ty = "&mut Option<crate::game::ItemEnergyBuffer>", value = "&mut *buffer" },
+]
+
+# Заряд батареи — полоской под иконкой (клиент, API 60), как магазин ружья.
+[[injection]]
+id = "battery-bar"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_item_bar"
+helper = "battery_bar.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "bar", ty = "&mut Option<(i32, u32)>", value = "&mut *bar" },
+]
+
+# Заряд батареи в подсказке (API 12), рядом с `tooltip.rs`.
+[[injection]]
+id = "battery-tooltip"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tooltip"
+helper = "battery_tooltip.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "lines", ty = "&mut Vec<(horizon_client::text::Text, u32)>", value = "&mut *lines" },
+]
