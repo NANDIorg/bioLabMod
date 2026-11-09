@@ -1326,3 +1326,109 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
 ]
+
+# ---- M10-Б1: генераторы тиров 0–2 (GDD 4.27 Б1) ----
+# Тик — через `power-tick` (`crate::game::biolab_gen_early::tick`), буфер —
+# `block-entity-energy`. Здесь — клик, касания пластины, слоты, правила и
+# экран столба и котла. Правила и числа — раздел «M10: генераторы 0–2» в
+# `runtime.rs`.
+
+# ПКМ пустой рукой по генератору без слотов: состояние, у электрофорной —
+# разряд. Ещё одна инъекция на правый клик (API 21, сервер).
+[[injection]]
+id = "gen-click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_right_click_block"
+helper = "gen_click.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# Нажимная пластина: кто встал на блок мода и кто внутри его клетки (API 73,
+# сервер, хуки без `self`). Только записать касание — шаги считает тик.
+[[injection]]
+id = "piezo-step"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_block_step_on"
+helper = "piezo_step.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "entity", ty = "i32", value = "entity" },
+  { name = "position", ty = "[i32; 3]", value = "position" },
+]
+
+[[injection]]
+id = "piezo-inside"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_block_entity_inside"
+helper = "piezo_inside.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "entity", ty = "i32", value = "entity" },
+  { name = "position", ty = "[i32; 3]", value = "position" },
+]
+
+# Слоты столба и котла и их меню мода (API 16–17, 85).
+[[injection]]
+id = "gen-slots"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_block_entity_container"
+helper = "gen_slots.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "container", ty = "&mut Option<horizon_client::chunk::block_entity::ModContainer>", value = "&mut *container" },
+]
+
+# Что воронка может положить в слот столба и котла (сервер).
+[[injection]]
+id = "gen-accepts"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_container_accepts"
+helper = "gen_accepts.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "entity", ty = "&horizon_client::chunk::block_entity::ModBlockEntity", value = "&*entity" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "cancel", ty = "&mut bool", value = "&mut *cancel" },
+]
+
+# Правила слотов меню столба и котла (lib-крейт, `crate::biolab_core` —
+# модуль `runtime-menu`; API 130).
+[[injection]]
+id = "gen-slot-rules"
+kind = "HEAD"
+target = "horizon_client_lib::menu::native_menu_slot_rules"
+helper = "gen_slot_rules.rs"
+bindings = [
+  { name = "menu", ty = "&str", value = "menu" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&crate::items::ItemStack", value = "&*stack" },
+  { name = "may_place", ty = "&mut bool", value = "&mut *may_place" },
+]
+
+# Экран столба и котла: раскладка и рисование (API 19).
+[[injection]]
+id = "gen-screen"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen"
+helper = "gen_screen.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "screen", ty = "&mut Option<crate::game::native_hooks::NativeScreen>", value = "&mut *screen" },
+]
+
+[[injection]]
+id = "gen-screen-draw"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_draw"
+helper = "gen_screen_draw.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "origin", ty = "[f32; 2]", value = "origin" },
+]

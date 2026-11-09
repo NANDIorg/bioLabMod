@@ -27,6 +27,14 @@
     "biolab:sequencer_rack",
     "biolab:quarantine",
     "biolab:clean_panel",
-    "biolab:cryobank"
+    "biolab:cryobank",
+    "biolab:electrophore",
+    "biolab:piezo_plate",
+    "biolab:voltaic_pile",
+    "biolab:thermocouple",
+    "biolab:steam_boiler",
+    "biolab:dynamo",
+    "biolab:water_wheel",
+    "biolab:wind_turbine"
   ]
 }

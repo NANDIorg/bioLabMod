@@ -83,6 +83,10 @@ fn group(item: &str) -> usize {
         "quarantine" | "clean_panel" | "filter_cartridge" => 1,
         // Криобанк (GDD 4.23 п. 9) — к машинам, термобокс — к инструментам.
         "cryobank" => 1,
+        // Генераторы тиров 0–2 (M10, GDD 4.27 Б1) и динамо котла — к машинам;
+        // пластины столба — сырьё.
+        "electrophore" | "piezo_plate" | "voltaic_pile" | "thermocouple" | "steam_boiler" | "dynamo"
+        | "water_wheel" | "wind_turbine" => 1,
         "thermobox" => 2,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,

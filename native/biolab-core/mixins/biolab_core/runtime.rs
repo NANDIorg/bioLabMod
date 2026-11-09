@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 123] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 133] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -244,6 +244,17 @@ pub const ITEM_HINTS: [(&str, &[&str]); 123] = [
     ("biolab:protocol_card", &["ПКМ по ферментеру или экстрактору", "Пустая — запишет найденный режим"]),
     // Предохранители (M9, GDD 4.23 п. 10).
     ("biolab:syringe_inductor", &["ПКМ по мутанту — доза генному выключателю", "Без дозы такой мутант гибнет"]),
+    // Генераторы тиров 0–2 (M10, GDD 4.27 Б1): числа — из раздела «M10: генераторы 0–2».
+    ("biolab:electrophore", &["ПКМ пустой рукой — разряд 200 Вт·с", "Буфер 2 000: питает соседей по кабелю"]),
+    ("biolab:piezo_plate", &["1 Вт·с за каждый шаг и упавший предмет", "Ставьте в коридоре или загоне"]),
+    ("biolab:voltaic_pile", &["Цинк, медь и кислота → 6 Вт·с/тик", "Пластины и кислота расходуются"]),
+    ("biolab:thermocouple", &["Между горячим и холодным блоком", "1 Вт·с/тик за каждые 100 °C разницы"]),
+    ("biolab:steam_boiler", &["Вода и топливо печи → 30 Вт·с/тик", "На спирте 40; сверху нужно динамо"]),
+    ("biolab:dynamo", &["Ставится на паровой котёл", "Без него пар не даёт ток"]),
+    ("biolab:water_wheel", &["Текущая вода рядом → 5 Вт·с/тик", "Ничего не ест, работает круглосуточно"]),
+    ("biolab:wind_turbine", &["3–12 Вт·с/тик: выше и просторнее — больше", "В грозу вдвое, под крышей — ноль"]),
+    ("biolab:zinc_plate", &["Туф в печи → цинковая пластина", "В вольтов столб: с медной и кислотой"]),
+    ("biolab:copper_plate", &["В вольтов столб: с цинковой и кислотой", "Растворяется за минуту работы"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -1470,7 +1481,8 @@ mod automation_tests {
         let cryo = Json::parse(&std::fs::read_to_string(dir.join("cryobank.json")).expect("нет меню криобанка")).unwrap();
         assert_eq!(cryo.get("slots").and_then(Json::num), Some(CRYOBANK_SLOTS as f64));
         let files = std::fs::read_dir(&dir).unwrap().count();
-        assert_eq!(files, MACHINES.len() + PORTS.len() + 1, "лишний тип меню");
+        // Ещё свои меню у генераторов со слотами (M10, раздел «M10: генераторы 0–2»).
+        assert_eq!(files, MACHINES.len() + PORTS.len() + 1 + EARLY_SLOTTED.len(), "лишний тип меню");
     }
 
     #[test]
@@ -10375,7 +10387,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 71] = [
+pub const RESEARCH: [Research; 73] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10476,6 +10488,10 @@ pub const RESEARCH: [Research; 71] = [
     // Пары узнаются опытом, поэтому у узла своё условие.
     node("pairs", 4, (2, 2), "biolab:microscope", "Совместимость генов", &["fragment"], Unlock::GenePairs(1), "Вживите два гена, которые не ладят."),
     node("safeguards", 4, (5, 3), "biolab:syringe_inductor", "Гены-предохранители", &["sequencer"], Unlock::Item(&["biolab:syringe_inductor"]), "Соберите индуктор на лабораторном столе."),
+    // Генераторы тиров 0–2 (M10, GDD 4.27 Б1) — Основы, верхний левый угол:
+    // первое электричество (рука, шаг, химия, тепло), потом пар, вода, ветер.
+    node("power_first", 0, (0, 0), "biolab:electrophore", "Первое электричество", &[], Unlock::Item(&["biolab:electrophore", "biolab:piezo_plate", "biolab:voltaic_pile", "biolab:thermocouple"]), "Соберите электрофорную машину на верстаке."),
+    node("power_mills", 0, (1, 0), "biolab:water_wheel", "Пар, вода и ветер", &["power_first"], Unlock::Item(&["biolab:steam_boiler", "biolab:dynamo", "biolab:water_wheel", "biolab:wind_turbine"]), "Сделайте котёл, водяное колесо или ветряк."),
 ];
 
 /// Номер узла по id.
@@ -11493,6 +11509,19 @@ pub fn recipe_view(text: &str) -> Option<RecipeView> {
                 seconds: ticks.div_ceil(20),
                 machine: kind.to_string(),
                 catalyst,
+            })
+        }
+        // Переплавка в ванильной печи (M10: цинковая пластина из туфа) —
+        // рисуется как рецепт машины, машина — печь.
+        "minecraft:smelting" => {
+            let ticks = j.get("cookingtime").and_then(Json::num).unwrap_or(200.0).max(1.0) as u32;
+            Some(RecipeView::Machine {
+                input: ingredient_id(j.get("ingredient")?)?,
+                machine: "minecraft:furnace".to_string(),
+                result,
+                count,
+                seconds: ticks.div_ceil(20),
+                byproduct: None,
             })
         }
         machine if machine.starts_with("biolab:") => {
@@ -22555,10 +22584,903 @@ pub const GRID_SPECS: &[(&str, EnergySpec)] = &[
 // ---- M10: генераторы 0–2 (GDD 4.27 Б1) ----
 //
 // Электрофорная машина, нажимная пластина, вольтов столб, термопара, паровой
-// котёл с динамо, водяное колесо, ветрогенератор. Исполнение — `gen_early.rs`.
+// котёл с динамо, водяное колесо, ветрогенератор. Исполнение — `gen_early.rs`
+// (`crate::game::biolab_gen_early`, тик и клик). Здесь — числа, правила
+// выработки от условий (разница температур, высота и простор, гроза, вода),
+// слоты и экраны двух генераторов со слотами, строки состояния. Условия из
+// мира тик собирает раз в `EARLY_POLL` тиков и кэширует в сейве блока.
+//
+// Хуки: клик пустой рукой — `gen_click.rs` (`native_right_click_block`);
+// шаги по пластине — `piezo_step.rs` и `piezo_inside.rs`
+// (`native_block_step_on`, `native_block_entity_inside`); слоты, правила и
+// экран столба и котла — `gen_slots.rs`, `gen_accepts.rs`,
+// `gen_slot_rules.rs`, `gen_screen.rs`, `gen_screen_draw.rs`.
 
-/// Генераторы тиров 0–2.
-pub const EARLY_GENERATORS: &[(&str, EnergySpec)] = &[];
+pub const ELECTROPHORE: &str = "biolab:electrophore";
+pub const PIEZO_PLATE: &str = "biolab:piezo_plate";
+pub const VOLTAIC_PILE: &str = "biolab:voltaic_pile";
+pub const THERMOCOUPLE: &str = "biolab:thermocouple";
+pub const STEAM_BOILER: &str = "biolab:steam_boiler";
+pub const WATER_WHEEL: &str = "biolab:water_wheel";
+pub const WIND_TURBINE: &str = "biolab:wind_turbine";
+/// Динамо котла: простой блок без блок-сущности, ставится на котёл. Без
+/// него пар не крутит вал — котёл занимает два блока (4.22).
+pub const DYNAMO: &str = "biolab:dynamo";
+/// Пластины вольтова столба. Цинка в Minecraft нет: цинковая обманка — в
+/// туфе, пластина выплавляется из туфа в печи. Медная — из слитков на верстаке.
+pub const ZINC_PLATE: &str = "biolab:zinc_plate";
+pub const COPPER_PLATE: &str = "biolab:copper_plate";
+/// Спирт ферментера (сахар → спирт): лучшее топливо котла.
+pub const BOILER_SPIRIT: &str = "biolab:spirit";
+/// Ведро кислоты (ведро + сера на верстаке) — электролит столба.
+pub const PILE_ACID_BUCKET: &str = "biolab:acid_puddle_bucket";
+
+/// Как часто тик генератора заново смотрит на мир вокруг (раз в секунду);
+/// между опросами выработка идёт по кэшу в сейве блока.
+pub const EARLY_POLL: i64 = 20;
+
+/// Электрофорная машина (тир 0): разряд по ПКМ пустой рукой.
+pub const ELECTROPHORE_CHARGE: i32 = 200;
+pub const ELECTROPHORE_BUFFER: i32 = 2_000;
+/// Тиков между разрядами: ручку надо докрутить.
+pub const ELECTROPHORE_COOLDOWN: i64 = 10;
+/// Нажимная пластина (тир 0): за каждого, кто наступил или упал на неё.
+pub const PIEZO_PER_STEP: i32 = 1;
+/// Вольтов столб (тир 1).
+pub const PILE_RATE: i32 = 6;
+/// Пара пластин (цинк + медь) растворяется за минуту работы.
+pub const PILE_PLATE_TICKS: i32 = 1_200;
+/// Кислоты хватает: ведра — на четыре пары пластин, колбы — на одну.
+pub const PILE_ACID_BUCKET_TICKS: i32 = 4_800;
+pub const PILE_ACID_FLASK_TICKS: i32 = 1_200;
+/// Термопара (тир 1): 1 Вт·с/тик за каждые 100 °C разницы; дробная часть
+/// копится, так что 480 °C — это 4,8 в среднем.
+pub const THERMO_STEP: i32 = 100;
+/// Паровой котёл (тир 2): на любом топливе печи 30, на спирте 40.
+pub const BOILER_RATE: i32 = 30;
+pub const BOILER_SPIRIT_RATE: i32 = 40;
+/// Бак котла и расход воды на пар.
+pub const BOILER_TANK: i32 = 4_000;
+pub const BOILER_BUCKET: i32 = 1_000;
+pub const BOILER_STEAM_PER_TICK: i32 = 1;
+/// Водяное колесо (тир 2): ровно, круглосуточно.
+pub const WHEEL_RATE: i32 = 5;
+/// Ветрогенератор (тир 2): 3–12 скачками, гроза вдвое.
+pub const WIND_MIN: i32 = 3;
+pub const WIND_MAX: i32 = 12;
+/// Высоты, между которыми растёт ветер: уровень моря и вершины холмов.
+pub const WIND_LOW_Y: i32 = 64;
+pub const WIND_HIGH_Y: i32 = 128;
+
+/// Генераторы тиров 0–2. Буфер — около 200 тиков выработки по паспорту
+/// (у электрофорной — десять разрядов, как в 4.22).
+pub const EARLY_GENERATORS: &[(&str, EnergySpec)] = &[
+    (ELECTROPHORE, EnergySpec::generator(ELECTROPHORE_BUFFER, ELECTROPHORE_CHARGE)),
+    (PIEZO_PLATE, EnergySpec::generator(200, PIEZO_PER_STEP)),
+    (VOLTAIC_PILE, EnergySpec::generator(PILE_RATE * 200, PILE_RATE)),
+    (THERMOCOUPLE, EnergySpec::generator(2_000, 10)),
+    (STEAM_BOILER, EnergySpec::generator(BOILER_SPIRIT_RATE * 200, BOILER_SPIRIT_RATE)),
+    (WATER_WHEEL, EnergySpec::generator(WHEEL_RATE * 200, WHEEL_RATE)),
+    (WIND_TURBINE, EnergySpec::generator(WIND_MAX * 200, WIND_MAX)),
+];
+
+/// Наш ли это генератор тиров 0–2.
+pub fn is_early_generator(id: &str) -> bool {
+    EARLY_GENERATORS.iter().any(|(id_, _)| *id_ == id)
+}
+
+/// Генераторы без слотов: состояние — сообщением по ПКМ пустой рукой
+/// (у электрофорной ПКМ — ещё и разряд).
+pub fn early_clickable(id: &str) -> bool {
+    matches!(id, ELECTROPHORE | PIEZO_PLATE | THERMOCOUPLE | WATER_WHEEL | WIND_TURBINE)
+}
+
+/// Короткое имя генератора для строк состояния и экрана.
+pub fn early_title(id: &str) -> &'static str {
+    match id {
+        ELECTROPHORE => "Электрофорная машина",
+        PIEZO_PLATE => "Нажимная пластина",
+        VOLTAIC_PILE => "Вольтов столб",
+        THERMOCOUPLE => "Термопара",
+        STEAM_BOILER => "Паровой котёл",
+        WATER_WHEEL => "Водяное колесо",
+        WIND_TURBINE => "Ветряк",
+        _ => "",
+    }
+}
+
+/// Запас числом с пробелом между тысячами: «1 200».
+pub fn early_energy_text(n: i32) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    if n < 0 { format!("−{out}") } else { out }
+}
+
+/// Сотые доли числом с запятой: 480 → «4,8», 700 → «7».
+pub fn early_hundredths_text(x100: i32) -> String {
+    let x100 = x100.max(0);
+    let tenths = (x100 + 5) / 10;
+    if tenths % 10 == 0 { format!("{}", tenths / 10) } else { format!("{},{}", tenths / 10, tenths % 10) }
+}
+
+// == Электрофорная машина ==
+
+/// Можно ли разрядить снова: с прошлого разряда прошёл `ELECTROPHORE_COOLDOWN`
+/// (часы назад — тоже можно: мир подменили).
+pub fn electrophore_ready(now: i64, last: Option<i64>) -> bool {
+    last.is_none_or(|last| now < last || now - last >= ELECTROPHORE_COOLDOWN)
+}
+
+/// Строка о разряде: сколько вошло и сколько теперь в буфере.
+pub fn electrophore_line(put: i32, stored: i32) -> String {
+    let charge = if put > 0 { format!("разряд +{} Вт·с", early_energy_text(put)) } else { "буфер полон".to_string() };
+    format!(
+        "{}: {charge} · заряд {} / {}",
+        early_title(ELECTROPHORE),
+        early_energy_text(stored),
+        early_energy_text(ELECTROPHORE_BUFFER)
+    )
+}
+
+// == Нажимная пластина ==
+//
+// Хуки касания (`native_block_step_on`, `native_block_entity_inside`) идут
+// посреди движения сущности, без `self` и без имени блока — только его
+// место. Поэтому хук лишь записывает, кто касался какой клетки мода, а тик
+// пластины на своём месте считает новых: тех, кого не было в прошлый тик.
+// Стоящий на пластине засчитан один раз; сошёл и наступил снова — ещё раз.
+// Чужие клетки мода (машины, панели пола) тоже попадают в книгу, но их
+// никто не разбирает — книга чистится целиком, когда разрастается.
+
+/// Сколько клеток держит книга касаний до сброса.
+pub const PIEZO_BOOK_LIMIT: usize = 4_096;
+
+/// Кто касался клеток мода: сейчас и в прошлый разбор.
+#[derive(Default)]
+pub struct PiezoBook {
+    at: std::collections::HashMap<(String, [i32; 3]), (Vec<i32>, Vec<i32>)>,
+}
+
+impl PiezoBook {
+    /// Сущность `entity` коснулась клетки `pos` уровня `dimension`.
+    pub fn touch(&mut self, dimension: &str, pos: [i32; 3], entity: i32) {
+        let key = (dimension.to_string(), pos);
+        if self.at.len() >= PIEZO_BOOK_LIMIT && !self.at.contains_key(&key) {
+            self.at.clear();
+        }
+        let (now, _) = self.at.entry(key).or_default();
+        if !now.contains(&entity) {
+            now.push(entity);
+        }
+    }
+
+    /// Разбор клетки тиком пластины: сколько новых шагов и стоит ли кто-то
+    /// на ней сейчас.
+    pub fn steps(&mut self, dimension: &str, pos: [i32; 3]) -> (u32, bool) {
+        let key = (dimension.to_string(), pos);
+        let Some((now, before)) = self.at.get_mut(&key) else {
+            return (0, false);
+        };
+        let fresh = now.iter().filter(|id| !before.contains(id)).count() as u32;
+        let occupied = !now.is_empty();
+        *before = std::mem::take(now);
+        if !occupied {
+            self.at.remove(&key);
+        }
+        (fresh, occupied)
+    }
+}
+
+/// Книга касаний пластин. Только сервер.
+pub fn piezo_book() -> &'static std::sync::Mutex<PiezoBook> {
+    static BOOK: std::sync::OnceLock<std::sync::Mutex<PiezoBook>> = std::sync::OnceLock::new();
+    BOOK.get_or_init(Default::default)
+}
+
+/// Хук касания: записать.
+pub fn note_piezo_contact(dimension: &str, pos: [i32; 3], entity: i32) {
+    if let Ok(mut book) = piezo_book().lock() {
+        book.touch(dimension, pos, entity);
+    }
+}
+
+/// Тик пластины: новые шаги и занята ли она.
+pub fn take_piezo_steps(dimension: &str, pos: [i32; 3]) -> (u32, bool) {
+    piezo_book().lock().map_or((0, false), |mut book| book.steps(dimension, pos))
+}
+
+// == Вольтов столб ==
+
+/// Слоты столба: цинк, медь, кислота и пустая тара из-под кислоты.
+pub const PILE_ZINC: usize = 0;
+pub const PILE_COPPER: usize = 1;
+pub const PILE_ACID: usize = 2;
+pub const PILE_EMPTY: usize = 3;
+pub const PILE_SLOTS: usize = 4;
+
+/// Кислота ли это для столба: правило едкости из 4.1 (водород с хлором или
+/// серой, без углерода — соляная, серная) и уксусная кислота.
+pub fn pile_is_acid(formula: &Formula) -> bool {
+    let (h, c) = (count_of(formula, "H"), count_of(formula, "C"));
+    let strong = h > 0 && c == 0 && (count_of(formula, "Cl") > 0 || count_of(formula, "S") > 0);
+    strong || formula_text(formula) == "C2H4O2"
+}
+
+/// Электролит в слоте кислоты: на сколько тиков хватит и что остаётся от
+/// тары. `contents` — формула в колбе. None — не кислота.
+pub fn pile_acid(item: &str, contents: Option<&str>) -> Option<(i32, &'static str)> {
+    match item {
+        PILE_ACID_BUCKET => Some((PILE_ACID_BUCKET_TICKS, "minecraft:bucket")),
+        FLASK_ID => contents
+            .and_then(formula_from_text)
+            .filter(pile_is_acid)
+            .map(|_| (PILE_ACID_FLASK_TICKS, FLASK_ID)),
+        _ => None,
+    }
+}
+
+// == Термопара ==
+
+/// Температура блока для термопары, °C: источники тепла реактора (4.1) со
+/// своими потолками, лёд и снег — холод, вода прохладная, прочее — комната.
+pub fn block_temperature(block: &str) -> i32 {
+    if let Some(hot) = heat_target(block) {
+        return hot;
+    }
+    match block {
+        "minecraft:water" => 10,
+        "minecraft:snow" | "minecraft:snow_block" | "minecraft:powder_snow" => -5,
+        "minecraft:ice" | "minecraft:frosted_ice" => -10,
+        "minecraft:packed_ice" => -20,
+        "minecraft:blue_ice" => -40,
+        _ => ROOM_TEMPERATURE,
+    }
+}
+
+/// Разница между самым горячим и самым холодным соседом, °C.
+pub fn thermo_delta(temperatures: &[i32]) -> i32 {
+    match (temperatures.iter().max(), temperatures.iter().min()) {
+        (Some(hot), Some(cold)) => hot - cold,
+        _ => 0,
+    }
+}
+
+/// Тик термопары: к остатку прошлых тиков прибавить разницу; целые сотни —
+/// выработка, остаток копится. (выработка, новый остаток)
+pub fn thermo_gain(carry: i32, delta: i32) -> (i32, i32) {
+    let total = carry.max(0) + delta.max(0);
+    (total / THERMO_STEP, total % THERMO_STEP)
+}
+
+// == Паровой котёл ==
+
+/// Слоты котла: топливо, вода (ведро) и пустые вёдра.
+pub const BOILER_FUEL: usize = 0;
+pub const BOILER_WATER: usize = 1;
+pub const BOILER_EMPTY: usize = 2;
+pub const BOILER_SLOTS: usize = 3;
+
+/// Сколько тиков горит топливо печи в котле; 0 — не топливо. Цифры —
+/// ванильные времена горения (уголь 1600, бревно 300…), спирт — свой.
+pub fn boiler_fuel_ticks(item: &str) -> i32 {
+    match item {
+        "minecraft:coal" | "minecraft:charcoal" => 1_600,
+        "minecraft:coal_block" => 16_000,
+        "minecraft:blaze_rod" => 2_400,
+        "minecraft:lava_bucket" => 20_000,
+        "minecraft:dried_kelp_block" => 4_000,
+        "minecraft:bamboo_block" => 300,
+        "minecraft:stick" => 100,
+        "minecraft:bamboo" => 50,
+        BOILER_SPIRIT => 1_200,
+        _ => {
+            // Дерево горит, кроме незерского (багровые и искажённые стебли).
+            let nether = item.contains("crimson") || item.contains("warped");
+            let wooden = item.starts_with("minecraft:")
+                && (item.ends_with("_log") || item.ends_with("_wood") || item.ends_with("_planks"));
+            if wooden && !nether { 300 } else { 0 }
+        }
+    }
+}
+
+/// Что топливо оставляет после себя (ведро лавы — ведро).
+pub fn boiler_fuel_remainder(item: &str) -> Option<&'static str> {
+    (item == "minecraft:lava_bucket").then_some("minecraft:bucket")
+}
+
+/// Выработка котла на этом топливе за тик.
+pub fn boiler_rate(fuel: &str) -> i32 {
+    if fuel == BOILER_SPIRIT { BOILER_SPIRIT_RATE } else { BOILER_RATE }
+}
+
+// == Водяное колесо ==
+
+/// Текущая ли вода в клетке: вода не источником (`level` не 0 — течёт или
+/// падает).
+pub fn is_flowing_water(block: &str, level: Option<&str>) -> bool {
+    block == "minecraft:water" && level.is_some_and(|l| l != "0")
+}
+
+/// Выработка колеса: хоть одна текущая вода рядом — полная.
+pub fn wheel_rate(flowing: u32) -> i32 {
+    if flowing > 0 { WHEEL_RATE } else { 0 }
+}
+
+// == Ветрогенератор ==
+
+/// Клетки вокруг ветряка, которые проверяются на простор: куб 5×5×3 без
+/// самого ветряка.
+pub fn wind_probe(pos: [i32; 3]) -> Vec<[i32; 3]> {
+    let mut out = Vec::with_capacity(74);
+    for dy in -1..=1 {
+        for dx in -2..=2 {
+            for dz in -2..=2 {
+                if (dx, dy, dz) != (0, 0, 0) {
+                    out.push([pos[0] + dx, pos[1] + dy, pos[2] + dz]);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Воздух ли это для ветра.
+pub fn is_open_air(block: &str) -> bool {
+    matches!(block, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
+}
+
+/// Порыв ветра 0–99 для ветряка в `pos` на секунде `second`: скачки
+/// выработки. Детерминирован — один ответ на сервере и в тестах.
+pub fn wind_gust(pos: [i32; 3], second: i64) -> u32 {
+    let mut z = (pos[0] as i64 as u64)
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (pos[1] as i64 as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+        ^ (pos[2] as i64 as u64).wrapping_mul(0x1656_67B1_9E37_79F9)
+        ^ (second as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93);
+    z ^= z >> 31;
+    z = z.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z ^= z >> 29;
+    (z % 100) as u32
+}
+
+/// Выработка ветряка за тик. `open` из `total` клеток вокруг — воздух; `sky`
+/// — над ним открытое небо. Без неба или когда вокруг больше половины
+/// занято — «в помещении», ноль. Иначе 3–12: растёт с высотой (от уровня
+/// моря до 128) и простором, порыв `gust` качает её на ±30 %, гроза — вдвое.
+pub fn wind_rate(y: i32, open: u32, total: u32, sky: bool, thunder: bool, gust: u32) -> i32 {
+    if !sky || total == 0 || open * 2 < total {
+        return 0;
+    }
+    let height = ((y - WIND_LOW_Y) as f32 / (WIND_HIGH_Y - WIND_LOW_Y) as f32).clamp(0.0, 1.0);
+    let room = ((open as f32 / total as f32 - 0.5) * 2.0).clamp(0.0, 1.0);
+    let base = WIND_MIN as f32 + (WIND_MAX - WIND_MIN) as f32 * height * room;
+    let gust = 0.7 + 0.6 * (gust.min(99) as f32 / 99.0);
+    let rate = ((base * gust).round() as i32).clamp(WIND_MIN, WIND_MAX);
+    if thunder { rate * 2 } else { rate }
+}
+
+/// Пометка ветряка (кэш в сейве): что мешает или помогает.
+pub const WIND_INDOORS: i32 = 0;
+pub const WIND_LOW: i32 = 1;
+pub const WIND_MIDDLE: i32 = 2;
+pub const WIND_GOOD: i32 = 3;
+/// Прибавка к пометке в грозу.
+pub const WIND_THUNDER: i32 = 10;
+
+/// Пометка ветряка по месту: в помещении, низко, средне, хорошо.
+pub fn wind_note(y: i32, open: u32, total: u32, sky: bool) -> i32 {
+    if !sky || total == 0 || open * 2 < total {
+        WIND_INDOORS
+    } else if y >= 100 {
+        WIND_GOOD
+    } else if y >= 80 {
+        WIND_MIDDLE
+    } else {
+        WIND_LOW
+    }
+}
+
+/// Пометка ветряка словами.
+pub fn wind_note_text(note: i32) -> String {
+    let place = match note % WIND_THUNDER {
+        WIND_INDOORS => "в помещении — нужны небо и простор",
+        WIND_LOW => "высота низкая — поднимите выше",
+        WIND_MIDDLE => "высота средняя",
+        _ => "высота хорошая",
+    };
+    if note >= WIND_THUNDER { format!("{place} · гроза ×2") } else { place.to_string() }
+}
+
+// == Строка состояния по ПКМ ==
+
+/// Строка генератора без слотов по кэшу его тика: `rate` — выработка за
+/// тик, `info` — что тик узнал о месте (шагов всего, разница °C, текущих
+/// вод рядом, пометка ветряка). Пусто — не такой генератор.
+pub fn early_status_line(block: &str, stored: i32, rate: i32, info: i32) -> String {
+    let capacity = energy_spec(block).map_or(0, |s| s.capacity);
+    let (output, note) = match block {
+        PIEZO_PLATE => (format!("{PIEZO_PER_STEP} Вт·с за шаг"), format!("шагов: {}", early_energy_text(info))),
+        THERMOCOUPLE => (
+            format!("{} Вт·с/тик", early_hundredths_text(info)),
+            if info < THERMO_STEP {
+                "мало разницы — нужен горячий и холодный блок рядом".to_string()
+            } else {
+                format!("разница {} °C", early_energy_text(info))
+            },
+        ),
+        WATER_WHEEL => (
+            format!("{rate} Вт·с/тик"),
+            if info > 0 { "вода течёт".to_string() } else { "рядом нет текущей воды".to_string() },
+        ),
+        WIND_TURBINE => (format!("{rate} Вт·с/тик"), wind_note_text(info)),
+        ELECTROPHORE => (format!("{ELECTROPHORE_CHARGE} Вт·с за разряд"), "ПКМ пустой рукой — разряд".to_string()),
+        _ => return String::new(),
+    };
+    format!(
+        "{}: {output} · заряд {} / {} · {note}",
+        early_title(block),
+        early_energy_text(stored),
+        early_energy_text(capacity)
+    )
+}
+
+// == Слоты, правила, экран столба и котла ==
+
+/// Числа данных меню столба и котла (их экраны и только они).
+/// Горит ли; остаток и полный срок «топлива» (котёл — горение, столб — пара
+/// пластин); бак (котёл — вода в мл, столб — кислота в тиках) и его полный
+/// объём; запас, ёмкость, выработка за тик, статус.
+pub const EARLY_DATA_LIT: usize = 0;
+pub const EARLY_DATA_FUEL: usize = 1;
+pub const EARLY_DATA_FUEL_TOTAL: usize = 2;
+pub const EARLY_DATA_TANK: usize = 3;
+pub const EARLY_DATA_TANK_TOTAL: usize = 4;
+pub const EARLY_DATA_ENERGY: usize = 5;
+pub const EARLY_DATA_CAPACITY: usize = 6;
+pub const EARLY_DATA_RATE: usize = 7;
+pub const EARLY_DATA_STATUS: usize = 8;
+pub const EARLY_DATA_SLOTS: usize = 9;
+
+/// Статусы столба и котла (`EARLY_DATA_STATUS`).
+pub const EARLY_WORKING: i32 = 0;
+pub const EARLY_NO_PLATES: i32 = 1;
+pub const EARLY_NO_ACID: i32 = 2;
+pub const EARLY_NOT_ACID: i32 = 3;
+pub const EARLY_EMPTY_FULL: i32 = 4;
+pub const EARLY_BUFFER_FULL: i32 = 5;
+pub const EARLY_NO_WATER: i32 = 6;
+pub const EARLY_NO_FUEL: i32 = 7;
+pub const EARLY_NO_DYNAMO: i32 = 8;
+
+/// Статус словами — на экран.
+pub fn early_status_text(status: i32) -> &'static str {
+    match status {
+        EARLY_WORKING => "Работает",
+        EARLY_NO_PLATES => "Нужны цинковая и медная пластины",
+        EARLY_NO_ACID => "Нужна кислота: ведро или колба",
+        EARLY_NOT_ACID => "В колбе не кислота",
+        EARLY_EMPTY_FULL => "Заберите пустую тару",
+        EARLY_BUFFER_FULL => "Буфер полон — подключите машины",
+        EARLY_NO_WATER => "Нет воды: ведро или источник рядом",
+        EARLY_NO_FUEL => "Нет топлива",
+        EARLY_NO_DYNAMO => "Поставьте динамо на котёл",
+        _ => "",
+    }
+}
+
+/// Генераторы со слотами: id, слотов, слот пустой тары (выход).
+pub const EARLY_SLOTTED: [(&str, usize, usize); 2] =
+    [(VOLTAIC_PILE, PILE_SLOTS, PILE_EMPTY), (STEAM_BOILER, BOILER_SLOTS, BOILER_EMPTY)];
+
+/// Слотов у генератора; None — без слотов или не наш.
+pub fn early_slots(id: &str) -> Option<usize> {
+    EARLY_SLOTTED.iter().find(|(id_, _, _)| *id_ == id).map(|(_, slots, _)| *slots)
+}
+
+/// Правило слота генератора по id предмета (меню, воронки,
+/// `native_insert_item`): None — не наш генератор. Колбу столб берёт
+/// любую — кислота ли в ней, решает тик (статус «В колбе не кислота»).
+pub fn early_slot_rule(id: &str, slot: usize, item: &str) -> Option<bool> {
+    match id {
+        VOLTAIC_PILE => Some(match slot {
+            PILE_ZINC => item == ZINC_PLATE,
+            PILE_COPPER => item == COPPER_PLATE,
+            PILE_ACID => item == PILE_ACID_BUCKET || item == FLASK_ID,
+            _ => false,
+        }),
+        STEAM_BOILER => Some(match slot {
+            BOILER_FUEL => boiler_fuel_ticks(item) > 0,
+            BOILER_WATER => item == "minecraft:water_bucket",
+            _ => false,
+        }),
+        _ => None,
+    }
+}
+
+/// Стороны для воронок (низ, верх, север, юг, запад, восток), входы и
+/// выходы. Снизу забирают пустую тару; сверху и сбоку кладут сырьё — каждое
+/// в свой слот по `early_slot_rule`.
+pub fn early_faces(id: &str) -> ([Vec<usize>; 6], Vec<usize>, Vec<usize>) {
+    let (inputs, output): (Vec<usize>, usize) = match id {
+        VOLTAIC_PILE => (vec![PILE_ZINC, PILE_COPPER, PILE_ACID], PILE_EMPTY),
+        STEAM_BOILER => (vec![BOILER_FUEL, BOILER_WATER], BOILER_EMPTY),
+        _ => return (Default::default(), Vec::new(), Vec::new()),
+    };
+    let faces = std::array::from_fn(|face| if face == 0 { vec![output] } else { inputs.clone() });
+    (faces, inputs, vec![output])
+}
+
+/// Выход ли это (пустая тара): рамка слота бирюзовая.
+pub fn early_is_output(id: &str, slot: usize) -> bool {
+    EARLY_SLOTTED.iter().any(|(id_, _, out)| *id_ == id && *out == slot)
+}
+
+/// Экран столба и котла: слоты слева, прибор посередине, шкала запаса
+/// справа, строка статуса над инвентарём. `progress` — шкала запаса.
+pub fn early_screen(id: &str) -> Option<MachineScreen> {
+    let slots = match id {
+        VOLTAIC_PILE => vec![Some([26.0, 22.0]), Some([26.0, 46.0]), Some([60.0, 22.0]), Some([60.0, 46.0])],
+        STEAM_BOILER => vec![Some([26.0, 46.0]), Some([60.0, 22.0]), Some([60.0, 46.0])],
+        _ => return None,
+    };
+    Some(MachineScreen {
+        width: SCREEN_WIDTH,
+        height: SCREEN_HEIGHT,
+        slots,
+        inventory: [8.0, SCREEN_INVENTORY_Y],
+        gauge: [86.0, 19.0, 52.0, 46.0],
+        progress: [146.0, 19.0, 16.0, 46.0],
+    })
+}
+
+/// Доля 0–1 из пары чисел данных.
+pub fn early_share(data: &[i32], value: usize, total: usize) -> f32 {
+    let get = |i: usize| data.get(i).copied().unwrap_or(0);
+    if get(total) <= 0 { 0.0 } else { (get(value) as f32 / get(total) as f32).clamp(0.0, 1.0) }
+}
+
+/// Строка под прибором: статус и выработка.
+pub fn early_screen_line(data: &[i32]) -> String {
+    let get = |i: usize| data.get(i).copied().unwrap_or(0);
+    let status = early_status_text(get(EARLY_DATA_STATUS));
+    if get(EARLY_DATA_STATUS) == EARLY_WORKING {
+        format!("{status} · {} Вт·с/тик", get(EARLY_DATA_RATE))
+    } else {
+        status.to_string()
+    }
+}
+
+/// Запас на экране: «1 200 / 8 000 Вт·с».
+pub fn early_screen_charge(data: &[i32]) -> String {
+    let get = |i: usize| data.get(i).copied().unwrap_or(0);
+    format!("{} / {}", early_energy_text(get(EARLY_DATA_ENERGY)), early_energy_text(get(EARLY_DATA_CAPACITY)))
+}
+
+#[cfg(test)]
+mod m10_early_tests {
+    use super::*;
+
+    fn content() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content")
+    }
+
+    fn read_json(path: &str) -> Json {
+        let full = content().join(path);
+        let text = std::fs::read_to_string(&full).unwrap_or_else(|_| panic!("нет {}", full.display()));
+        Json::parse(&text).unwrap_or_else(|| panic!("{path}: не JSON"))
+    }
+
+    #[test]
+    fn the_table_holds_the_numbers_of_the_design() {
+        let spec = |id| energy_spec(id).unwrap_or_else(|| panic!("{id}: нет в таблице"));
+        assert_eq!(EARLY_GENERATORS.len(), 7);
+        for (id, s) in EARLY_GENERATORS {
+            assert_eq!(s.role, PowerRole::Generator, "{id}");
+            assert_eq!(s.max_in, 0, "{id}: генератор не берёт из сети");
+            assert!(is_early_generator(id) && has_block_entity(id), "{id}");
+            assert!(!is_machine(id), "{id}: машины тикают своим путём, мимо `power_tick`");
+            assert!(s.capacity < i16::MAX as i32, "{id}: запас не влезет в число меню");
+            assert!(!early_title(id).is_empty(), "{id}");
+        }
+        assert_eq!(spec(ELECTROPHORE).capacity, 2_000);
+        assert_eq!(ELECTROPHORE_CHARGE, 200);
+        // Буфер — около 200 тиков выработки по паспорту.
+        for id in [VOLTAIC_PILE, STEAM_BOILER, WATER_WHEEL, WIND_TURBINE, THERMOCOUPLE, PIEZO_PLATE] {
+            assert_eq!(spec(id).capacity, spec(id).rate * 200, "{id}");
+        }
+        // Одного разряда хватает инкубатору на 100 тиков (4.27 п. 8).
+        assert_eq!(ELECTROPHORE_CHARGE / machine_draw(INCUBATOR), 100);
+        assert!(!is_early_generator(DYNAMO) && !has_block_entity(DYNAMO), "динамо — простой блок");
+    }
+
+    #[test]
+    fn the_electrophore_needs_a_turn_of_the_crank() {
+        assert!(electrophore_ready(100, None));
+        assert!(!electrophore_ready(105, Some(100)));
+        assert!(electrophore_ready(110, Some(100)));
+        assert!(electrophore_ready(5, Some(100)), "часы назад — можно");
+        assert_eq!(electrophore_line(200, 1_200), "Электрофорная машина: разряд +200 Вт·с · заряд 1 200 / 2 000");
+        assert!(electrophore_line(0, 2_000).contains("буфер полон"));
+    }
+
+    #[test]
+    fn a_plate_counts_each_step_once() {
+        let mut book = PiezoBook::default();
+        let here = [1, 64, 1];
+        assert_eq!(book.steps("o", here), (0, false));
+        // Наступил: касание и сверху, и изнутри — один шаг.
+        book.touch("o", here, 7);
+        book.touch("o", here, 7);
+        assert_eq!(book.steps("o", here), (1, true));
+        // Стоит — шагов нет.
+        book.touch("o", here, 7);
+        assert_eq!(book.steps("o", here), (0, true));
+        // Упал предмет, первый стоит.
+        book.touch("o", here, 7);
+        book.touch("o", here, 9);
+        assert_eq!(book.steps("o", here), (1, true));
+        // Все сошли, потом первый вернулся.
+        assert_eq!(book.steps("o", here), (0, false));
+        book.touch("o", here, 7);
+        assert_eq!(book.steps("o", here), (1, true));
+        // Другой уровень — другая клетка.
+        book.touch("n", here, 7);
+        assert_eq!(book.steps("o", here), (0, false));
+        assert_eq!(book.steps("n", here), (1, true));
+    }
+
+    #[test]
+    fn the_plate_book_does_not_grow_without_end() {
+        let mut book = PiezoBook::default();
+        for x in 0..(PIEZO_BOOK_LIMIT as i32 + 10) {
+            book.touch("o", [x, 0, 0], 1);
+        }
+        assert!(book.at.len() <= PIEZO_BOOK_LIMIT);
+    }
+
+    #[test]
+    fn the_pile_runs_on_acids_only() {
+        let acid = |f: &str| pile_is_acid(&formula_from_text(f).unwrap());
+        for yes in ["HCl", "H2O4S", "C2H4O2"] {
+            assert!(acid(yes), "{yes}");
+        }
+        for no in ["H2O", "C2H6O", "ClNa", "HNaO", "CO2"] {
+            assert!(!acid(no), "{no}");
+        }
+        assert_eq!(pile_acid(PILE_ACID_BUCKET, None), Some((4_800, "minecraft:bucket")));
+        assert_eq!(pile_acid(FLASK_ID, Some("HCl")), Some((1_200, FLASK_ID)));
+        assert_eq!(pile_acid(FLASK_ID, Some("H2O")), None);
+        assert_eq!(pile_acid(FLASK_ID, None), None);
+        assert_eq!(pile_acid("minecraft:water_bucket", None), None);
+        // Ведро кислоты — на четыре пары пластин.
+        assert_eq!(PILE_ACID_BUCKET_TICKS / PILE_PLATE_TICKS, 4);
+    }
+
+    #[test]
+    fn the_thermocouple_pays_a_watt_per_hundred_degrees() {
+        assert_eq!(block_temperature("minecraft:lava"), 950);
+        assert_eq!(block_temperature("minecraft:magma_block"), 500);
+        assert_eq!(block_temperature("minecraft:blue_ice"), -40);
+        assert_eq!(block_temperature("minecraft:stone"), ROOM_TEMPERATURE);
+        // Магма снизу, вода сбоку: 490 °C — 4,9 в среднем.
+        let delta = thermo_delta(&[500, 10, 20, 20, 20, 20]);
+        assert_eq!(delta, 490);
+        let (mut carry, mut made) = (0, 0);
+        for _ in 0..100 {
+            let (gain, left) = thermo_gain(carry, delta);
+            made += gain;
+            carry = left;
+        }
+        assert_eq!(made, 490);
+        assert_eq!(thermo_gain(0, 99), (0, 99));
+        assert_eq!(thermo_delta(&[20; 6]), 0);
+        assert_eq!(thermo_delta(&[]), 0);
+        // Лава и синий лёд — потолок (9,9 в среднем): паспорт 10, буфер под него.
+        let best = thermo_delta(&[950, -40]);
+        assert_eq!(best, 990);
+        assert!(best / THERMO_STEP < energy_spec(THERMOCOUPLE).unwrap().rate);
+    }
+
+    #[test]
+    fn the_boiler_burns_what_a_furnace_burns() {
+        assert_eq!(boiler_fuel_ticks("minecraft:coal"), 1_600);
+        assert_eq!(boiler_fuel_ticks("minecraft:oak_log"), 300);
+        assert_eq!(boiler_fuel_ticks("minecraft:stripped_birch_wood"), 300);
+        assert_eq!(boiler_fuel_ticks("minecraft:spruce_planks"), 300);
+        assert_eq!(boiler_fuel_ticks("minecraft:crimson_stem"), 0);
+        assert_eq!(boiler_fuel_ticks("minecraft:warped_planks"), 0, "незерское дерево не горит");
+        assert_eq!(boiler_fuel_ticks("minecraft:stone"), 0);
+        assert_eq!(boiler_fuel_ticks(BOILER_SPIRIT), 1_200);
+        assert_eq!(boiler_rate(BOILER_SPIRIT), 40);
+        assert_eq!(boiler_rate("minecraft:coal"), 30);
+        assert_eq!(boiler_fuel_remainder("minecraft:lava_bucket"), Some("minecraft:bucket"));
+        assert_eq!(boiler_fuel_remainder("minecraft:coal"), None);
+        // Бака хватает на ведро с запасом: ведро входит, пока не больше 3 000.
+        assert!(BOILER_TANK >= BOILER_BUCKET * 2);
+    }
+
+    #[test]
+    fn the_wheel_wants_moving_water() {
+        assert!(is_flowing_water("minecraft:water", Some("3")));
+        assert!(is_flowing_water("minecraft:water", Some("8")), "падающая вода тоже");
+        assert!(!is_flowing_water("minecraft:water", Some("0")), "источник стоит");
+        assert!(!is_flowing_water("minecraft:lava", Some("3")));
+        assert!(!is_flowing_water("minecraft:water", None));
+        assert_eq!(wheel_rate(0), 0);
+        assert_eq!(wheel_rate(2), WHEEL_RATE);
+    }
+
+    #[test]
+    fn the_wind_grows_with_height_and_room() {
+        let total = wind_probe([0, 70, 0]).len() as u32;
+        assert_eq!(total, 74);
+        // Под крышей или в тесноте — ноль.
+        assert_eq!(wind_rate(120, total, total, false, false, 50), 0);
+        assert_eq!(wind_rate(120, total / 3, total, true, false, 50), 0);
+        // Низко — нижняя граница, высоко и просторно — верхняя.
+        assert_eq!(wind_rate(64, total, total, true, false, 50), WIND_MIN);
+        assert_eq!(wind_rate(128, total, total, true, false, 99), WIND_MAX);
+        let mid = wind_rate(100, total, total, true, false, 50);
+        assert!((WIND_MIN + 1..WIND_MAX).contains(&mid), "{mid}");
+        // Скачки — в пределах 3–12, гроза вдвое.
+        for second in 0..200 {
+            let gust = wind_gust([5, 90, -3], second);
+            assert!(gust < 100);
+            let r = wind_rate(90, total, total, true, false, gust);
+            assert!((WIND_MIN..=WIND_MAX).contains(&r), "{r}");
+            assert_eq!(wind_rate(90, total, total, true, true, gust), r * 2);
+        }
+        let gusts: std::collections::HashSet<u32> = (0..50).map(|s| wind_gust([1, 2, 3], s)).collect();
+        assert!(gusts.len() > 10, "порывы меняются");
+        assert_eq!(wind_note(120, total, total, true), WIND_GOOD);
+        assert_eq!(wind_note(70, total, total, true), WIND_LOW);
+        assert_eq!(wind_note(120, 0, total, true), WIND_INDOORS);
+        assert!(wind_note_text(WIND_GOOD + WIND_THUNDER).contains("гроза"));
+    }
+
+    #[test]
+    fn the_status_line_reads_like_the_design() {
+        assert_eq!(
+            early_status_line(WIND_TURBINE, 1_200, 7, WIND_GOOD),
+            "Ветряк: 7 Вт·с/тик · заряд 1 200 / 2 400 · высота хорошая"
+        );
+        assert_eq!(
+            early_status_line(THERMOCOUPLE, 300, 0, 480),
+            "Термопара: 4,8 Вт·с/тик · заряд 300 / 2 000 · разница 480 °C"
+        );
+        assert!(early_status_line(WATER_WHEEL, 0, 0, 0).contains("нет текущей воды"));
+        assert!(early_status_line(PIEZO_PLATE, 12, 0, 12).contains("шагов: 12"));
+        assert!(early_status_line(VOLTAIC_PILE, 0, 0, 0).is_empty(), "у столба экран");
+        assert_eq!(early_energy_text(1_234_567), "1 234 567");
+        assert_eq!(early_energy_text(999), "999");
+        assert_eq!(early_hundredths_text(700), "7");
+        assert_eq!(early_hundredths_text(49), "0,5");
+    }
+
+    #[test]
+    fn slots_take_only_their_own() {
+        assert_eq!(early_slot_rule(VOLTAIC_PILE, PILE_ZINC, ZINC_PLATE), Some(true));
+        assert_eq!(early_slot_rule(VOLTAIC_PILE, PILE_ZINC, COPPER_PLATE), Some(false));
+        assert_eq!(early_slot_rule(VOLTAIC_PILE, PILE_COPPER, COPPER_PLATE), Some(true));
+        assert_eq!(early_slot_rule(VOLTAIC_PILE, PILE_ACID, PILE_ACID_BUCKET), Some(true));
+        assert_eq!(early_slot_rule(VOLTAIC_PILE, PILE_ACID, FLASK_ID), Some(true));
+        assert_eq!(early_slot_rule(VOLTAIC_PILE, PILE_EMPTY, "minecraft:bucket"), Some(false));
+        assert_eq!(early_slot_rule(STEAM_BOILER, BOILER_FUEL, "minecraft:coal"), Some(true));
+        assert_eq!(early_slot_rule(STEAM_BOILER, BOILER_FUEL, BOILER_SPIRIT), Some(true));
+        assert_eq!(early_slot_rule(STEAM_BOILER, BOILER_FUEL, "minecraft:water_bucket"), Some(false));
+        assert_eq!(early_slot_rule(STEAM_BOILER, BOILER_WATER, "minecraft:water_bucket"), Some(true));
+        assert_eq!(early_slot_rule(STEAM_BOILER, BOILER_EMPTY, "minecraft:bucket"), Some(false));
+        assert_eq!(early_slot_rule(WIND_TURBINE, 0, "minecraft:coal"), None);
+        assert_eq!(early_slot_rule(INCUBATOR, 0, "minecraft:coal"), None);
+        let (faces, inputs, outputs) = early_faces(STEAM_BOILER);
+        assert_eq!(faces[0], vec![BOILER_EMPTY], "снизу забирают вёдра");
+        assert_eq!(faces[1], inputs);
+        assert_eq!(outputs, vec![BOILER_EMPTY]);
+        assert!(early_is_output(VOLTAIC_PILE, PILE_EMPTY) && !early_is_output(VOLTAIC_PILE, PILE_ACID));
+    }
+
+    #[test]
+    fn screens_lay_out_every_slot_inside_the_panel() {
+        for (id, slots, _) in EARLY_SLOTTED {
+            let s = early_screen(id).unwrap();
+            assert_eq!(s.slots.len(), slots, "{id}");
+            for at in s.slots.iter().flatten() {
+                let f = slot_frame(*at);
+                assert!(f[0] >= 4.0 && f[1] >= SCREEN_HEADER && f[0] + f[2] <= s.gauge[0], "{id}: слот налез на прибор");
+                assert!(f[1] + f[3] <= SCREEN_INVENTORY_Y - 14.0, "{id}: слот налез на строку статуса");
+            }
+            assert!(s.progress[0] + s.progress[2] <= s.width - 4.0);
+        }
+        assert!(early_screen(WIND_TURBINE).is_none());
+        let mut data = vec![0; EARLY_DATA_SLOTS];
+        data[EARLY_DATA_STATUS] = EARLY_WORKING;
+        data[EARLY_DATA_RATE] = 30;
+        data[EARLY_DATA_ENERGY] = 1_200;
+        data[EARLY_DATA_CAPACITY] = 8_000;
+        assert_eq!(early_screen_line(&data), "Работает · 30 Вт·с/тик");
+        assert_eq!(early_screen_charge(&data), "1 200 / 8 000");
+        data[EARLY_DATA_STATUS] = EARLY_NO_DYNAMO;
+        assert_eq!(early_screen_line(&data), "Поставьте динамо на котёл");
+        assert_eq!(early_share(&data, EARLY_DATA_ENERGY, EARLY_DATA_CAPACITY), 0.15);
+        assert_eq!(early_share(&[], EARLY_DATA_ENERGY, EARLY_DATA_CAPACITY), 0.0);
+        for status in EARLY_WORKING..=EARLY_NO_DYNAMO {
+            assert!(!early_status_text(status).is_empty());
+        }
+    }
+
+    #[test]
+    fn menus_match_the_slots() {
+        for (id, slots, output) in EARLY_SLOTTED {
+            let name = id.trim_start_matches("biolab:");
+            let json = read_json(&format!("data/biolab/horizon/menu/{name}.json"));
+            assert_eq!(json.get("slots").and_then(Json::num), Some(slots as f64), "{name}");
+            assert_eq!(json.get("data_slots").and_then(Json::num), Some(EARLY_DATA_SLOTS as f64), "{name}");
+            let results: Vec<usize> =
+                json.get("results").and_then(Json::arr).unwrap_or(&[]).iter().filter_map(Json::num).map(|n| n as usize).collect();
+            assert_eq!(results, vec![output], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_generator_is_in_the_content() {
+        let ru = read_json("assets/biolab/lang/ru_ru.json");
+        let en = read_json("assets/biolab/lang/en_us.json");
+        let tab = std::fs::read_to_string(content().join("data/biolab/horizon/creative_tab/lab.json")).unwrap();
+        let pickaxe = std::fs::read_to_string(content().join("data/minecraft/tags/block/mineable/pickaxe.json")).unwrap();
+        let blocks: Vec<&str> = EARLY_GENERATORS.iter().map(|(id, _)| *id).chain([DYNAMO]).collect();
+        for id in &blocks {
+            let name = id.trim_start_matches("biolab:");
+            let block = read_json(&format!("data/biolab/horizon/block/{name}.json"));
+            assert!(block.get("template").is_some(), "{name}");
+            read_json(&format!("data/biolab/loot_table/blocks/{name}.json"));
+            read_json(&format!("data/biolab/recipe/{name}.json"));
+            read_json(&format!("assets/biolab/blockstates/{name}.json"));
+            read_json(&format!("assets/biolab/items/{name}.json"));
+            for lang in [&ru, &en] {
+                assert!(lang.get(&format!("block.biolab.{name}")).is_some(), "{name}: нет имени");
+            }
+            assert!(tab.contains(&format!("\"{id}\"")), "{name}: нет во вкладке");
+            assert!(pickaxe.contains(&format!("\"{id}\"")), "{name}: не добывается киркой");
+            assert!(!item_hint(id).is_empty(), "{name}: нет подсказки");
+        }
+        for id in [ZINC_PLATE, COPPER_PLATE] {
+            let name = id.trim_start_matches("biolab:");
+            read_json(&format!("data/biolab/horizon/item/{name}.json"));
+            read_json(&format!("data/biolab/recipe/{name}.json"));
+            for lang in [&ru, &en] {
+                assert!(lang.get(&format!("item.biolab.{name}")).is_some(), "{name}: нет имени");
+            }
+            assert!(tab.contains(&format!("\"{id}\"")), "{name}: нет во вкладке");
+        }
+        // Цинк — из туфа в печи (решение Б1).
+        let zinc = read_json("data/biolab/recipe/zinc_plate.json");
+        assert_eq!(zinc.get("type").and_then(Json::str), Some("minecraft:smelting"));
+        assert_eq!(zinc.get("ingredient").and_then(Json::str), Some("minecraft:tuff"));
+    }
+
+    #[test]
+    fn the_research_map_knows_the_generators() {
+        let mut seen: Vec<&str> = Vec::new();
+        for r in &RESEARCH {
+            if let Unlock::Item(items) = r.unlock {
+                seen.extend(items.iter().copied());
+            }
+        }
+        for (id, _) in EARLY_GENERATORS {
+            assert!(seen.contains(id), "{id}: узла на карте нет");
+        }
+        let manual = std::fs::read_to_string(content().join("data/biolab/research/ru.txt")).unwrap();
+        for node in ["= power_first", "= power_mills"] {
+            assert!(manual.contains(node), "{node}: нет записи в журнале");
+        }
+    }
+}
 
 // ---- M10: генераторы 3–5 (GDD 4.27 Б2) ----
 //
@@ -23839,7 +24761,8 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 36, "блоков стало больше — решите, выпадают ли новые");
+        // M10: генераторы тиров 0–2 и динамо котла роняют себя.
+        assert_eq!(blocks.len(), 36 + EARLY_GENERATORS.len() + 1, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,

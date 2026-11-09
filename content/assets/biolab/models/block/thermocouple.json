@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {"particle": "biolab:block/gen_thermo_copper", "front_l": "biolab:block/gen_thermo_front", "front_r": "biolab:block/gen_thermo_front", "thermo_copper": "biolab:block/gen_thermo_copper", "thermo_iron": "biolab:block/gen_thermo_iron"},
+  "elements": [
+    {"from": [0, 0, 0], "to": [8, 16, 16], "faces": {"down": {"uv": [0, 0, 8, 16], "texture": "#thermo_copper", "cullface": "down"}, "up": {"uv": [0, 0, 8, 16], "texture": "#thermo_copper"}, "north": {"uv": [8, 0, 16, 16], "texture": "#front_l"}, "south": {"uv": [0, 0, 8, 16], "texture": "#thermo_copper"}, "west": {"uv": [0, 0, 16, 16], "texture": "#thermo_copper", "cullface": "west"}, "east": {"uv": [0, 0, 16, 16], "texture": "#thermo_copper"}}},
+    {"from": [8, 0, 0], "to": [16, 16, 16], "faces": {"down": {"uv": [8, 0, 16, 16], "texture": "#thermo_iron", "cullface": "down"}, "up": {"uv": [8, 0, 16, 16], "texture": "#thermo_iron"}, "north": {"uv": [0, 0, 8, 16], "texture": "#front_r"}, "south": {"uv": [8, 0, 16, 16], "texture": "#thermo_iron"}, "west": {"uv": [0, 0, 16, 16], "texture": "#thermo_iron"}, "east": {"uv": [0, 0, 16, 16], "texture": "#thermo_iron", "cullface": "east"}}}
+  ]
+}

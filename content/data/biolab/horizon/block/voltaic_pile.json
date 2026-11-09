@@ -1,0 +1,9 @@
+{
+ "template": "minecraft:furnace",
+ "properties": {
+  "hardness": 3.0,
+  "requires_tool": true,
+  "sounds": "minecraft:copper_block"
+ },
+ "item": true
+}

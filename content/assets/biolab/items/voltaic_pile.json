@@ -1,0 +1,6 @@
+{
+ "model": {
+  "type": "minecraft:model",
+  "model": "biolab:block/voltaic_pile"
+ }
+}

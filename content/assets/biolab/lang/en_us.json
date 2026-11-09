@@ -191,5 +191,15 @@
  "item.biolab.hazmat_pants": "Hazmat Trousers",
  "item.biolab.hazmat_boots": "Hazmat Boots",
  "item.biolab.protocol_card": "Protocol Card",
- "item.biolab.syringe_inductor": "Inducer Syringe"
+ "item.biolab.syringe_inductor": "Inducer Syringe",
+ "block.biolab.electrophore": "Electrophorus Machine",
+ "block.biolab.piezo_plate": "Piezo Plate",
+ "block.biolab.voltaic_pile": "Voltaic Pile",
+ "block.biolab.thermocouple": "Thermocouple",
+ "block.biolab.steam_boiler": "Steam Boiler",
+ "block.biolab.dynamo": "Dynamo",
+ "block.biolab.water_wheel": "Water Wheel",
+ "block.biolab.wind_turbine": "Wind Turbine",
+ "item.biolab.zinc_plate": "Zinc Plate",
+ "item.biolab.copper_plate": "Copper Plate"
 }
