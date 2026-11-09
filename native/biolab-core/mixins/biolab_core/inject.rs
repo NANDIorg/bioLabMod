@@ -116,17 +116,22 @@ fn biolab_core_interact_entity(
     /// Хук серверный (`native_interact_entity`), так что мир здесь свой.
     /// Страховка на случай, если его позовут у клиента чужого сервера: там
     /// предмет на земле был бы призраком, которого сервер не знает.
-    fn drop_tissue(game: &mut crate::game::Game<'_>, at: [f64; 3]) {
+    fn drop_tissue(game: &mut crate::game::Game<'_>, at: [f64; 3], genes: &[(&'static str, i32)]) {
         use crate::game::biolab_core as m;
         if game.remote.is_some() {
             return;
         }
-        let tissue = horizon_client::items::ItemStack {
+        let mut tissue = horizon_client::items::ItemStack {
             item: m::TISSUE_ID.into(),
             count: 1,
             damage: 0,
             extra: None,
         };
+        // M10 (GDD 4.27 В): ткань несёт гены пациента — по ним её берёт
+        // электроцитная батарея, их называет подсказка.
+        if !genes.is_empty() {
+            crate::game::biolab_suit::set_custom_text(&mut tissue, m::TISSUE_GENOME_KEY, Some(&m::genome_to_text(genes)));
+        }
         game.spawn_item(tissue, at, crate::game::dispenser::new_item_motion(), 10);
     }
 
@@ -254,7 +259,7 @@ fn biolab_core_interact_entity(
         // Урон — через помощник API 37: он сам отправит здоровье клиентам.
         let dimension = game.dim.id().to_string();
         game.native_set_mob_health(&dimension, id, m::after_cut(health));
-        drop_tissue(game, at);
+        drop_tissue(game, at, &genes);
         crate::game::biolab_say::say(game, &m::cut_message(&kind, cut, 1, &genes));
         play_at(game, m::Cue::Tissue, at);
         return;

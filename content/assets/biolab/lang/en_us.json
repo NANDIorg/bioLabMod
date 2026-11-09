@@ -191,5 +191,12 @@
  "item.biolab.hazmat_pants": "Hazmat Trousers",
  "item.biolab.hazmat_boots": "Hazmat Boots",
  "item.biolab.protocol_card": "Protocol Card",
- "item.biolab.syringe_inductor": "Inducer Syringe"
+ "item.biolab.syringe_inductor": "Inducer Syringe",
+ "block.biolab.microbial_cell": "Microbial Fuel Cell",
+ "block.biolab.photobioreactor": "Photobioreactor",
+ "block.biolab.glucose_cell": "Glucose Fuel Cell",
+ "block.biolab.electrocyte_battery": "Electrocyte Battery",
+ "item.biolab.algae_flask": "Flask of Algae",
+ "item.biolab.enzyme": "Glucose Oxidase Enzyme",
+ "gene.biolab.electrocytes": "Electric Organs"
 }

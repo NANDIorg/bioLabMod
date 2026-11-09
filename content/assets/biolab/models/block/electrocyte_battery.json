@@ -1,0 +1,9 @@
+{
+ "parent": "minecraft:block/orientable",
+ "textures": {
+  "front": "biolab:block/electrocyte_battery_front",
+  "side": "biolab:block/electrocyte_battery_side",
+  "top": "biolab:block/electrocyte_battery_top",
+  "particle": "biolab:block/electrocyte_battery_side"
+ }
+}

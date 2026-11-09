@@ -191,5 +191,12 @@
  "item.biolab.hazmat_pants": "Штаны химзащиты",
  "item.biolab.hazmat_boots": "Сапоги химзащиты",
  "item.biolab.protocol_card": "Карта протокола",
- "item.biolab.syringe_inductor": "Индуктор, инъекция"
+ "item.biolab.syringe_inductor": "Индуктор, инъекция",
+ "block.biolab.microbial_cell": "Микробный топливный элемент",
+ "block.biolab.photobioreactor": "Фотобиореактор",
+ "block.biolab.glucose_cell": "Глюкозный элемент",
+ "block.biolab.electrocyte_battery": "Электроцитная батарея",
+ "item.biolab.algae_flask": "Колба с водорослями",
+ "item.biolab.enzyme": "Фермент глюкозооксидаза",
+ "gene.biolab.electrocytes": "Электрические органы"
 }

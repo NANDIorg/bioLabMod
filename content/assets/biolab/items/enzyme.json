@@ -1,0 +1,12 @@
+{
+ "model": {
+  "type": "minecraft:model",
+  "model": "biolab:item/3d/tube",
+  "tints": [
+   {
+    "type": "minecraft:constant",
+    "value": 14725184
+   }
+  ]
+ }
+}

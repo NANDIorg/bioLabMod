@@ -1,0 +1,9 @@
+{
+ "type": "biolab:incubator",
+ "ingredient": "minecraft:kelp",
+ "result": {
+  "id": "biolab:algae_flask",
+  "count": 1
+ },
+ "time": 300
+}

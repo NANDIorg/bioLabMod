@@ -23,7 +23,7 @@ pub const ID: &str = "biolab_deep";
 // `tests/modules.rs` следит, чтобы копии не разошлись.
 
 /// Гены по номерам: тот же порядок, что `mutants::GENE_NAMES`.
-pub const GENE_NAMES: [&str; 54] = [
+pub const GENE_NAMES: [&str; 55] = [
     "gigantism",
     "dwarfism",
     "hypermetabolism",
@@ -82,10 +82,14 @@ pub const GENE_NAMES: [&str; 54] = [
     "host_restriction",
     "kill_switch",
     "attenuated",
+    // M10 (GDD 4.27 В): электрические органы - удар током по площади;
+    // поведение ведёт `biolab-core` (`electro_tick.rs`); бугорки рисует
+    // `biolab_growths`.
+    "electrocytes",
 ];
 
 /// Цена гена за единицу силы (та же, что в lib).
-pub const GENE_COSTS: [i32; 54] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1];
+pub const GENE_COSTS: [i32; 55] = [2, 1, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 3, 2, 2, 1, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 3];
 
 /// Сколько генов влезает в природный геном и какую сумму цен он выдерживает.
 /// Это правило только природного броска (`roll`): лаборатория — укол
@@ -108,7 +112,7 @@ pub const STAT_MODIFIERS: [&str; 5] = [
 /// Метки генома старого формата (до M11): модификатор дальности
 /// преследования с нулевой прибавкой, чьё имя и есть ген. Новых таких меток
 /// мод не ставит; список нужен только миграции старых миров.
-pub const GENE_MARKERS: [&str; 162] = [
+pub const GENE_MARKERS: [&str; 165] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -273,6 +277,10 @@ pub const GENE_MARKERS: [&str; 162] = [
     "biolab:gene/attenuated/1",
     "biolab:gene/attenuated/2",
     "biolab:gene/attenuated/3",
+    // M10: электрические органы (GDD 4.27 В)
+    "biolab:gene/electrocytes/1",
+    "biolab:gene/electrocytes/2",
+    "biolab:gene/electrocytes/3",
 ];
 
 // ---- Кто бывает мутантом ----
@@ -395,7 +403,7 @@ pub fn mutation_percent(kind: &str) -> u32 {
 /// Нейтральные виды атакуют в ответ, им годится весь набор. Уколом, фрагментом
 /// или мутагеном игрок может вписать такой ген и мирному — это его опыт, а не
 /// бросок, и поведение мутантов (`behaviour.rs` в core) от этого не ломается.
-pub const ATTACK_GENES: [&str; 9] = [
+pub const ATTACK_GENES: [&str; 10] = [
     "brute_force",
     "photophobia",
     "predator",
@@ -405,6 +413,8 @@ pub const ATTACK_GENES: [&str; 9] = [
     "horns",
     "tentacles",
     "tail",
+    // M10 (GDD 4.27 В): разряд идёт с удара, а мирный моб не бьёт.
+    "electrocytes",
 ];
 
 /// Годится ли ген виду с таким нравом при естественном броске.
@@ -1331,7 +1341,7 @@ pub const PAIR_LETHAL: u8 = 3;
 
 /// Скрытая таблица пар: имена генов и вид пары, в том же порядке, что
 /// `GENE_PAIRS` в `biolab-core`.
-pub const GENE_PAIRS: [(&str, &str, u8); 28] = [
+pub const GENE_PAIRS: [(&str, &str, u8); 29] = [
     ("chitin", "thorns", PAIR_SYNERGY),
     ("regeneration", "hypermetabolism", PAIR_SYNERGY),
     ("aquatic", "membranes", PAIR_SYNERGY),
@@ -1360,6 +1370,8 @@ pub const GENE_PAIRS: [(&str, &str, u8); 28] = [
     ("acid_glands", "thin_skin", PAIR_LETHAL),
     ("volatile", "necrosis", PAIR_LETHAL),
     ("hypermetabolism", "cryophilia", PAIR_LETHAL),
+    // M10 (GDD 4.27 В): в конце, как в core.
+    ("electrocytes", "aquatic", PAIR_SYNERGY),
 ];
 
 /// Уродства GDD 4.19: из них вырастает лишний признак крупного разлада. Тот
@@ -1487,6 +1499,46 @@ mod proportion_tests {
             }
         }
         assert!(seen.iter().all(|s| *s), "природе выпадают все черты: {seen:?}");
+    }
+}
+
+// ---- M10: ген электрических органов (GDD 4.22, 4.27 В) ----
+//
+// `electrocytes` — в конце таблицы генов (номер 54). Разряд по площади и
+// искры ведёт `biolab-core` (`electro_tick.rs`, метка поведения `shock`),
+// бугорки вдоль боков рисует `biolab_growths`, голубоватый оттенок —
+// `mutants::tint_rgb`. Здесь — то, что решает бинарник: природный бросок
+// (ген годится враждебным и нейтральным, мирным нет — разряд идёт с удара)
+// и пара с жабрами (синергия, копия таблицы core).
+
+/// Ген электрических органов.
+pub const ELECTRO_GENE: &str = "electrocytes";
+
+#[cfg(test)]
+mod electro_tests {
+    use super::*;
+
+    #[test]
+    fn electric_organs_close_the_table_and_roll_for_fighters_only() {
+        let i = GENE_NAMES.iter().position(|n| *n == ELECTRO_GENE).expect("ген в таблице");
+        assert_eq!(i, GENE_NAMES.len() - 1, "дописан в конец: номера старых генов на месте");
+        assert_eq!(GENE_COSTS[i], 3);
+        assert!(!is_safeguard(i));
+        assert!(gene_fits(i, Temperament::Hostile) && gene_fits(i, Temperament::Neutral));
+        assert!(!gene_fits(i, Temperament::Passive), "мирный не бьёт — разряду неоткуда взяться");
+        let aquatic = GENE_NAMES.iter().position(|n| *n == "aquatic").unwrap();
+        assert_eq!(pair_kind(i, aquatic), Some(PAIR_SYNERGY));
+        // Природа его выдаёт: у враждебных хоть раз выпадает.
+        let rolled = (0..200_000u32).any(|draw| roll(draw, 100, Temperament::Hostile).iter().any(|(g, _)| *g == i));
+        assert!(rolled, "природный бросок не даёт электрических органов");
+        // И не сильнее, чем позволяет стабильность.
+        for draw in 0..50_000u32 {
+            for (g, s) in roll(draw, 100, Temperament::Hostile) {
+                if g == i {
+                    assert!(GENE_COSTS[g] * s <= STABILITY);
+                }
+            }
+        }
     }
 }
 

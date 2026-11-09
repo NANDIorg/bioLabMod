@@ -83,6 +83,9 @@ fn group(item: &str) -> usize {
         "quarantine" | "clean_panel" | "filter_cartridge" => 1,
         // Криобанк (GDD 4.23 п. 9) — к машинам, термобокс — к инструментам.
         "cryobank" => 1,
+        // Живые генераторы (M10, GDD 4.27 В) — к машинам; их колба с
+        // водорослями и фермент — к веществам (по умолчанию).
+        "microbial_cell" | "photobioreactor" | "glucose_cell" | "electrocyte_battery" => 1,
         "thermobox" => 2,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,

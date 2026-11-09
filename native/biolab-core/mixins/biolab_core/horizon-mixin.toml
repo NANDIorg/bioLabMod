@@ -1326,3 +1326,118 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
 ]
+
+# ---- M10-В: живые генераторы и ген электрических органов (GDD 4.27 В) ----
+# Генераторы (МТЭ, фотобиореактор, глюкозный элемент, электроцитная батарея)
+# тикают в `power_tick.rs` (`biolab_gen_living::tick`); здесь — их слоты,
+# правила слотов для воронки и меню, свой экран и подсказки. Каждый хелпер
+# узнаёт свои блоки и выходит на чужих; машины эти хуки уже обслужили
+# инъекциями выше (те на наших блоках ничего не ставят).
+[[injection]]
+id = "living-slots"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_block_entity_container"
+helper = "gen_living_slots.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "container", ty = "&mut Option<horizon_client::chunk::block_entity::ModContainer>", value = "&mut *container" },
+]
+
+[[injection]]
+id = "living-accepts"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_container_accepts"
+helper = "gen_living_accepts.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "entity", ty = "&horizon_client::chunk::block_entity::ModBlockEntity", value = "&*entity" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "cancel", ty = "&mut bool", value = "&mut *cancel" },
+]
+
+# Правила слотов меню — lib-крейт, `runtime.rs` там `crate::biolab_core`
+# (модуль `runtime-menu` выше).
+[[injection]]
+id = "living-slot-rules"
+kind = "HEAD"
+target = "horizon_client_lib::menu::native_menu_slot_rules"
+helper = "gen_living_slot_rules.rs"
+bindings = [
+  { name = "menu", ty = "&str", value = "menu" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&crate::items::ItemStack", value = "&*stack" },
+  { name = "may_place", ty = "&mut bool", value = "&mut *may_place" },
+]
+
+[[injection]]
+id = "living-screen"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen"
+helper = "gen_living_screen.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "screen", ty = "&mut Option<crate::game::native_hooks::NativeScreen>", value = "&mut *screen" },
+]
+
+[[injection]]
+id = "living-draw"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_draw"
+helper = "gen_living_draw.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "origin", ty = "[f32; 2]", value = "origin" },
+]
+
+[[injection]]
+id = "living-tip"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_tooltip"
+helper = "gen_living_tip.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "at", ty = "[f32; 2]", value = "at" },
+  { name = "lines", ty = "&mut Vec<String>", value = "&mut *lines" },
+]
+
+# Подсказки: «Отдача в МТЭ» у культуры, ресурс водорослей и фермента, гены
+# ткани. Стабильный хук API 12, после `tooltip.rs`.
+[[injection]]
+id = "living-tooltip"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tooltip"
+helper = "gen_living_tooltip.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "lines", ty = "&mut Vec<(horizon_client::text::Text, u32)>", value = "&mut *lines" },
+]
+
+# Ген электрических органов у мутанта: разряд по площади с оглушением и
+# искры. Тик игрока, как поведение уродств (`level-tick`): тик уровня в
+# одиночной игре не зовётся. Здесь же отложенный разряд игрока по цели.
+[[injection]]
+id = "electro-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "electro_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Ген у игрока: разряд при ударе, в воде и под дождём — по себе.
+# Стабильный хук API 39, после `thorns.rs`.
+[[injection]]
+id = "electro-hit"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_hurt_enemy"
+helper = "electro_hit.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "entity", ty = "u32", value = "entity" },
+]

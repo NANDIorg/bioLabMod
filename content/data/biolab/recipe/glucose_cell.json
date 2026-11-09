@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ici",
+  "gfg",
+  "ici"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "c": "minecraft:copper_ingot",
+  "g": "minecraft:gold_ingot",
+  "f": "biolab:flask"
+ },
+ "result": {
+  "id": "biolab:glucose_cell",
+  "count": 1
+ }
+}

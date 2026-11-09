@@ -1,0 +1,20 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "cgc",
+  "aba",
+  "crc"
+ ],
+ "key": {
+  "c": "minecraft:copper_ingot",
+  "g": "minecraft:glass_pane",
+  "a": "biolab:agar",
+  "b": "minecraft:cauldron",
+  "r": "minecraft:redstone"
+ },
+ "result": {
+  "id": "biolab:microbial_cell",
+  "count": 1
+ }
+}

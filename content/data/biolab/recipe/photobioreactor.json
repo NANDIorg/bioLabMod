@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ggg",
+  "gwg",
+  "crc"
+ ],
+ "key": {
+  "g": "minecraft:glass",
+  "w": "minecraft:water_bucket",
+  "c": "minecraft:copper_ingot",
+  "r": "minecraft:redstone"
+ },
+ "result": {
+  "id": "biolab:photobioreactor",
+  "count": 1
+ }
+}

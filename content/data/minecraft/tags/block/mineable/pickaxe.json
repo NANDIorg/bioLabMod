@@ -27,6 +27,10 @@
     "biolab:sequencer_rack",
     "biolab:quarantine",
     "biolab:clean_panel",
-    "biolab:cryobank"
+    "biolab:cryobank",
+    "biolab:microbial_cell",
+    "biolab:photobioreactor",
+    "biolab:glucose_cell",
+    "biolab:electrocyte_battery"
   ]
 }
