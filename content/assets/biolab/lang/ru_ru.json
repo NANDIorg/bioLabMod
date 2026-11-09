@@ -191,5 +191,11 @@
  "item.biolab.hazmat_pants": "Штаны химзащиты",
  "item.biolab.hazmat_boots": "Сапоги химзащиты",
  "item.biolab.protocol_card": "Карта протокола",
- "item.biolab.syringe_inductor": "Индуктор, инъекция"
+ "item.biolab.syringe_inductor": "Индуктор, инъекция",
+ "block.biolab.solar_panel": "Солнечная панель",
+ "block.biolab.engine_generator": "Двигатель-генератор",
+ "block.biolab.geothermal_tap": "Геотермальный съёмник",
+ "block.biolab.rtg": "Изотопная батарея",
+ "item.biolab.plant_oil": "Растительное масло",
+ "item.biolab.isotope": "Изотоп"
 }

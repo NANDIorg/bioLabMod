@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "minecraft:wheat_seeds",
+ "result": {
+  "id": "biolab:plant_oil",
+  "count": 1
+ },
+ "time": 200
+}

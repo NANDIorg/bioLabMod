@@ -1326,3 +1326,94 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
 ]
+
+# ---- M10-Б2: генераторы тиров 3–5 (GDD 4.27 Б2) ----
+# Тик генераторов — уже в контракте (`power-tick` зовёт
+# `biolab_gen_late::tick`). Здесь — состояние панели и съёмника по ПКМ
+# пустой рукой, слот топлива двигателя и изотопной батареи (контейнер, меню,
+# воронка), их экран и доза у батареи на тике игрока. Все хуки — вторыми
+# инъекциями рядом с теми, что уже знают машины.
+
+# ПКМ пустой рукой по панели или съёмнику — сообщение (API 21, сервер).
+[[injection]]
+id = "gen-late-click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_right_click_block"
+helper = "gen_late_click.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# Слот топлива двигателя и батареи (API 16), рядом с `block-entity-container`.
+[[injection]]
+id = "gen-late-slots"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_block_entity_container"
+helper = "gen_late_slots.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "container", ty = "&mut Option<horizon_client::chunk::block_entity::ModContainer>", value = "&mut *container" },
+]
+
+# Воронка кладёт в слот только топливо генератора, рядом с `container-accepts`.
+[[injection]]
+id = "gen-late-accepts"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_container_accepts"
+helper = "gen_late_accepts.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "entity", ty = "&horizon_client::chunk::block_entity::ModBlockEntity", value = "&*entity" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "cancel", ty = "&mut bool", value = "&mut *cancel" },
+]
+
+# Правила слота своего меню (API 130, lib-крейт, модуль `runtime-menu`).
+[[injection]]
+id = "gen-late-menu"
+kind = "HEAD"
+target = "horizon_client_lib::menu::native_menu_slot_rules"
+helper = "gen_late_menu.rs"
+bindings = [
+  { name = "menu", ty = "&str", value = "menu" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&crate::items::ItemStack", value = "&*stack" },
+  { name = "may_place", ty = "&mut bool", value = "&mut *may_place" },
+]
+
+# Экран двигателя и батареи: раскладка и рисование (API 19).
+[[injection]]
+id = "gen-late-screen"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen"
+helper = "gen_late_screen.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "screen", ty = "&mut Option<crate::game::native_hooks::NativeScreen>", value = "&mut *screen" },
+]
+
+[[injection]]
+id = "gen-late-draw"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_screen_draw"
+helper = "gen_late_draw.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "block", ty = "&str", value = "block" },
+  { name = "data", ty = "&[i32]", value = "data" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "origin", ty = "[f32; 2]", value = "origin" },
+]
+
+# Доза у работающей изотопной батареи — на тике игрока (API 31).
+[[injection]]
+id = "gen-late-dose"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "gen_late_dose.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]

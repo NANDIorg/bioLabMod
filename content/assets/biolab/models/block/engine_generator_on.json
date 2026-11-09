@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {"front": "biolab:block/engine_generator_front_on", "side": "biolab:block/engine_generator_side", "top": "biolab:block/engine_generator_top", "particle": "biolab:block/engine_generator_side"}
+}

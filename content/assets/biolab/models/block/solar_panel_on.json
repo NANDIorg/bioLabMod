@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {"front": "biolab:block/solar_panel_front_on", "side": "biolab:block/solar_panel_side", "top": "biolab:block/solar_panel_top", "particle": "biolab:block/solar_panel_side"}
+}

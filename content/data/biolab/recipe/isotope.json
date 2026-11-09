@@ -1,0 +1,13 @@
+{
+ "type": "biolab:reactor",
+ "ingredient": "biolab:element_redstonium",
+ "result": {
+  "id": "biolab:isotope",
+  "count": 1
+ },
+ "temperature": [
+  600,
+  800
+ ],
+ "time": 600
+}

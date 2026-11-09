@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ggg",
+  "sss",
+  "ici"
+ ],
+ "key": {
+  "g": "minecraft:glass_pane",
+  "s": "biolab:element_silicon",
+  "i": "minecraft:iron_ingot",
+  "c": "minecraft:copper_ingot"
+ },
+ "result": {
+  "id": "biolab:solar_panel",
+  "count": 1
+ }
+}

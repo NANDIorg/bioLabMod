@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {"front": "biolab:block/geothermal_tap_front_on", "side": "biolab:block/geothermal_tap_side", "top": "biolab:block/geothermal_tap_top", "particle": "biolab:block/geothermal_tap_side"}
+}

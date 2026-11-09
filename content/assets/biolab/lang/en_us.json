@@ -191,5 +191,11 @@
  "item.biolab.hazmat_pants": "Hazmat Trousers",
  "item.biolab.hazmat_boots": "Hazmat Boots",
  "item.biolab.protocol_card": "Protocol Card",
- "item.biolab.syringe_inductor": "Inducer Syringe"
+ "item.biolab.syringe_inductor": "Inducer Syringe",
+ "block.biolab.solar_panel": "Solar Panel",
+ "block.biolab.engine_generator": "Engine Generator",
+ "block.biolab.geothermal_tap": "Geothermal Tap",
+ "block.biolab.rtg": "Radioisotope Generator",
+ "item.biolab.plant_oil": "Plant Oil",
+ "item.biolab.isotope": "Isotope"
 }

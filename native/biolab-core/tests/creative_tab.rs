@@ -83,6 +83,8 @@ fn group(item: &str) -> usize {
         "quarantine" | "clean_panel" | "filter_cartridge" => 1,
         // Криобанк (GDD 4.23 п. 9) — к машинам, термобокс — к инструментам.
         "cryobank" => 1,
+        // Генераторы тиров 3–5 (M10, Б2) — к машинам.
+        "solar_panel" | "engine_generator" | "geothermal_tap" | "rtg" => 1,
         "thermobox" => 2,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,

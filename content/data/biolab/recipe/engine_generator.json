@@ -1,0 +1,20 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ipi",
+  "cfc",
+  "iri"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "p": "minecraft:piston",
+  "c": "minecraft:copper_ingot",
+  "f": "minecraft:blast_furnace",
+  "r": "minecraft:redstone_block"
+ },
+ "result": {
+  "id": "biolab:engine_generator",
+  "count": 1
+ }
+}

@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 123] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 129] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -244,6 +244,13 @@ pub const ITEM_HINTS: [(&str, &[&str]); 123] = [
     ("biolab:protocol_card", &["ПКМ по ферментеру или экстрактору", "Пустая — запишет найденный режим"]),
     // Предохранители (M9, GDD 4.23 п. 10).
     ("biolab:syringe_inductor", &["ПКМ по мутанту — доза генному выключателю", "Без дозы такой мутант гибнет"]),
+    // Генераторы тиров 3–5 (M10, Б2): числа — из раздела «M10: генераторы 3–5».
+    ("biolab:solar_panel", &["Под открытым небом днём: 12 Вт·с/тик", "Ночью ноль, в дождь вдвое меньше"]),
+    ("biolab:engine_generator", &["Спирт или масло → 45 Вт·с/тик", "Шумит и греет: в костюме жарко"]),
+    ("biolab:geothermal_tap", &["Ставится на лаву: 25 Вт·с/тик", "Изнашивается и в конце прогорает"]),
+    ("biolab:rtg", &["Изотоп → 50 Вт·с/тик два часа", "Облучает и заражает округу на 3 блока"]),
+    ("biolab:plant_oil", &["Топливо двигателя-генератора", "Горит дольше спирта"]),
+    ("biolab:isotope", &["Топливо изотопной батареи на два часа", "Радиоактивен: держите в костюме"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -945,6 +952,8 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
             "minecraft:spider_eye",
             "minecraft:sugar",
             "minecraft:wheat",
+            // Растительное масло — топливо двигателя (M10, Б2).
+            "minecraft:wheat_seeds",
         ],
     ),
     (
@@ -959,7 +968,15 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
     ),
     (
         "biolab:reactor",
-        &["biolab:chloroform_mix", "biolab:culture", "biolab:element_glaurium", "biolab:ether_mix", "minecraft:calcite"],
+        &[
+            "biolab:chloroform_mix",
+            "biolab:culture",
+            "biolab:element_glaurium",
+            "biolab:ether_mix",
+            "minecraft:calcite",
+            // Изотоп для изотопной батареи (M10, Б2).
+            "biolab:element_redstonium",
+        ],
     ),
     // Синтезатор по рецепту — только смесь транквилизатора (GDD 4.20).
     ("biolab:synthesizer", &["biolab:element_gold", "biolab:extract_sedative", "biolab:tincture_mandrake"]),
@@ -1470,7 +1487,9 @@ mod automation_tests {
         let cryo = Json::parse(&std::fs::read_to_string(dir.join("cryobank.json")).expect("нет меню криобанка")).unwrap();
         assert_eq!(cryo.get("slots").and_then(Json::num), Some(CRYOBANK_SLOTS as f64));
         let files = std::fs::read_dir(&dir).unwrap().count();
-        assert_eq!(files, MACHINES.len() + PORTS.len() + 1, "лишний тип меню");
+        // Двигатель и изотопная батарея (M10, Б2) — со своими меню.
+        let generators = LATE_GENERATORS.iter().filter(|(id, _)| late_slots(id) > 0).count();
+        assert_eq!(files, MACHINES.len() + PORTS.len() + 1 + generators, "лишний тип меню");
     }
 
     #[test]
@@ -3674,12 +3693,16 @@ pub const ROOM_TEMPERATURE: i32 = 20;
 /// Чем греют реактор снизу и до скольки градусов. Источник не греет выше
 /// своего потолка, поэтому выбор источника — это выбор режима: на магме
 /// реактор работает спокойно, на лаве заходит за предел и перегревается.
-pub const HEAT_SOURCES: [(&str, i32); 5] = [
+pub const HEAT_SOURCES: &[(&str, i32)] = &[
     ("minecraft:campfire", 300),
     ("minecraft:soul_campfire", 350),
     ("minecraft:magma_block", 500),
     ("minecraft:fire", 700),
     ("minecraft:lava", 950),
+    // Горячие генераторы (M10, Б2): выхлоп двигателя и корпус изотопной
+    // батареи. Таблица — по имени блока: греет и заглохший двигатель.
+    ("biolab:engine_generator", 250),
+    ("biolab:rtg", 400),
 ];
 
 /// До скольки греет этот блок; None — не греет.
@@ -10375,7 +10398,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 71] = [
+pub const RESEARCH: [Research; 73] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10475,7 +10498,10 @@ pub const RESEARCH: [Research; 71] = [
     // Сочетания и предохранители (M9, GDD 4.23 пп. 5, 6, 10) — генетика.
     // Пары узнаются опытом, поэтому у узла своё условие.
     node("pairs", 4, (2, 2), "biolab:microscope", "Совместимость генов", &["fragment"], Unlock::GenePairs(1), "Вживите два гена, которые не ладят."),
-    node("safeguards", 4, (5, 3), "biolab:syringe_inductor", "Гены-предохранители", &["sequencer"], Unlock::Item(&["biolab:syringe_inductor"]), "Соберите индуктор на лабораторном столе."),
+    node("safeguards", 4, (5, 3), "biolab:syringe_inductor", "Гены-предохранители", &["sequencer"], Unlock::Item(&["biolab:syringe_inductor"]), "Соберите индуктор на лабораторном столе."),    // Генераторы тиров 3–5 (M10, Б2) — химия, после реактора: изотоп из
+    // него, двигатель — на спирте ферментера.
+    node("late_power", 1, (4, 2), "biolab:solar_panel", "Генераторы: солнце, мотор, лава", &["reactor"], Unlock::Item(&["biolab:solar_panel", "biolab:engine_generator", "biolab:geothermal_tap"]), "Сделайте солнечную панель: кремний и стекло."),
+    node("rtg", 1, (5, 2), "biolab:rtg", "Изотопная батарея", &["late_power"], Unlock::Item(&["biolab:rtg", "biolab:isotope"]), "Редстоний — в реактор на огне, 600–800 °C."),
 ];
 
 /// Номер узла по id.
@@ -19231,8 +19257,9 @@ pub const HEAT_LIMIT: u32 = 45;
 pub const HEAT_CAP: u32 = 90;
 /// Как далеко работающая машина греет, блоков.
 pub const HEAT_RANGE: i32 = 4;
-/// Машины, у которых жарко, пока они работают (`BUSY_KEY`).
-pub const SUIT_HEAT_SOURCES: [&str; 2] = ["biolab:reactor", "biolab:bioreactor"];
+/// Машины, у которых жарко, пока они работают (`BUSY_KEY`). Двигатель и
+/// изотопная батарея (M10, Б2) ставят отметку сами, пока горят.
+pub const SUIT_HEAT_SOURCES: &[&str] = &["biolab:reactor", "biolab:bioreactor", "biolab:engine_generator", "biolab:rtg"];
 /// Где жарко само по себе.
 pub const HOT_DIMENSIONS: [&str; 1] = ["minecraft:the_nether"];
 pub const HEAT_ON: &str = "Перегрев в костюме: отойдите от жара и расстегнитесь";
@@ -22563,10 +22590,814 @@ pub const EARLY_GENERATORS: &[(&str, EnergySpec)] = &[];
 // ---- M10: генераторы 3–5 (GDD 4.27 Б2) ----
 //
 // Солнечная панель, двигатель-генератор, геотермальный съёмник, изотопная
-// батарея. Исполнение — `gen_late.rs`.
+// батарея. Исполнение — `gen_late.rs` (`crate::game::biolab_gen_late`): тик
+// блока, состояние по ПКМ, доза у батареи на тике игрока. Здесь — числа и
+// решения, под тестами. Каждый генератор лишь копит в своём буфере
+// (`biolab_power::generate`); тянут из него машины и накопители.
+//
+// - Панель: открытое небо — небесный свет 15 над ней (`native_light`), днём
+//   12 Вт·с/тик, в сумерки половина, ночью 0, в дождь вдвое меньше. Опрос раз в
+//   `SOLAR_POLL` тиков, выработка до следующего опроса — в сейве.
+// - Двигатель: слот топлива — спирт или растительное масло из ферментера;
+//   единица горит `engine_fuel_ticks`, пока буфер не полон (полный — двигатель
+//   глохнет и топливо не тратит). Пока работает — шумит и греет
+//   (`SUIT_HEAT_SOURCES`, отметка `BUSY_KEY`).
+// - Геотермия: лава под блоком — 25 Вт·с/тик; лава не тратится, блок
+//   изнашивается за `GEOTHERMAL_LIFE` тиков работы, на исходе предупреждает и
+//   в конце прогорает (блок пропадает).
+// - Изотопная батарея: изотоп из реактора распадается `ISOTOPE_TICKS` тиков
+//   (~2 часа) — и работая, и с полным буфером; греется, раз в минуту
+//   заражает чанки в радиусе 3 блоков (`queue_world_contamination`), ближним
+//   игрокам — доза по воздуху (`queue_dose`, режет спецодежда).
+
+pub const SOLAR_PANEL: &str = "biolab:solar_panel";
+pub const ENGINE_GENERATOR: &str = "biolab:engine_generator";
+pub const GEOTHERMAL_TAP: &str = "biolab:geothermal_tap";
+pub const RTG: &str = "biolab:rtg";
+/// Растительное масло: брожение семян в ферментере, топливо двигателя.
+pub const PLANT_OIL: &str = "biolab:plant_oil";
+/// Изотоп: редстоний в реакторе на огне, топливо изотопной батареи.
+pub const ISOTOPE: &str = "biolab:isotope";
+/// Спирт ферментера — тоже топливо двигателя.
+pub const SPIRIT_ID: &str = "biolab:spirit";
+
+/// Паспортная выработка, Вт·с/тик (GDD 4.22, «Обычная ветка»).
+pub const SOLAR_RATE: i32 = 12;
+pub const ENGINE_RATE: i32 = 45;
+pub const GEOTHERMAL_RATE: i32 = 25;
+pub const RTG_RATE: i32 = 50;
+/// Буфер генератора — на столько тиков паспортной выработки (10 с).
+pub const LATE_RESERVE_TICKS: i32 = 200;
 
 /// Генераторы тиров 3–5.
-pub const LATE_GENERATORS: &[(&str, EnergySpec)] = &[];
+pub const LATE_GENERATORS: &[(&str, EnergySpec)] = &[
+    (SOLAR_PANEL, EnergySpec::generator(SOLAR_RATE * LATE_RESERVE_TICKS, SOLAR_RATE)),
+    (ENGINE_GENERATOR, EnergySpec::generator(ENGINE_RATE * LATE_RESERVE_TICKS, ENGINE_RATE)),
+    (GEOTHERMAL_TAP, EnergySpec::generator(GEOTHERMAL_RATE * LATE_RESERVE_TICKS, GEOTHERMAL_RATE)),
+    (RTG, EnergySpec::generator(RTG_RATE * LATE_RESERVE_TICKS, RTG_RATE)),
+];
+
+/// Генератор тиров 3–5.
+pub fn is_late_generator(block: &str) -> bool {
+    LATE_GENERATORS.iter().any(|(id, _)| *id == block)
+}
+
+/// Сейв блок-сущности генератора: часы блока (тики, по кругу).
+pub const GEN_CLOCK_KEY: &str = "biolab_gen_clock";
+/// Выработка за тик на сейчас (у панели — с прошлого опроса).
+pub const GEN_RATE_KEY: &str = "biolab_gen_rate";
+/// Панель: 1 — небо над ней открыто (с прошлого опроса).
+pub const GEN_SKY_KEY: &str = "biolab_gen_sky";
+/// Двигатель и батарея: сколько тиков осталось гореть текущей единице.
+pub const GEN_FUEL_KEY: &str = "biolab_gen_fuel";
+/// Сколько тиков горит текущая единица целиком (для шкалы).
+pub const GEN_FUEL_TOTAL_KEY: &str = "biolab_gen_fuel_total";
+/// Геотермия: сколько тиков отработал съёмник.
+pub const GEN_WEAR_KEY: &str = "biolab_gen_wear";
+/// Геотермия: 1 — о скором износе уже сказали.
+pub const GEN_WARNED_KEY: &str = "biolab_gen_warned";
+/// Часы блока идут по кругу такой длины (делится на все периоды ниже).
+pub const GEN_CLOCK_WRAP: i32 = 24_000;
+
+// == Солнечная панель ==
+
+/// Раз в сколько тиков панель смотрит на небо, время суток и погоду.
+pub const SOLAR_POLL: i32 = 20;
+
+/// Открыто ли небо: над панелью полный небесный свет. Стекло его не режет,
+/// так что теплица годится; любая крыша — нет.
+pub fn sky_open(sky_light_above: u8) -> bool {
+    sky_light_above >= 15
+}
+
+/// Доля дневного света по времени суток, %: день (6:00–18:00) — 100,
+/// закат и рассвет — 50, ночь — 0. `day_time` идёт и за 24000.
+pub fn daylight_percent(day_time: i64) -> i32 {
+    match day_time.rem_euclid(24_000) {
+        0..12_000 => 100,
+        12_000..13_000 | 23_000..24_000 => 50,
+        _ => 0,
+    }
+}
+
+/// Выработка панели за тик: без неба — 0, днём — паспорт, в сумерки
+/// половина; дождь (и гроза) — ещё вдвое меньше.
+pub fn solar_output(sky_open: bool, day_time: i64, rain: f32) -> i32 {
+    if !sky_open {
+        return 0;
+    }
+    let mut rate = SOLAR_RATE * daylight_percent(day_time) / 100;
+    if rain > 0.5 {
+        rate /= 2;
+    }
+    rate
+}
+
+// == Двигатель и изотопная батарея: топливо ==
+
+/// Слот топлива двигателя и батареи — единственный.
+pub const GEN_SLOT_FUEL: usize = 0;
+pub const GEN_SLOTS: usize = 1;
+/// Сколько тиков горит единица топлива двигателя.
+pub const SPIRIT_TICKS: i32 = 600;
+pub const PLANT_OIL_TICKS: i32 = 900;
+/// Сколько тиков распадается один изотоп: 144 000 — два часа игры, шесть
+/// игровых суток.
+pub const ISOTOPE_TICKS: i32 = 144_000;
+
+/// Сколько тиков горит единица топлива в двигателе; None — не топливо.
+pub fn engine_fuel_ticks(item: &str) -> Option<i32> {
+    match item {
+        SPIRIT_ID => Some(SPIRIT_TICKS),
+        PLANT_OIL => Some(PLANT_OIL_TICKS),
+        _ => None,
+    }
+}
+
+/// Сколько тиков горит единица топлива в генераторе `block`.
+pub fn late_fuel_ticks(block: &str, item: &str) -> Option<i32> {
+    match block {
+        ENGINE_GENERATOR => engine_fuel_ticks(item),
+        RTG if item == ISOTOPE => Some(ISOTOPE_TICKS),
+        _ => None,
+    }
+}
+
+/// Итог тика горелки.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Burn {
+    /// Осталось гореть текущей единице.
+    pub left: i32,
+    /// Сколько горит текущая единица целиком.
+    pub total: i32,
+    /// Взять из слота одну единицу.
+    pub take: bool,
+    /// Горит в этот тик: генератор вырабатывает.
+    pub burning: bool,
+}
+
+/// Тик горелки: `left`/`total` — текущая единица, `want` — гореть ли (у
+/// двигателя — есть место в буфере; батарея распадается всегда), `fuel` —
+/// сколько горит единица, что лежит в слоте (None — слот пуст или не то).
+/// Догорела — следующая берётся из слота в тот же тик, без простоя.
+pub fn burn_step(left: i32, total: i32, want: bool, fuel: Option<i32>) -> Burn {
+    let left = left.max(0);
+    if !want {
+        return Burn { left, total, take: false, burning: false };
+    }
+    if left > 0 {
+        return Burn { left: left - 1, total, take: false, burning: true };
+    }
+    match fuel {
+        Some(ticks) if ticks > 0 => Burn { left: ticks - 1, total: ticks, take: true, burning: true },
+        _ => Burn { left: 0, total, take: false, burning: false },
+    }
+}
+
+/// Гореть ли двигателю: работающий — пока в буфере есть место, заглохший
+/// заводится, когда буфер опустел до трёх четвертей. Без этого запаса он
+/// дёргался бы на каждом заборе машины: лампа и звук через тик.
+pub fn engine_wants(running: bool, stored: i32, capacity: i32) -> bool {
+    if running { stored < capacity } else { stored <= capacity / 4 * 3 }
+}
+
+/// Возьмёт ли слот генератора предмет: None — блок не генератор со слотами.
+pub fn late_slot_accepts(block: &str, slot: usize, item: &str) -> Option<bool> {
+    if block != ENGINE_GENERATOR && block != RTG {
+        return None;
+    }
+    Some(slot == GEN_SLOT_FUEL && late_fuel_ticks(block, item).is_some())
+}
+
+/// Слоты генератора (двигатель, батарея); 0 — без слотов.
+pub fn late_slots(block: &str) -> usize {
+    if block == ENGINE_GENERATOR || block == RTG { GEN_SLOTS } else { 0 }
+}
+
+// == Геотермальный съёмник ==
+
+/// Сколько тиков работы выдерживает съёмник: час игры, 1,8 млн Вт·с.
+pub const GEOTHERMAL_LIFE: i32 = 72_000;
+/// На каком остатке он предупреждает (6 минут работы).
+pub const GEOTHERMAL_WARN: i32 = 7_200;
+pub const GEOTHERMAL_WARN_TEXT: &str = "Геотермальный съёмник изношен на 90 %: скоро прогорит";
+pub const GEOTHERMAL_BROKEN_TEXT: &str = "Геотермальный съёмник прогорел и развалился";
+pub const LAVA: &str = "minecraft:lava";
+
+/// Выработка съёмника за тик: лава под ним — паспорт, иначе 0.
+pub fn geothermal_output(below: &str) -> i32 {
+    if below == LAVA { GEOTHERMAL_RATE } else { 0 }
+}
+
+/// Что стало со съёмником после `worked` тиков работы.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wear {
+    Fine,
+    /// Пора предупредить: остаток меньше `GEOTHERMAL_WARN`.
+    Worn,
+    /// Прогорел.
+    Broken,
+}
+
+pub fn geothermal_wear(worked: i32) -> Wear {
+    if worked >= GEOTHERMAL_LIFE {
+        Wear::Broken
+    } else if GEOTHERMAL_LIFE - worked <= GEOTHERMAL_WARN {
+        Wear::Worn
+    } else {
+        Wear::Fine
+    }
+}
+
+/// Износ в процентах (0–100).
+pub fn geothermal_wear_percent(worked: i32) -> i32 {
+    (i64::from(worked.clamp(0, GEOTHERMAL_LIFE)) * 100 / i64::from(GEOTHERMAL_LIFE)) as i32
+}
+
+// == Изотопная батарея: заражение и облучение ==
+
+/// Радиус заражения и облучения, блоков.
+pub const RTG_RADIUS: i32 = 3;
+/// Раз в сколько тиков работающая батарея кладёт вклад в заражённость.
+pub const RTG_CONTAMINATE_EVERY: i32 = 1_200;
+/// Вклад в заражённость каждого чанка в радиусе за раз (ступень — 1,0):
+/// 0,05 в минуту — ступень за 20 минут, если чанк сам не остывает.
+pub const RTG_CONTAMINATION: f32 = 0.05;
+/// Доза по воздуху ближнему игроку за секунду. Доза тает на 3 % в секунду,
+/// так что без защиты порог 100 набирается меньше чем за минуту у батареи;
+/// респиратор с фильтром (×0,15) держит.
+pub const RTG_DOSE: f32 = 4.0;
+/// Раз в сколько мс игроку доза (раз в секунду).
+pub const RTG_DOSE_EVERY_MS: u64 = 1_000;
+/// Сколько держится отметка «батарея работает» (её обновляют раз в секунду).
+pub const RTG_HOLD_MS: u64 = 3_000;
+/// Раз в сколько тиков батарея обновляет отметку.
+pub const RTG_NOTE_EVERY: i32 = 20;
+
+/// По точке в каждом чанке, который задевает квадрат радиуса `RTG_RADIUS`
+/// вокруг `pos`: туда и кладётся вклад (заражённость считается по чанкам).
+pub fn rtg_chunk_points(pos: [i32; 3]) -> Vec<[i32; 3]> {
+    let r = RTG_RADIUS;
+    let mut out: Vec<[i32; 3]> = Vec::new();
+    for dx in [-r, 0, r] {
+        for dz in [-r, 0, r] {
+            let at = [pos[0] + dx, pos[1], pos[2] + dz];
+            if !out.iter().any(|p| p[0] >> 4 == at[0] >> 4 && p[2] >> 4 == at[2] >> 4) {
+                out.push(at);
+            }
+        }
+    }
+    out
+}
+
+/// Работающие батареи (уровень, место, до какого мс отметка жива) и когда
+/// какой игрок в последний раз получил дозу.
+#[derive(Default)]
+pub struct RtgBeacons {
+    list: Vec<(String, [i32; 3], u64)>,
+    dosed: std::collections::HashMap<u128, u64>,
+}
+
+impl RtgBeacons {
+    pub fn note(&mut self, dimension: &str, pos: [i32; 3], now: u64) {
+        self.list.retain(|(d, p, until)| *until > now && !(d == dimension && *p == pos));
+        self.list.push((dimension.to_string(), pos, now + RTG_HOLD_MS));
+    }
+
+    /// Работает ли батарея в радиусе облучения от точки `at` (ноги игрока).
+    pub fn near(&self, dimension: &str, at: [f64; 3], now: u64) -> bool {
+        let body = [at[0], at[1] + 1.0, at[2]];
+        let reach = f64::from(RTG_RADIUS) + 0.5;
+        self.list.iter().any(|(d, p, until)| {
+            let centre = [f64::from(p[0]) + 0.5, f64::from(p[1]) + 0.5, f64::from(p[2]) + 0.5];
+            d == dimension && *until > now && within(centre, body, reach)
+        })
+    }
+
+    /// Доза игроку `player` в точке `at`, если батарея рядом и секунда с
+    /// прошлой дозы прошла.
+    pub fn dose(&mut self, player: u128, dimension: &str, at: [f64; 3], now: u64) -> Option<f32> {
+        if !self.near(dimension, at, now) {
+            return None;
+        }
+        let last = self.dosed.get(&player).copied();
+        if last.is_some_and(|last| now < last + RTG_DOSE_EVERY_MS) {
+            return None;
+        }
+        self.dosed.insert(player, now);
+        Some(RTG_DOSE)
+    }
+}
+
+fn rtg_beacons() -> &'static std::sync::Mutex<RtgBeacons> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<RtgBeacons>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Батарея в `pos` работает (зовёт её тик).
+pub fn note_rtg(dimension: &str, pos: [i32; 3]) {
+    if let Ok(mut beacons) = rtg_beacons().lock() {
+        beacons.note(dimension, pos, quarantine_clock());
+    }
+}
+
+/// Доза игроку у работающей батареи (зовёт тик игрока).
+pub fn rtg_dose(player: u128, dimension: &str, at: [f64; 3]) -> Option<f32> {
+    rtg_beacons().lock().ok()?.dose(player, dimension, at, quarantine_clock())
+}
+
+// == Звуки ==
+
+/// Звуки генератора: завёлся, работает (раз в `every` тиков), заглох.
+pub struct GenSounds {
+    pub block: &'static str,
+    pub start: Sound,
+    pub work: Sound,
+    pub stop: Sound,
+    pub every: i32,
+}
+
+/// Панель работает молча.
+pub const GEN_SOUNDS: [GenSounds; 3] = [
+    // Двигатель: поршень пошёл, ровный стук мотора, выдох — заглох.
+    GenSounds {
+        block: ENGINE_GENERATOR,
+        start: block("minecraft:block.piston.extend", 0.5, 0.6),
+        work: block("minecraft:entity.minecart.riding", 0.35, 0.6),
+        stop: block("minecraft:block.fire.extinguish", 0.4, 0.8),
+        every: 40,
+    },
+    // Геотермия: лава под ним булькает; прогорел — треск.
+    GenSounds {
+        block: GEOTHERMAL_TAP,
+        start: block("minecraft:block.lava.pop", 0.4, 1.0),
+        work: block("minecraft:block.lava.ambient", 0.25, 1.0),
+        stop: block("minecraft:block.anvil.break", 0.5, 0.8),
+        every: 120,
+    },
+    // Изотопная батарея: заряд пошёл, щелчки счётчика, затихла.
+    GenSounds {
+        block: RTG,
+        start: block("minecraft:block.respawn_anchor.charge", 0.4, 1.2),
+        work: block("minecraft:block.sculk_sensor.clicking", 0.25, 1.6),
+        stop: block("minecraft:block.beacon.deactivate", 0.4, 1.2),
+        every: 60,
+    },
+];
+
+/// Звук генератора в этой фазе (`Phase::Done` — заглох).
+pub fn gen_sound(block: &str, phase: Phase) -> Option<Sound> {
+    let s = GEN_SOUNDS.iter().find(|s| s.block == block)?;
+    Some(match phase {
+        Phase::Start => s.start,
+        Phase::Work => s.work,
+        Phase::Done => s.stop,
+    })
+}
+
+/// Какой звук сейчас: завёлся, заглох или очередной такт работы.
+pub fn gen_beat(block: &str, was: bool, now: bool, clock: i32) -> Option<Phase> {
+    let every = GEN_SOUNDS.iter().find(|s| s.block == block)?.every;
+    match (was, now) {
+        (false, true) => Some(Phase::Start),
+        (true, false) => Some(Phase::Done),
+        (true, true) if clock % every == 0 => Some(Phase::Work),
+        _ => None,
+    }
+}
+
+// == Состояние по ПКМ и экран ==
+
+/// Число с пробелами между тысячами: «1 200».
+pub fn grouped(n: i32) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    if n < 0 { format!("-{out}") } else { out }
+}
+
+/// Название генератора.
+pub fn late_title(block: &str) -> &'static str {
+    match block {
+        SOLAR_PANEL => "Солнечная панель",
+        ENGINE_GENERATOR => "Двигатель-генератор",
+        GEOTHERMAL_TAP => "Геотермальный съёмник",
+        RTG => "Изотопная батарея",
+        _ => "Генератор",
+    }
+}
+
+fn charge(stored: i32, capacity: i32) -> String {
+    format!("заряд {} / {}", grouped(stored), grouped(capacity))
+}
+
+/// Что говорит панель по ПКМ.
+pub fn solar_status(rate: i32, stored: i32, capacity: i32, sky: bool, day_time: i64) -> String {
+    let why = if !sky {
+        "неба не видно"
+    } else if daylight_percent(day_time) == 0 {
+        "ночь"
+    } else if rate < SOLAR_RATE {
+        "свет слабый"
+    } else {
+        "небо открыто"
+    };
+    format!("{}: {rate} Вт·с/тик · {} · {why}", late_title(SOLAR_PANEL), charge(stored, capacity))
+}
+
+/// Что говорит съёмник по ПКМ.
+pub fn geothermal_status(rate: i32, stored: i32, capacity: i32, below: &str, worked: i32) -> String {
+    let why = if below == LAVA {
+        format!("износ {} %", geothermal_wear_percent(worked))
+    } else {
+        "нет лавы под блоком".to_string()
+    };
+    format!("{}: {rate} Вт·с/тик · {} · {why}", late_title(GEOTHERMAL_TAP), charge(stored, capacity))
+}
+
+/// Время в секундах — «1 ч 54 мин», «3 мин 05 с», «25 с».
+pub fn duration_text(seconds: i32) -> String {
+    let s = seconds.max(0);
+    match (s / 3600, s % 3600 / 60, s % 60) {
+        (0, 0, sec) => format!("{sec} с"),
+        (0, min, sec) => format!("{min} мин {sec:02} с"),
+        (h, min, _) => format!("{h} ч {min:02} мин"),
+    }
+}
+
+/// Числа экрана генератора со слотом (данные меню, 16 бит): запас,
+/// ёмкость, выработка сейчас, остаток единицы в промилле, её остаток в
+/// секундах, сколько единиц в слоте.
+pub const GEN_DATA_STORED: usize = 0;
+pub const GEN_DATA_CAPACITY: usize = 1;
+pub const GEN_DATA_RATE: usize = 2;
+pub const GEN_DATA_FUEL: usize = 3;
+pub const GEN_DATA_FUEL_SECONDS: usize = 4;
+pub const GEN_DATA_SPARE: usize = 5;
+pub const GEN_DATA_SLOTS: usize = 6;
+
+/// Числа экрана по состоянию генератора.
+pub fn gen_data(stored: i32, capacity: i32, rate: i32, left: i32, total: i32, spare: u32) -> [i32; GEN_DATA_SLOTS] {
+    let permille = if total > 0 { (i64::from(left.max(0)) * 1000 / i64::from(total)) as i32 } else { 0 };
+    let clamp16 = |v: i32| v.clamp(0, i32::from(i16::MAX));
+    [
+        clamp16(stored),
+        clamp16(capacity),
+        clamp16(rate),
+        permille.clamp(0, 1000),
+        clamp16((left.max(0) + 19) / 20),
+        clamp16(spare as i32),
+    ]
+}
+
+/// Строки экрана генератора по его числам.
+pub fn gen_screen_lines(block: &str, data: &[i32]) -> Vec<String> {
+    let at = |i: usize| data.get(i).copied().unwrap_or(0);
+    let fuel = match block {
+        RTG => "Изотоп",
+        _ => "Топливо",
+    };
+    let left = if at(GEN_DATA_FUEL) > 0 || at(GEN_DATA_FUEL_SECONDS) > 0 {
+        duration_text(at(GEN_DATA_FUEL_SECONDS))
+    } else {
+        "нет".to_string()
+    };
+    vec![
+        format!("Выдаёт: {} Вт·с/тик", at(GEN_DATA_RATE)),
+        format!("Заряд: {}/{}", grouped(at(GEN_DATA_STORED)), grouped(at(GEN_DATA_CAPACITY))),
+        format!("{fuel}: {left}"),
+    ]
+}
+
+/// Экран двигателя и батареи: слот топлива слева, шкала горения над ним,
+/// табло и шкала заряда справа, инвентарь как у печи.
+pub fn late_screen(block: &str) -> Option<MachineScreen> {
+    if late_slots(block) == 0 {
+        return None;
+    }
+    Some(MachineScreen {
+        width: SCREEN_WIDTH,
+        height: SCREEN_HEIGHT,
+        slots: vec![Some([14.0, 50.0])],
+        inventory: [8.0, SCREEN_INVENTORY_Y],
+        // Табло: три строки текста.
+        gauge: [38.0, 20.0, 130.0, 36.0],
+        // Шкала заряда под табло.
+        progress: [38.0, 60.0, 130.0, 8.0],
+    })
+}
+
+/// Шкала горения единицы топлива: над слотом.
+pub const GEN_FUEL_BAR: [f32; 4] = [12.0, 22.0, 20.0, 22.0];
+
+#[cfg(test)]
+mod m10_late_tests {
+    use super::*;
+
+    #[test]
+    fn the_buffers_hold_ten_seconds_of_output() {
+        for (id, rate) in [(SOLAR_PANEL, 12), (ENGINE_GENERATOR, 45), (GEOTHERMAL_TAP, 25), (RTG, 50)] {
+            let spec = energy_spec(id).unwrap_or_else(|| panic!("{id} не в сети"));
+            assert_eq!(spec.role, PowerRole::Generator, "{id}");
+            assert_eq!(spec.rate, rate, "{id}");
+            assert_eq!(spec.capacity, rate * 200, "{id}");
+            assert_eq!(spec.max_in, 0, "{id}: генератор не берёт");
+            assert!(spec.capacity <= i32::from(i16::MAX), "{id}: экрану не влезет в 16 бит");
+            assert!(has_block_entity(id) && !is_machine(id), "{id}: тикает через power_tick");
+        }
+        assert_eq!(machine_draw(RTG), 0, "генератор не потребитель");
+    }
+
+    #[test]
+    fn the_sun_works_by_day_under_open_sky() {
+        assert!(sky_open(15) && !sky_open(14) && !sky_open(0));
+        assert_eq!(solar_output(true, 6_000, 0.0), 12, "полдень");
+        assert_eq!(solar_output(true, 30_000, 0.0), 12, "время идёт за 24000");
+        assert_eq!(solar_output(true, 6_000, 1.0), 6, "дождь вдвое слабее");
+        assert_eq!(solar_output(true, 12_500, 0.0), 6, "закат");
+        assert_eq!(solar_output(true, 23_500, 1.0), 3, "рассвет в дождь");
+        assert_eq!(solar_output(true, 18_000, 0.0), 0, "полночь");
+        assert_eq!(solar_output(false, 6_000, 0.0), 0, "под крышей");
+        assert_eq!(GEN_CLOCK_WRAP % SOLAR_POLL, 0);
+    }
+
+    #[test]
+    fn the_engine_burns_spirit_and_oil_only_while_there_is_room() {
+        assert_eq!(engine_fuel_ticks(SPIRIT_ID), Some(SPIRIT_TICKS));
+        assert!(engine_fuel_ticks(PLANT_OIL).unwrap() > SPIRIT_TICKS, "масло горит дольше");
+        assert_eq!(engine_fuel_ticks("minecraft:coal"), None, "двигатель не печь");
+        // Пусто и нечего взять — стоит.
+        assert_eq!(burn_step(0, 0, true, None), Burn { left: 0, total: 0, take: false, burning: false });
+        // Берёт единицу и сразу горит.
+        let b = burn_step(0, 0, true, Some(600));
+        assert_eq!(b, Burn { left: 599, total: 600, take: true, burning: true });
+        // Догорает без новой.
+        assert_eq!(burn_step(5, 600, true, Some(600)), Burn { left: 4, total: 600, take: false, burning: true });
+        // Буфер полон — глохнет, топливо цело.
+        assert_eq!(burn_step(5, 600, false, Some(600)), Burn { left: 5, total: 600, take: false, burning: false });
+        // Спирт окупается: единица даёт больше, чем стоит её брожение
+        // (сахар — 160 тиков ферментера по 5 Вт·с).
+        assert!(SPIRIT_TICKS * ENGINE_RATE > 10 * 160 * machine_draw(FERMENTER));
+    }
+
+    #[test]
+    fn the_engine_restarts_only_when_a_quarter_is_spent() {
+        let cap = 9_000;
+        assert!(engine_wants(true, cap - 1, cap), "работает до полного");
+        assert!(!engine_wants(true, cap, cap), "полный — глохнет");
+        assert!(!engine_wants(false, cap - 45, cap), "чуть забрали — ещё стоит");
+        assert!(engine_wants(false, cap * 3 / 4, cap), "три четверти — заводится");
+        assert!(engine_wants(false, 0, cap));
+    }
+
+    #[test]
+    fn a_whole_unit_burns_exactly_its_ticks() {
+        let (mut left, mut total, mut burned, mut taken) = (0, 0, 0, 0);
+        let mut slot = 2;
+        for _ in 0..2_000 {
+            let b = burn_step(left, total, true, (slot > 0).then_some(SPIRIT_TICKS));
+            if b.take {
+                slot -= 1;
+                taken += 1;
+            }
+            burned += i32::from(b.burning);
+            (left, total) = (b.left, b.total);
+        }
+        assert_eq!(taken, 2);
+        assert_eq!(burned, 2 * SPIRIT_TICKS);
+    }
+
+    #[test]
+    fn slots_take_only_their_fuel() {
+        assert_eq!(late_slot_accepts(ENGINE_GENERATOR, 0, SPIRIT_ID), Some(true));
+        assert_eq!(late_slot_accepts(ENGINE_GENERATOR, 0, PLANT_OIL), Some(true));
+        assert_eq!(late_slot_accepts(ENGINE_GENERATOR, 0, ISOTOPE), Some(false));
+        assert_eq!(late_slot_accepts(ENGINE_GENERATOR, 1, SPIRIT_ID), Some(false));
+        assert_eq!(late_slot_accepts(RTG, 0, ISOTOPE), Some(true));
+        assert_eq!(late_slot_accepts(RTG, 0, SPIRIT_ID), Some(false));
+        assert_eq!(late_slot_accepts(SOLAR_PANEL, 0, SPIRIT_ID), None);
+        assert_eq!(late_slot_accepts(INCUBATOR, 0, SPIRIT_ID), None, "чужое не решаем");
+        assert_eq!(late_slots(ENGINE_GENERATOR), 1);
+        assert_eq!(late_slots(GEOTHERMAL_TAP), 0);
+        // Одна единица изотопа — много игровых часов.
+        assert!(ISOTOPE_TICKS >= 20 * 3_600);
+    }
+
+    #[test]
+    fn the_tap_needs_lava_and_wears_out() {
+        assert_eq!(geothermal_output(LAVA), 25);
+        assert_eq!(geothermal_output("minecraft:magma_block"), 0);
+        assert_eq!(geothermal_wear(0), Wear::Fine);
+        assert_eq!(geothermal_wear(GEOTHERMAL_LIFE - GEOTHERMAL_WARN - 1), Wear::Fine);
+        assert_eq!(geothermal_wear(GEOTHERMAL_LIFE - GEOTHERMAL_WARN), Wear::Worn);
+        assert_eq!(geothermal_wear(GEOTHERMAL_LIFE), Wear::Broken);
+        assert_eq!(geothermal_wear_percent(GEOTHERMAL_LIFE / 2), 50);
+        assert_eq!(geothermal_wear_percent(GEOTHERMAL_LIFE * 2), 100);
+        assert!(GEOTHERMAL_WARN_TEXT.contains("90 %"));
+        assert_eq!(geothermal_wear_percent(GEOTHERMAL_LIFE - GEOTHERMAL_WARN), 90);
+    }
+
+    #[test]
+    fn the_isotope_battery_reaches_every_chunk_in_its_radius() {
+        // Посреди чанка — один чанк.
+        assert_eq!(rtg_chunk_points([8, 64, 8]).len(), 1);
+        // У угла чанка — четыре.
+        let corner = rtg_chunk_points([0, 64, 0]);
+        assert_eq!(corner.len(), 4);
+        let mut chunks: Vec<[i32; 2]> = corner.iter().map(|p| [p[0] >> 4, p[2] >> 4]).collect();
+        chunks.sort();
+        assert_eq!(chunks, vec![[-1, -1], [-1, 0], [0, -1], [0, 0]]);
+        // У края — два.
+        assert_eq!(rtg_chunk_points([1, 64, 8]).len(), 2);
+        assert_eq!(GEN_CLOCK_WRAP % RTG_CONTAMINATE_EVERY, 0);
+        assert_eq!(GEN_CLOCK_WRAP % RTG_NOTE_EVERY, 0);
+    }
+
+    #[test]
+    fn the_battery_doses_only_those_close_once_a_second() {
+        let mut b = RtgBeacons::default();
+        let world = "minecraft:overworld";
+        b.note(world, [0, 64, 0], 0);
+        assert!(b.near(world, [2.5, 64.0, 0.5], 100), "в двух блоках");
+        assert!(!b.near(world, [5.5, 64.0, 0.5], 100), "в пяти — нет");
+        assert!(!b.near("minecraft:the_nether", [0.5, 64.0, 0.5], 100), "другой мир");
+        assert!(!b.near(world, [0.5, 64.0, 0.5], RTG_HOLD_MS + 1), "отметка устарела — батарея стоит");
+        assert_eq!(b.dose(7, world, [1.5, 64.0, 0.5], 100), Some(RTG_DOSE));
+        assert_eq!(b.dose(7, world, [1.5, 64.0, 0.5], 600), None, "раз в секунду");
+        assert_eq!(b.dose(7, world, [1.5, 64.0, 0.5], 1_100), Some(RTG_DOSE));
+        assert_eq!(b.dose(8, world, [1.5, 64.0, 0.5], 1_100), Some(RTG_DOSE), "у каждого свои часы");
+        // Переставили — старая отметка не мешает новой.
+        b.note(world, [0, 64, 0], 1_200);
+        assert!(b.near(world, [0.5, 64.0, 0.5], 4_000));
+    }
+
+    /// Через сколько секунд у батареи доза пробивает порог при множителе
+    /// воздуха `air`; None — за десять минут так и не пробила.
+    fn rtg_breakthrough(air: f32) -> Option<u64> {
+        let mut e = Exposure::default();
+        for t in 1..=20 * 600u64 {
+            if t % 20 == 0 {
+                e.add(DoseChannel::Air, RTG_DOSE, air, None);
+            }
+            if dose_check_due(t) && e.check(true).is_some() {
+                return Some(t / 20);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn standing_by_the_battery_bare_infects_and_a_respirator_holds() {
+        let bare = rtg_breakthrough(1.0).expect("без защиты — заражение");
+        assert!((20..=90).contains(&bare), "без защиты за {bare} с");
+        assert_eq!(rtg_breakthrough(0.15), None, "респиратор с фильтром держит");
+        assert!(RTG_DOSE < LEAK_DOSE, "слабее утечки штамма");
+    }
+
+    #[test]
+    fn generators_sound_on_start_stop_and_beat() {
+        assert_eq!(gen_beat(ENGINE_GENERATOR, false, true, 3), Some(Phase::Start));
+        assert_eq!(gen_beat(ENGINE_GENERATOR, true, false, 3), Some(Phase::Done));
+        assert_eq!(gen_beat(ENGINE_GENERATOR, true, true, 40), Some(Phase::Work));
+        assert_eq!(gen_beat(ENGINE_GENERATOR, true, true, 41), None);
+        assert_eq!(gen_beat(SOLAR_PANEL, false, true, 0), None, "панель молчит");
+        for s in &GEN_SOUNDS {
+            assert!(is_late_generator(s.block));
+            assert_eq!(GEN_CLOCK_WRAP % s.every, 0, "{}", s.block);
+            for sound in [s.start, s.work, s.stop] {
+                assert!(sound.event.starts_with("minecraft:"), "{}", sound.event);
+                assert!((0.5..=2.0).contains(&sound.pitch) && sound.volume > 0.0 && sound.volume <= 1.0);
+                assert_eq!(sound.source, SOURCE_BLOCK);
+            }
+            assert!(s.work.volume <= s.start.volume, "{}: фон тише старта", s.block);
+        }
+    }
+
+    /// Ванильные звуки генераторов есть в реестре 26.3 (если лаунчер на месте).
+    #[test]
+    fn generator_sounds_exist_in_vanilla() {
+        let Some(home) = std::env::var_os("HOME") else {
+            return;
+        };
+        let versions = std::path::Path::new(&home).join("Library/Application Support/horizon-launcher/versions");
+        let Ok(dirs) = std::fs::read_dir(versions) else {
+            return;
+        };
+        let text = dirs
+            .filter_map(|e| e.ok())
+            .filter_map(|e| std::fs::read_to_string(e.path().join(".local/horizon-client/26.3/registries.json")).ok())
+            .next();
+        let Some(text) = text else {
+            return;
+        };
+        for s in &GEN_SOUNDS {
+            for sound in [s.start, s.work, s.stop] {
+                assert!(text.contains(&format!("\"{}\"", sound.event)), "{} нет в реестре", sound.event);
+            }
+        }
+    }
+
+    #[test]
+    fn hot_generators_heat_the_suit() {
+        assert!(SUIT_HEAT_SOURCES.contains(&ENGINE_GENERATOR));
+        assert!(SUIT_HEAT_SOURCES.contains(&RTG));
+        assert!(!SUIT_HEAT_SOURCES.contains(&SOLAR_PANEL));
+        assert!(heat_target(ENGINE_GENERATOR).is_some_and(|t| t < OVERHEAT));
+        assert!(heat_target(RTG).is_some_and(|t| t < OVERHEAT));
+    }
+
+    #[test]
+    fn status_lines_read_like_the_spec() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1_200), "1 200");
+        assert_eq!(grouped(1_234_567), "1 234 567");
+        assert_eq!(
+            solar_status(12, 1_200, 2_400, true, 6_000),
+            "Солнечная панель: 12 Вт·с/тик · заряд 1 200 / 2 400 · небо открыто"
+        );
+        assert!(solar_status(0, 0, 2_400, false, 6_000).ends_with("неба не видно"));
+        assert!(solar_status(0, 0, 2_400, true, 18_000).ends_with("ночь"));
+        assert!(solar_status(6, 0, 2_400, true, 6_000).ends_with("свет слабый"));
+        assert_eq!(
+            geothermal_status(25, 5_000, 5_000, LAVA, GEOTHERMAL_LIFE / 4),
+            "Геотермальный съёмник: 25 Вт·с/тик · заряд 5 000 / 5 000 · износ 25 %"
+        );
+        assert!(geothermal_status(0, 0, 5_000, "minecraft:air", 0).ends_with("нет лавы под блоком"));
+        assert_eq!(duration_text(25), "25 с");
+        assert_eq!(duration_text(185), "3 мин 05 с");
+        assert_eq!(duration_text(ISOTOPE_TICKS / 20), "2 ч 00 мин");
+    }
+
+    #[test]
+    fn the_screen_numbers_fit_sixteen_bits() {
+        let d = gen_data(9_000, 9_000, 45, 300, 600, 3);
+        assert_eq!(d, [9_000, 9_000, 45, 500, 15, 3]);
+        let d = gen_data(10_000, 10_000, 50, ISOTOPE_TICKS - 1, ISOTOPE_TICKS, 64);
+        assert!(d.iter().all(|v| (0..=i32::from(i16::MAX)).contains(v)), "{d:?}");
+        let lines = gen_screen_lines(RTG, &d);
+        assert_eq!(lines[0], "Выдаёт: 50 Вт·с/тик");
+        assert_eq!(lines[1], "Заряд: 10 000/10 000");
+        assert!(lines.iter().all(|l| l.chars().count() <= 20), "табло шириной в 20 знаков: {lines:?}");
+        assert_eq!(lines[2], "Изотоп: 2 ч 00 мин");
+        assert_eq!(gen_screen_lines(ENGINE_GENERATOR, &[])[2], "Топливо: нет", "до первых чисел сервера");
+        // Экран: слот топлива и табло не налезают на инвентарь.
+        for id in [ENGINE_GENERATOR, RTG] {
+            let s = late_screen(id).unwrap();
+            assert_eq!(s.slots.len(), late_slots(id));
+            let bottom = [s.gauge, s.progress, GEN_FUEL_BAR]
+                .iter()
+                .map(|r| r[1] + r[3])
+                .chain(s.slots.iter().flatten().map(|at| at[1] + 17.0))
+                .fold(0.0_f32, f32::max);
+            assert!(bottom < s.inventory[1] - 11.0, "{id}: {bottom}");
+            for r in [s.gauge, s.progress, GEN_FUEL_BAR] {
+                assert!(r[0] >= 0.0 && r[0] + r[2] <= s.width, "{id}: {r:?}");
+            }
+        }
+        assert!(late_screen(SOLAR_PANEL).is_none(), "без слотов — сообщение по ПКМ");
+    }
+
+    /// Контент генераторов на месте: блок с предметом, меню со слотом,
+    /// лут, рецепт, строки языков; изотоп и масло — из реактора и ферментера.
+    #[test]
+    fn the_content_is_there() {
+        let content = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        let read = |p: &str| std::fs::read_to_string(content.join(p)).unwrap_or_else(|_| panic!("нет {p}"));
+        let ru = Json::parse(&read("assets/biolab/lang/ru_ru.json")).unwrap();
+        let en = Json::parse(&read("assets/biolab/lang/en_us.json")).unwrap();
+        for (id, _) in LATE_GENERATORS {
+            let short = id.trim_start_matches("biolab:");
+            assert!(read(&format!("data/biolab/horizon/block/{short}.json")).contains("\"item\": true"), "{id}");
+            read(&format!("data/biolab/loot_table/blocks/{short}.json"));
+            read(&format!("data/biolab/recipe/{short}.json"));
+            for lang in [&ru, &en] {
+                assert!(lang.get(&format!("block.biolab.{short}")).is_some(), "{id}: нет имени");
+            }
+            assert_eq!(ru.get(&format!("block.biolab.{short}")).and_then(Json::str), Some(late_title(id)));
+            if late_slots(id) > 0 {
+                let menu = Json::parse(&read(&format!("data/biolab/horizon/menu/{short}.json"))).unwrap();
+                assert_eq!(menu.get("slots").and_then(Json::num), Some(late_slots(id) as f64), "{id}");
+                assert_eq!(menu.get("data_slots").and_then(Json::num), Some(GEN_DATA_SLOTS as f64), "{id}");
+            }
+        }
+        for (item, kind, input) in [(ISOTOPE, REACTOR, "biolab:element_redstonium"), (PLANT_OIL, FERMENTER, "minecraft:wheat_seeds")] {
+            let short = item.trim_start_matches("biolab:");
+            let recipe = Json::parse(&read(&format!("data/biolab/recipe/{short}.json"))).unwrap();
+            assert_eq!(recipe.get("type").and_then(Json::str), Some(kind), "{item}");
+            assert_eq!(recipe.get("ingredient").and_then(Json::str), Some(input), "{item}");
+            assert!(machine_ingredients(kind).contains(&input), "{kind} не возьмёт {input}");
+            for lang in [&ru, &en] {
+                assert!(lang.get(&format!("item.biolab.{short}")).is_some(), "{item}: нет имени");
+            }
+        }
+    }
+}
 
 // ---- M10: живые генераторы (GDD 4.27 В) ----
 //
@@ -23839,7 +24670,8 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        assert_eq!(blocks.len(), 36, "блоков стало больше — решите, выпадают ли новые");
+        // + генераторы тиров 3–5 (M10, Б2), все выпадают сами.
+        assert_eq!(blocks.len(), 36 + LATE_GENERATORS.len(), "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,

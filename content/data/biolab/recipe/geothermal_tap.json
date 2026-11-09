@@ -1,0 +1,20 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ici",
+  "oro",
+  "obo"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "c": "minecraft:copper_block",
+  "o": "minecraft:obsidian",
+  "r": "minecraft:redstone_block",
+  "b": "minecraft:bucket"
+ },
+ "result": {
+  "id": "biolab:geothermal_tap",
+  "count": 1
+ }
+}

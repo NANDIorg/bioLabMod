@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ici",
+  "cnc",
+  "iri"
+ ],
+ "key": {
+  "i": "minecraft:iron_block",
+  "c": "minecraft:copper_block",
+  "n": "minecraft:netherite_ingot",
+  "r": "minecraft:redstone_block"
+ },
+ "result": {
+  "id": "biolab:rtg",
+  "count": 1
+ }
+}
