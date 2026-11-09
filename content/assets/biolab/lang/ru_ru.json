@@ -191,5 +191,10 @@
  "item.biolab.hazmat_pants": "Штаны химзащиты",
  "item.biolab.hazmat_boots": "Сапоги химзащиты",
  "item.biolab.protocol_card": "Карта протокола",
- "item.biolab.syringe_inductor": "Индуктор, инъекция"
+ "item.biolab.syringe_inductor": "Индуктор, инъекция",
+ "block.biolab.infected_grass": "Заражённая трава",
+ "block.biolab.necrotic_soil": "Мёртвая земля",
+ "block.biolab.spore_stalk": "Споровый стебель",
+ "block.biolab.decon_station": "Станция дезактивации",
+ "item.biolab.sprayer": "Распылитель"
 }

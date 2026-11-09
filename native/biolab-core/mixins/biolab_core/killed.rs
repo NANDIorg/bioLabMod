@@ -16,6 +16,7 @@ fn biolab_core_mob_killed(game: &mut crate::game::Game<'_>, entity: u32) {
     }) else {
         return;
     };
+    crate::game::biolab_world_contam::corpse(game, entity, spot); // M10-Г: труп заражённого — источник порчи
     // Геном — данные на мобе (M11). Убитый ещё в списке мобов, и данные при
     // нём, пока игра его не убрала.
     let genes = crate::game::biolab_core_data::genes(game, entity);

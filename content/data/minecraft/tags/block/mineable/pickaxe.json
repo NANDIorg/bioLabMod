@@ -27,6 +27,7 @@
     "biolab:sequencer_rack",
     "biolab:quarantine",
     "biolab:clean_panel",
-    "biolab:cryobank"
+    "biolab:cryobank",
+    "biolab:decon_station"
   ]
 }

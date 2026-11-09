@@ -56,6 +56,8 @@ TEMPLATE_REQUIRES_TOOL = {
     # Части многоблочных установок (GDD 4.18).
     "minecraft:iron_block": True,
     "minecraft:glass": False,
+    # Блоки порчи ландшафта (GDD 4.21, M10).
+    "minecraft:coarse_dirt": False,
 }
 
 # Шаблоны культур (GDD 4.20): у блока нет своего предмета — семена отдельный

@@ -1,0 +1,9 @@
+{
+ "template": "minecraft:mushroom_stem",
+ "properties": {
+  "hardness": 0.4,
+  "explosion_resistance": 0.4,
+  "sounds": "minecraft:nether_wart_block"
+ },
+ "item": true
+}

@@ -15,6 +15,7 @@
     "biolab:column_tray",
     "biolab:console",
     "biolab:cryobank",
+    "biolab:decon_station",
     "biolab:extractor",
     "biolab:fermenter",
     "biolab:filter_cartridge",
@@ -51,6 +52,7 @@
     "biolab:microscope",
     "biolab:protocol_card",
     "biolab:scalpel",
+    "biolab:sprayer",
     "biolab:stretcher",
     "biolab:swab",
     "biolab:syringe",
@@ -142,6 +144,9 @@
     "biolab:acid_puddle_bucket",
     "biolab:mutagen_bucket",
     "biolab:slime_bucket",
-    "biolab:sludge_bucket"
+    "biolab:sludge_bucket",
+    "biolab:infected_grass",
+    "biolab:necrotic_soil",
+    "biolab:spore_stalk"
   ]
 }

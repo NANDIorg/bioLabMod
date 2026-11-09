@@ -309,6 +309,7 @@ fn biolab_core_use_item_on(
     let dimension = player.dimension.clone();
     if game.native_set_block(&dimension, at, state, horizon_world::level::flags::UPDATE_ALL) {
         game.native_set_block_property(at, "layers", &m::FLUID_LAYERS.to_string());
+        if fluid.block == m::MUTAGEN_PUDDLE { m::queue_world_contamination(&dimension, at, m::CONTAM_MUTAGEN_SPILL, None); } // M10-Г
         *claimed = true;
         // Вылитое ведро пустеет, как ванильное: в выживании в руке остаётся
         // `minecraft:bucket`, в творческом — то же ведро. Режим — флаг

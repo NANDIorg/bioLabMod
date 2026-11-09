@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  " I ",
+  "IBI",
+  " S "
+ ],
+ "key": {
+  "I": "minecraft:iron_ingot",
+  "B": "minecraft:bucket",
+  "S": "minecraft:stick"
+ },
+ "result": {
+  "id": "biolab:sprayer",
+  "count": 1
+ }
+}

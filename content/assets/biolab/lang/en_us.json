@@ -191,5 +191,10 @@
  "item.biolab.hazmat_pants": "Hazmat Trousers",
  "item.biolab.hazmat_boots": "Hazmat Boots",
  "item.biolab.protocol_card": "Protocol Card",
- "item.biolab.syringe_inductor": "Inducer Syringe"
+ "item.biolab.syringe_inductor": "Inducer Syringe",
+ "block.biolab.infected_grass": "Infected Grass",
+ "block.biolab.necrotic_soil": "Necrotic Soil",
+ "block.biolab.spore_stalk": "Spore Stalk",
+ "block.biolab.decon_station": "Decontamination Station",
+ "item.biolab.sprayer": "Sprayer"
 }

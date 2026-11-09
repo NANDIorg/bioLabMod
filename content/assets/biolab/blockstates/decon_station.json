@@ -1,0 +1,7 @@
+{
+ "variants": {
+  "": {
+   "model": "biolab:block/decon_station"
+  }
+ }
+}

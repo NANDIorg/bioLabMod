@@ -1326,3 +1326,132 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::chunk::block_entity::ModBlockEntity", value = "&mut *entity" },
 ]
+
+# ---- M10-Г: порча ландшафта (GDD 4.21, 4.27 Г) ----
+# Заражённость чанка, источники, порча блоков, перекраска зоны, чистка.
+# Правила — раздел «M10: порча ландшафта» в `runtime.rs`; исполнение на игре —
+# модуль `biolab_world_contam`.
+[[module]]
+id = "world-contam"
+file = "crates/horizon-client/src/game.rs"
+name = "biolab_world_contam"
+source = "world_contam.rs"
+
+# Тик заражения: раз в секунду на сервере. На тике игрока, как `level-tick`:
+# `native_level_tick_post` в одиночной игре не вызывается.
+[[injection]]
+id = "contam-tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+helper = "contam_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Данные чанка — в зеркало и из него. API 57, сервер; игра зовёт их и без
+# трейт-модов (`native_chunks_changed`).
+[[injection]]
+id = "contam-chunk-load"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_chunk_load"
+helper = "contam_chunk_load.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "chunk", ty = "[i32; 2]", value = "chunk" },
+]
+
+[[injection]]
+id = "contam-chunk-unload"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_chunk_unload"
+helper = "contam_chunk_unload.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "chunk", ty = "[i32; 2]", value = "chunk" },
+]
+
+# Порча ползёт на случайном тике травы, лужи — живые источники. Уровень
+# сервера (`before_random_tick` зовёт хук только у своего сервера).
+[[injection]]
+id = "contam-spread"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::GameLevel<'_>::native_random_tick"
+helper = "contam_spread.rs"
+bindings = [
+  { name = "level", ty = "&crate::game::GameLevel<'_>", value = "&*self" },
+  { name = "dimension", ty = "horizon_world::level::Dimension", value = "dimension" },
+  { name = "pos", ty = "horizon_core::position::BlockPos", value = "pos" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "handled", ty = "&mut bool", value = "&mut *handled" },
+]
+
+# Распылитель: ещё один перехват `native_use_item` (API 13).
+[[injection]]
+id = "contam-spray"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_use_item"
+helper = "contam_spray.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&*stack" },
+  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
+]
+
+# Станция дезактивации: ПКМ по блоку (API 21).
+[[injection]]
+id = "contam-station"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_right_click_block"
+helper = "contam_station.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# Выпавшее из блока на мёртвой земле (ступень 4+) загрязнено. API 75.
+[[injection]]
+id = "contam-loot"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_loot_drops"
+helper = "contam_loot.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "context", ty = "&horizon_client::mod_api::NativeLootDrops<'_>", value = "&*context" },
+  { name = "drops", ty = "&mut Vec<horizon_client::items::ItemStack>", value = "&mut *drops" },
+]
+
+# Заражённость чанка и зоны от сервера (`biolab_core:blight`). API 40.
+[[injection]]
+id = "contam-net"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_net_from_server"
+helper = "contam_net.rs"
+bindings = [
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+# Окно: пора ли перекрасить зону (`native_refresh_biome_colors`, API 107).
+# Стабильный хук `native_tick` (тик каждого `Game`, работает только окно).
+[[injection]]
+id = "contam-view"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+helper = "contam_view.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Цвета биомов с оттенком зоны. Хук клиента API 107.
+[[injection]]
+id = "contam-colors"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_biome_colors"
+helper = "contam_colors.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
+  { name = "colors", ty = "&mut horizon_client::biome::BiomeColors", value = "&mut *colors" },
+]

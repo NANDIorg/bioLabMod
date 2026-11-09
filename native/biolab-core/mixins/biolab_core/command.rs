@@ -105,33 +105,24 @@ fn biolab_core_command(game: &mut crate::game::Game<'_>, command: &str, ran: &mu
             // в 8 блоках сдвигаются на N игровых дней назад, и следующий тик
             // мира выносит приговор. Иначе проверку пришлось бы ждать сутками
             // игрового времени: `game_time` командой `/time` не двигается.
+            //
+            // Команда — окна: в одиночной игре её не видит сервер, а данные
+            // мобов у окна — лишь копия присланного (`native_attachments`:
+            // «On a client it is the copy… `set` changes only the copy»).
+            // Поэтому раньше было «мутантов 0»: часы с `sync: false` до окна
+            // не доходили, а сдвиг копии сервер бы и не увидел. Просьба
+            // уходит серверу через общую память процесса (`request_clock_age`),
+            // сдвигает часы тик мира (`behaviour.rs`) и сам отвечает в чат.
             let days: i64 = words.next().and_then(|w| w.parse().ok()).unwrap_or(1);
-            let shift = days * m::GAME_DAY;
-            let Some(player) = game.native_player() else {
-                return;
-            };
-            let spot = [player.x, player.y, player.z];
-            let near: Vec<u32> = game
-                .mobs
-                .iter()
-                .filter(|mob| mob.alive() && m::within([mob.position.x, mob.position.y, mob.position.z], spot, 8.0))
-                .map(|mob| mob.id)
-                .collect();
-            let mut aged = 0;
-            for id in near {
-                let mut clock = crate::game::biolab_core_data::clock(game, id);
-                if clock.set == 0 {
-                    continue;
-                }
-                clock.set -= shift;
-                if clock.dose > 0 {
-                    clock.dose -= shift;
-                }
-                if crate::game::biolab_core_data::set_clock(game, id, &clock) {
-                    aged += 1;
-                }
-            }
-            crate::game::biolab_say::say(game, &format!("Часы гена сдвинуты на {days} дн.: мутантов {aged}"));
+            m::request_clock_age(days);
+            return;
+        }
+        Some("contam") => {
+            // Заражённость текущего чанка (M10, GDD 4.27 Г): без числа —
+            // показать, с числом 0–5 — выставить (для проверок). Отвечает
+            // сервер тиком заражения — тем же путём, что `age`.
+            let level: Option<f32> = words.next().and_then(|w| w.replace(',', ".").parse().ok());
+            m::request_contam(level);
             return;
         }
         Some("cure") => {
