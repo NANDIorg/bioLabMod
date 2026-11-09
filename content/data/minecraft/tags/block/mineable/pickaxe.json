@@ -45,6 +45,10 @@
     "biolab:cable_repeater",
     "biolab:leyden_jar",
     "biolab:lead_battery",
-    "biolab:capacitor_bank"
+    "biolab:capacitor_bank",
+    "biolab:microbial_cell",
+    "biolab:photobioreactor",
+    "biolab:glucose_cell",
+    "biolab:electrocyte_battery"
   ]
 }

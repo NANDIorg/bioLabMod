@@ -1,0 +1,9 @@
+{
+ "type": "biolab:fermenter",
+ "ingredient": "minecraft:brown_mushroom",
+ "result": {
+  "id": "biolab:enzyme",
+  "count": 1
+ },
+ "time": 300
+}

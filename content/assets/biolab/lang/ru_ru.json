@@ -214,5 +214,12 @@
  "block.biolab.leyden_jar": "Лейденская банка",
  "block.biolab.lead_battery": "Свинцовый аккумулятор",
  "block.biolab.capacitor_bank": "Конденсаторная сборка",
- "item.biolab.battery": "Батарея"
+ "item.biolab.battery": "Батарея",
+ "block.biolab.microbial_cell": "Микробный топливный элемент",
+ "block.biolab.photobioreactor": "Фотобиореактор",
+ "block.biolab.glucose_cell": "Глюкозный элемент",
+ "block.biolab.electrocyte_battery": "Электроцитная батарея",
+ "item.biolab.algae_flask": "Колба с водорослями",
+ "item.biolab.enzyme": "Фермент глюкозооксидаза",
+ "gene.biolab.electrocytes": "Электрические органы"
 }

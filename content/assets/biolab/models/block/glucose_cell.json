@@ -1,0 +1,9 @@
+{
+ "parent": "minecraft:block/orientable",
+ "textures": {
+  "front": "biolab:block/glucose_cell_front",
+  "side": "biolab:block/glucose_cell_side",
+  "top": "biolab:block/glucose_cell_top",
+  "particle": "biolab:block/glucose_cell_side"
+ }
+}

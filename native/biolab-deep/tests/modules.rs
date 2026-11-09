@@ -498,3 +498,30 @@ fn a_species_locked_genome_does_not_survive_a_conversion() {
     assert_eq!(biolab_deep::converted_genome(None, true), Some(String::new()));
     assert_eq!(biolab_deep::converted_genome(None, false), None);
 }
+
+// ---- M10: ген электрических органов (GDD 4.27 В) ----
+
+/// Ген один в трёх местах: core (разряд, батарея, генотерапия), бинарник
+/// deep (бросок, пара) и lib (оттенок, бугорки). Метка поведения `shock`
+/// одна и та же; вид — голубоватый оттенок и черта наростов.
+#[test]
+fn electric_organs_agree_across_bundles() {
+    let i = mutants::gene_index(biolab_core::ELECTROCYTES).expect("ген в lib");
+    assert_eq!(biolab_deep::GENE_NAMES[i], biolab_core::ELECTROCYTES);
+    assert_eq!(biolab_deep::ELECTRO_GENE, biolab_core::ELECTROCYTES);
+    assert_eq!(biolab_core::GENES[i].name, biolab_core::ELECTROCYTES);
+    assert_eq!(mutants::GENE_FLAGS[i], biolab_core::GENE_BEHAVIOUR[i]);
+    assert_eq!(mutants::GENE_FLAGS[i], &["shock"]);
+    assert_eq!(mutants::GENE_STATS[i], [0.0; 5], "своих чисел нет — разряд");
+    let genome = mutants::genome_of(&[(i, 2)]);
+    assert_eq!(mutants::flag_strength(&genome, "shock"), 2);
+    assert!(mutants::tint_rgb(&genome).is_some(), "мутанта видно по оттенку");
+    assert_eq!(mutants::scale(&genome), 1.0);
+    // Наросты: черта с геометрией.
+    assert!(growths::TRAITS.contains(&biolab_core::ELECTROCYTES));
+    assert!(growths::TABLE.iter().any(|t| t.gene == biolab_core::ELECTROCYTES));
+    // Ткань с геном — топливо батареи: строка генома core читается deep.
+    let text = biolab_core::genome_to_text(&[("aquatic", 1), (biolab_core::ELECTROCYTES, 2)]);
+    assert_eq!(biolab_core::tissue_electrocytes(Some(&text)), 2);
+    assert!(biolab_deep::genome_from_text(&text).contains(&(i, 2)));
+}

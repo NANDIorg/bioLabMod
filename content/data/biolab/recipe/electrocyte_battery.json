@@ -1,0 +1,20 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ccc",
+  "psp",
+  "iri"
+ ],
+ "key": {
+  "c": "minecraft:copper_ingot",
+  "p": "minecraft:prismarine_shard",
+  "s": "minecraft:slime_ball",
+  "i": "minecraft:iron_ingot",
+  "r": "minecraft:redstone_block"
+ },
+ "result": {
+  "id": "biolab:electrocyte_battery",
+  "count": 1
+ }
+}

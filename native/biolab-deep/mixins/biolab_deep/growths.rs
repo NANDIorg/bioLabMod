@@ -43,7 +43,7 @@ pub const TEX: [f32; 2] = [128.0, 64.0];
 pub const BLOCK: [f32; 2] = [32.0, 16.0];
 
 /// Все черты, которые видны на модели: существующие гены и гены уродств.
-pub const TRAITS: [&str; 17] = [
+pub const TRAITS: [&str; 18] = [
     "chitin",
     "thorns",
     "rending_claws",
@@ -61,6 +61,8 @@ pub const TRAITS: [&str; 17] = [
     "polyopia",
     "tumor",
     "membranes",
+    // M10 (GDD 4.27 В): электрические органы — бугорки вдоль боков.
+    "electrocytes",
 ];
 
 /// Черты-копии: рисуются частями самой модели, а не своими кубами.
@@ -857,9 +859,34 @@ const WINGS: [Chain; 1] = [Chain {
     ..C
 }];
 
+// Электрические органы (M10, GDD 4.27 В): ряды бугорков-электроцитов вдоль
+// боков, как столбики у угря; дышат (разряд копится). Окраска — цветом тела
+// (у такого мутанта он голубоватый, `mutants::tint_rgb`). Искры — частицы
+// сервера (`electro_tick.rs` в core), здесь их нет.
+const BUMP: Piece = Piece {
+    from: [-1.0, -0.7, -0.7],
+    size: [1.4, 1.4, 1.4],
+    pair: true,
+    motion: Move::Pulse,
+    ..P
+};
+const ELECTROCYTES: [Piece; 9] = [
+    Piece { at: [0.0, 0.25, 0.6], ..BUMP },
+    Piece { at: [0.0, 0.5, 0.6], ..BUMP },
+    Piece { at: [0.0, 0.75, 0.6], ..BUMP },
+    // Со второй силы ряд гуще.
+    Piece { at: [0.0, 0.12, 0.6], from: [-0.8, -0.5, -0.5], size: [1.0, 1.0, 1.0], from_strength: 2, ..BUMP },
+    Piece { at: [0.0, 0.38, 0.6], from: [-0.8, -0.5, -0.5], size: [1.0, 1.0, 1.0], from_strength: 2, ..BUMP },
+    Piece { at: [0.0, 0.62, 0.6], from: [-0.8, -0.5, -0.5], size: [1.0, 1.0, 1.0], from_strength: 2, ..BUMP },
+    // С третьей — второй ряд ниже, ближе к брюху.
+    Piece { at: [0.0, 0.3, 0.3], from_strength: 3, ..BUMP },
+    Piece { at: [0.0, 0.55, 0.3], from_strength: 3, ..BUMP },
+    Piece { at: [0.0, 0.8, 0.3], from_strength: 3, ..BUMP },
+];
+
 /// Черты, которые рисуются своими кубами (копии частей — `extra_arms`,
 /// `second_head`).
-pub const TABLE: [Trait; 15] = [
+pub const TABLE: [Trait; 16] = [
     Trait { gene: "chitin", pieces: &CHITIN, chains: &[] },
     Trait { gene: "thorns", pieces: &THORNS, chains: &[] },
     Trait { gene: "rending_claws", pieces: &CLAWS, chains: &[] },
@@ -875,6 +902,7 @@ pub const TABLE: [Trait; 15] = [
     Trait { gene: "polyopia", pieces: &POLYOPIA, chains: &[] },
     Trait { gene: "tumor", pieces: &TUMOR, chains: &[] },
     Trait { gene: "membranes", pieces: &MEMBRANE_FLAPS, chains: &WINGS },
+    Trait { gene: "electrocytes", pieces: &ELECTROCYTES, chains: &[] },
 ];
 
 // ---- Сборка ----

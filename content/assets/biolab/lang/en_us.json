@@ -214,5 +214,12 @@
  "block.biolab.leyden_jar": "Leyden Jar",
  "block.biolab.lead_battery": "Lead-Acid Battery",
  "block.biolab.capacitor_bank": "Capacitor Bank",
- "item.biolab.battery": "Battery"
+ "item.biolab.battery": "Battery",
+ "block.biolab.microbial_cell": "Microbial Fuel Cell",
+ "block.biolab.photobioreactor": "Photobioreactor",
+ "block.biolab.glucose_cell": "Glucose Fuel Cell",
+ "block.biolab.electrocyte_battery": "Electrocyte Battery",
+ "item.biolab.algae_flask": "Flask of Algae",
+ "item.biolab.enzyme": "Glucose Oxidase Enzyme",
+ "gene.biolab.electrocytes": "Electric Organs"
 }

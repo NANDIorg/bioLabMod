@@ -23,6 +23,10 @@
     "biolab:solar_panel",
     "biolab:engine_generator",
     "biolab:geothermal_tap",
-    "biolab:rtg"
+    "biolab:rtg",
+    "biolab:microbial_cell",
+    "biolab:photobioreactor",
+    "biolab:glucose_cell",
+    "biolab:electrocyte_battery"
   ]
 }

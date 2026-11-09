@@ -89,6 +89,9 @@ fn group(item: &str) -> usize {
         // пластины столба — сырьё.
         "electrophore" | "piezo_plate" | "voltaic_pile" | "thermocouple" | "steam_boiler" | "dynamo"
         | "water_wheel" | "wind_turbine" => 1,
+        // Живые генераторы (M10, GDD 4.27 В) — к машинам; их колба с
+        // водорослями и фермент — к веществам (по умолчанию).
+        "microbial_cell" | "photobioreactor" | "glucose_cell" | "electrocyte_battery" => 1,
         "thermobox" => 2,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,

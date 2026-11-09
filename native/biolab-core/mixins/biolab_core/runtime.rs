@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 146] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 152] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -270,6 +270,13 @@ pub const ITEM_HINTS: [(&str, &[&str]); 146] = [
     ("biolab:lead_battery", &["Накопитель на 50 000 Вт·с", "Полный разряд отнимает 5 % ёмкости"]),
     ("biolab:capacitor_bank", &["Накопитель на 200 000 Вт·с, отдаёт сразу", "Сломать заряженный — удар током"]),
     ("biolab:battery", &["ПКМ по накопителю — зарядить", "ПКМ по машине — отдать заряд"]),
+    // M10: живые генераторы (GDD 4.27 В).
+    ("biolab:microbial_cell", &["Культура и органика: ток из гнили и костей", "Отдача по штамму: 10–25 Вт·с/тик"]),
+    ("biolab:photobioreactor", &["Колба с водорослями под открытым небом", "8 Вт·с/тик днём, ночью ноль"]),
+    ("biolab:glucose_cell", &["Колба глюкозы и фермент: 35 Вт·с/тик", "Топливо дорогое, зато без отходов"]),
+    ("biolab:electrocyte_battery", &["Ткань мутанта с электрическими органами", "60 Вт·с/тик, ткань расходуется"]),
+    ("biolab:algae_flask", &["Топливо фотобиореактора: нужен свет", "Хватает на сутки работы"]),
+    ("biolab:enzyme", &["Фермент глюкозного элемента", "Одного хватает на 8 колб глюкозы"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -965,7 +972,8 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
             "biolab:valerian_root",
         ],
     ),
-    ("biolab:incubator", &["biolab:culture", "biolab:swab", "minecraft:bread"]),
+    // M10 (GDD 4.27 В): ламинария — водоросли в колбе.
+    ("biolab:incubator", &["biolab:culture", "biolab:swab", "minecraft:bread", "minecraft:kelp"]),
     (
         "biolab:fermenter",
         &[
@@ -982,6 +990,8 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
             "minecraft:wheat",
             // Растительное масло — топливо двигателя (M10, Б2).
             "minecraft:wheat_seeds",
+            // M10 (GDD 4.27 В): бурый гриб — фермент глюкозного элемента.
+            "minecraft:brown_mushroom",
         ],
     ),
     (
@@ -1035,6 +1045,8 @@ pub const MACHINE_INGREDIENTS: [(&str, &[&str]); 10] = [
             "minecraft:rotten_flesh",
             "minecraft:spider_eye",
             "minecraft:turtle_scute",
+            // M10 (GDD 4.27 В): тропическая рыба — электрические органы.
+            "minecraft:tropical_fish",
         ],
     ),
     (
@@ -1514,10 +1526,17 @@ mod automation_tests {
         // Криобанк (GDD 4.23 п. 9): девять слотов, выходов нет.
         let cryo = Json::parse(&std::fs::read_to_string(dir.join("cryobank.json")).expect("нет меню криобанка")).unwrap();
         assert_eq!(cryo.get("slots").and_then(Json::num), Some(CRYOBANK_SLOTS as f64));
+        // Живые генераторы (M10, GDD 4.27 В): свои слоты, своих чисел экрану 8.
+        for (id, _) in LIVING_GENERATORS {
+            let name = id.trim_start_matches("biolab:");
+            let json = Json::parse(&std::fs::read_to_string(dir.join(format!("{name}.json"))).unwrap_or_else(|_| panic!("нет меню {name}"))).unwrap();
+            assert_eq!(json.get("slots").and_then(Json::num), Some(living_slots(id) as f64), "{name}");
+            assert_eq!(json.get("data_slots").and_then(Json::num), Some(LIVING_DATA_SLOTS as f64), "{name}");
+        }
         let files = std::fs::read_dir(&dir).unwrap().count();
-        // Ещё свои меню у генераторов со слотами (M10, разделы «M10: генераторы 0–2» и «3–5»).
+        // Ещё свои меню у генераторов со слотами (M10, разделы генераторов 0–2, 3–5 и живых).
         let generators = LATE_GENERATORS.iter().filter(|(id, _)| late_slots(id) > 0).count();
-        assert_eq!(files, MACHINES.len() + PORTS.len() + 1 + EARLY_SLOTTED.len() + generators, "лишний тип меню");
+        assert_eq!(files, MACHINES.len() + PORTS.len() + 1 + EARLY_SLOTTED.len() + generators + LIVING_GENERATORS.len(), "лишний тип меню");
     }
 
     #[test]
@@ -5694,7 +5713,7 @@ pub struct GeneKind {
     pub side: Option<&'static str>,
 }
 
-pub const GENES: [GeneKind; 54] = [
+pub const GENES: [GeneKind; 55] = [
     GeneKind { name: "gigantism", title: "Гигантизм", cost: 2, about: "крупнее, живучее и сильнее", player: Some("health_boost"), side: Some("slowness") },
     GeneKind { name: "dwarfism", title: "Карликовость", cost: 1, about: "мельче и шустрее, но слабее", player: Some("speed"), side: Some("weakness") },
     GeneKind { name: "hypermetabolism", title: "Гиперметаболизм", cost: 2, about: "быстрее и злее, но хрупче", player: Some("speed"), side: Some("hunger") },
@@ -5757,6 +5776,10 @@ pub const GENES: [GeneKind; 54] = [
     GeneKind { name: "host_restriction", title: "Видоспецифичность", cost: 1, about: "кассета приживается только у своего вида", player: None, side: None },
     GeneKind { name: "kill_switch", title: "Генный выключатель", cost: 1, about: "без укола индуктора раз в 3/2/1 день гибнет", player: None, side: None },
     GeneKind { name: "attenuated", title: "Аттенуация", cost: 1, about: "остальные гены работают слабее на его силу", player: None, side: None },
+    // M10 (GDD 4.22, 4.27 В): электрические органы — удар током по площади.
+    // Ткань с ним — топливо электроцитной батареи. Правила — раздел «M10:
+    // живые генераторы».
+    GeneKind { name: "electrocytes", title: "Электрические органы", cost: 3, about: "удар бьёт током по площади и оглушает", player: None, side: None },
 ];
 
 /// Природный предел: сколько генов бывает у мутанта, родившегося в мире, и
@@ -5770,7 +5793,7 @@ pub const STABILITY: i32 = 6;
 /// Гены, которые приживаются в человеке без ванильного эффекта: их действие —
 /// механика хуков (`thorns.rs`, `infection.rs`), а не статус. Для подсказок
 /// и журнала: что ген даёт человеку.
-pub const PLAYER_MECHANICS: [(&str, &str); 6] = [
+pub const PLAYER_MECHANICS: [(&str, &str); 7] = [
     ("dicephaly", "подсвечивает мобов вокруг"),
     ("horns", "удар отбрасывает сильнее"),
     ("tail", "хвост бьёт тех, кто ударил сзади"),
@@ -5780,6 +5803,9 @@ pub const PLAYER_MECHANICS: [(&str, &str); 6] = [
     // M9: пропорции (GDD 4.24): ванильного эффекта у асимметрии нет — она
     // только видна на модели (F5) и в инвентаре.
     ("asymmetry", "только вид: правая сторона тела крупнее"),
+    // M10 (GDD 4.27 В): разряд по цели при ударе (`electro_hit.rs`); в воде
+    // и под дождём ток идёт по себе.
+    ("electrocytes", "удар бьёт током; в воде и под дождём — по себе"),
 ];
 
 /// Что ген-механика даёт человеку; None — у гена ванильный эффект или он
@@ -5797,7 +5823,7 @@ pub fn takes_in_humans(kind: &GeneKind) -> bool {
 /// с нулевой прибавкой, чьё имя и есть ген. Мод их больше не ставит и не
 /// читает — старые миры переносит в данные `biolab-deep` (`data.rs`,
 /// `migrate`). Список остаётся для подсказок и сверки двух бандлов.
-pub const GENE_MARKERS: [&str; 162] = [
+pub const GENE_MARKERS: [&str; 165] = [
     "biolab:gene/gigantism/1",
     "biolab:gene/gigantism/2",
     "biolab:gene/gigantism/3",
@@ -5962,6 +5988,10 @@ pub const GENE_MARKERS: [&str; 162] = [
     "biolab:gene/attenuated/1",
     "biolab:gene/attenuated/2",
     "biolab:gene/attenuated/3",
+    // M10: электрические органы (GDD 4.27 В)
+    "biolab:gene/electrocytes/1",
+    "biolab:gene/electrocytes/2",
+    "biolab:gene/electrocytes/3",
 ];
 
 /// Ген по имени.
@@ -6981,7 +7011,7 @@ pub fn daylight(day_time: i64) -> bool {
 /// Что ген делает, кроме чисел. Та же таблица, что в `biolab-deep`: обе
 /// собираются из одного описания, а тест ниже следит, чтобы в core не
 /// осталось гена без строки поведения.
-pub const GENE_BEHAVIOUR: [&[&str]; 54] = [
+pub const GENE_BEHAVIOUR: [&[&str]; 55] = [
     &[],
     &[],
     &[],
@@ -7043,6 +7073,8 @@ pub const GENE_BEHAVIOUR: [&[&str]; 54] = [
     &[],
     &[],
     &[],
+    // M10: электрические органы — разряд по площади (`electro_tick.rs`).
+    &["shock"],
 ];
 
 /// Сила поведения в наборе генов; 0 — такого гена нет. Аттенуация (GDD 4.23
@@ -9736,7 +9768,7 @@ mod tests {
                 animals += 1;
             }
         }
-        assert_eq!(animals, 16, "шесть животных из GDD 4.15, пять уродств из 4.19, устойчивость из 4.20 и четыре предохранителя из 4.23 п. 10");
+        assert_eq!(animals, 17, "шесть животных из GDD 4.15, пять уродств из 4.19, устойчивость из 4.20, четыре предохранителя из 4.23 п. 10 и электрические органы из 4.27 В");
     }
 
     #[test]
@@ -10428,7 +10460,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 76] = [
+pub const RESEARCH: [Research; 80] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10540,6 +10572,13 @@ pub const RESEARCH: [Research; 76] = [
     // Энергосеть (M10, GDD 4.27 А) — в Основах, после установок: питание
     // нужно машинам всех наук.
     node("power", 0, (5, 1), "biolab:copper_cable", "Энергосеть", &["multiblock"], Unlock::Item(&["biolab:copper_cable", "biolab:power_cable", "biolab:cable_repeater", "biolab:leyden_jar", "biolab:lead_battery", "biolab:capacitor_bank", "biolab:battery"]), "Сделайте медный кабель: медь и шерсть."),
+    // M10: живые генераторы (GDD 4.27 В). МТЭ и водоросли — микробиология
+    // (культура и инкубатор), глюкозный элемент — химия (глюкоза из
+    // синтезатора), электрический ген и батарея — генетика.
+    node("microbial_cell", 2, (3, 2), "biolab:microbial_cell", "Микробный элемент", &["culture"], Unlock::Item(&["biolab:microbial_cell"]), "Сделайте элемент: медь, стекло, агар, котёл."),
+    node("photobioreactor", 2, (4, 2), "biolab:algae_flask", "Фотобиореактор", &["microbial_cell"], Unlock::Item(&["biolab:photobioreactor", "biolab:algae_flask"]), "Ламинарию — в инкубатор: колба с водорослями."),
+    node("glucose_cell", 1, (3, 0), "biolab:glucose_cell", "Глюкозный элемент", &["synth"], Unlock::Item(&["biolab:glucose_cell", "biolab:enzyme"]), "Бурый гриб — в ферментер: фермент."),
+    node("electrocytes", 4, (4, 1), "biolab:electrocyte_battery", "Электрические органы", &["fragment"], Unlock::Item(&["biolab:electrocyte_battery", "minecraft:tropical_fish"]), "Тропическую рыбу — в экстрактор: ген."),
 ];
 
 /// Номер узла по id.
@@ -21335,7 +21374,7 @@ const fn gene_pair(a: &'static str, b: &'static str, kind: PairKind, why: &'stat
 /// поэтому новые пары дописываются только в конец. Та же таблица (именами и
 /// видом) есть в `biolab-deep` (`GENE_PAIRS` там же), сверяет
 /// `biolab-deep/tests/modules.rs`.
-pub const GENE_PAIRS: [GenePair; 28] = [
+pub const GENE_PAIRS: [GenePair; 29] = [
     // Синергия: два признака растут из одного корня.
     gene_pair("chitin", "thorns", PairKind::Synergy, "шипы растут прямо из панциря"),
     gene_pair("regeneration", "hypermetabolism", PairKind::Synergy, "быстрый обмен кормит заживление"),
@@ -21368,6 +21407,10 @@ pub const GENE_PAIRS: [GenePair; 28] = [
     gene_pair("acid_glands", "thin_skin", PairKind::Lethal, "кислота разъедает тонкую кожу изнутри"),
     gene_pair("volatile", "necrosis", PairKind::Lethal, "геном распадается вместе с тканью"),
     gene_pair("hypermetabolism", "cryophilia", PairKind::Lethal, "остывшее тело не тянет быстрый обмен"),
+    // M10 (GDD 4.27 В): дописана в конец — номер пары уходит монитору
+    // секвенатора числом. Электрический угорь: жабры и электроциты — одна
+    // водная форма охотника.
+    gene_pair("electrocytes", "aquatic", PairKind::Synergy, "электроциты и жабры — одна водная форма охотника"),
 ];
 
 /// На сколько синергия удешевляет пару.
@@ -25259,10 +25302,860 @@ mod m10_late_tests {
 //
 // Микробный топливный элемент, фотобиореактор, глюкозный элемент,
 // электроцитная батарея; ген электрических органов. Исполнение —
-// `gen_living.rs`.
+// `gen_living.rs` (тик генераторов), слоты, правила слотов, экран и
+// подсказки — свои хуки `gen_living_*.rs`, ген — `electro_tick.rs` (мутант)
+// и `electro_hit.rs` (игрок). Здесь — числа и правила, под тестами.
+//
+// Все четыре генератора — блоки на шаблоне печки со своей блок-сущностью,
+// своими слотами и своим меню (`data/biolab/horizon/menu/<блок>.json`). Это
+// не машины (`is_machine` их не знает): тикает их `power_tick.rs`, копят они
+// в своём буфере через `biolab_power::generate`, а тянут из них машины и
+// накопители (агент «Сеть»).
+//
+// Топливо горит порциями, как в печке: порция (органика, колба глюкозы,
+// кусок ткани) загружается, когда прежняя догорела, и горит столько тиков,
+// сколько ей положено. Пока буфер полон, генератор стоит и топливо не тратит.
+// То, что изнашивается само (культура, водоросли, фермент), держит свой запас
+// в `custom_data` предмета — его видно в подсказке, и он уходит с предметом.
 
-/// Живые генераторы.
-pub const LIVING_GENERATORS: &[(&str, EnergySpec)] = &[];
+/// Микробный топливный элемент (тир 3): культура + органика.
+pub const MICROBIAL_CELL: &str = "biolab:microbial_cell";
+/// Фотобиореактор (тир 3): колба с водорослями на свету.
+pub const PHOTOBIOREACTOR: &str = "biolab:photobioreactor";
+/// Глюкозный элемент (тир 4): глюкоза + фермент.
+pub const GLUCOSE_CELL: &str = "biolab:glucose_cell";
+/// Электроцитная батарея (тир 4): ткань мутанта с электрическими органами.
+pub const ELECTROCYTE_BATTERY: &str = "biolab:electrocyte_battery";
+/// Колба с водорослями: инкубатор растит её из ламинарии.
+pub const ALGAE_FLASK: &str = "biolab:algae_flask";
+/// Фермент (глюкозооксидаза): ферментер делает его из бурого гриба.
+pub const ENZYME_ID: &str = "biolab:enzyme";
+/// Ген электрических органов.
+pub const ELECTROCYTES: &str = "electrocytes";
+/// Глюкоза в колбе — формулой, как её пишет синтезатор.
+pub const GLUCOSE: &str = "C6H12O6";
+/// Геном в `custom_data` ткани мутанта: срез скальпелем (`inject.rs`)
+/// записывает гены пациента строкой `ген:сила,…`.
+pub const TISSUE_GENOME_KEY: &str = "biolab_genome";
+/// Сколько осталось жить культуре, водорослям или ферменту — в
+/// `custom_data`, строкой (тики работы; у фермента — колбы).
+pub const LIFE_KEY: &str = "biolab_life";
+
+/// Выработка по паспорту, Вт·с/тик (для книги, экрана и буфера).
+pub const MFC_MIN: i32 = 10;
+pub const MFC_MAX: i32 = 25;
+pub const PHOTO_DAY: i32 = 8;
+pub const GLUCOSE_RATE: i32 = 35;
+pub const ELECTROCYTE_RATE: i32 = 60;
+
+/// Живые генераторы: буфер — минут на десять паспортной работы, не меньше
+/// 10 000.
+pub const LIVING_GENERATORS: &[(&str, EnergySpec)] = &[
+    (MICROBIAL_CELL, EnergySpec::generator(20_000, MFC_MAX)),
+    (PHOTOBIOREACTOR, EnergySpec::generator(10_000, PHOTO_DAY)),
+    (GLUCOSE_CELL, EnergySpec::generator(40_000, GLUCOSE_RATE)),
+    (ELECTROCYTE_BATTERY, EnergySpec::generator(60_000, ELECTROCYTE_RATE)),
+];
+
+/// Какой это живой генератор.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Living {
+    Microbial,
+    Photo,
+    Glucose,
+    Electrocyte,
+}
+
+pub fn living_kind(block: &str) -> Option<Living> {
+    match block {
+        MICROBIAL_CELL => Some(Living::Microbial),
+        PHOTOBIOREACTOR => Some(Living::Photo),
+        GLUCOSE_CELL => Some(Living::Glucose),
+        ELECTROCYTE_BATTERY => Some(Living::Electrocyte),
+        _ => None,
+    }
+}
+
+/// Слоты: МТЭ — культура и органика, глюкозный — колба и фермент,
+/// фотобиореактор — колба с водорослями, батарея — ткань.
+pub fn living_slots(block: &str) -> usize {
+    match living_kind(block) {
+        Some(Living::Microbial | Living::Glucose) => 2,
+        Some(Living::Photo | Living::Electrocyte) => 1,
+        None => 0,
+    }
+}
+
+/// Органика для МТЭ и сколько тиков горит одна штука: гниль и кости —
+/// дольше, мука и семена — коротко, ботва и трава — между.
+pub const MFC_FEED: [(&str, i32); 12] = [
+    ("minecraft:rotten_flesh", 400),
+    ("minecraft:bone", 300),
+    ("minecraft:bone_meal", 100),
+    ("minecraft:wheat_seeds", 80),
+    ("minecraft:beetroot_seeds", 80),
+    ("minecraft:melon_seeds", 80),
+    ("minecraft:pumpkin_seeds", 80),
+    ("minecraft:wheat", 160),
+    ("minecraft:short_grass", 120),
+    ("minecraft:fern", 120),
+    ("minecraft:poisonous_potato", 200),
+    ("minecraft:spider_eye", 200),
+];
+
+/// Сколько тиков горит штука органики; None — это не корм.
+pub fn mfc_feed_ticks(item: &str) -> Option<i32> {
+    MFC_FEED.iter().find(|(id, _)| *id == item).map(|(_, t)| *t)
+}
+
+/// Отдача МТЭ по штамму — новая цель селекции (GDD 4.22). Ток дают живые
+/// бактерии на электроде: быстрый рост (заразность) их прибавляет, стойкость
+/// держит плёнку на аноде, тяжесть — свои же токсины, она отнимает. Счёт
+/// 0–12 ложится на 10–25 Вт·с/тик. Лучший штамм для тока — заразный и
+/// стойкий, то есть опасный в обращении: тут и цена.
+pub fn mfc_output(strain: &Strain) -> i32 {
+    let score = (strain.infectivity - 1) + (strain.resistance - 1) + (5 - strain.severity);
+    MFC_MIN + (score.clamp(0, 12) * (MFC_MAX - MFC_MIN) + 6) / 12
+}
+
+/// Ресурс культуры в МТЭ, тиков работы: долгая инкубация — медленный обмен,
+/// культура живёт дольше (5–15 минут работы).
+pub fn mfc_life(strain: &Strain) -> i32 {
+    6000 + 3000 * (strain.incubation.clamp(1, 5) - 1)
+}
+
+/// Ресурс колбы с водорослями, тиков работы на свету (сутки игры).
+pub const ALGAE_LIFE: i32 = 24_000;
+
+/// Отдача фотобиореактора: днём по небесному свету над блоком (`sky` 0–15),
+/// под дождём вдвое меньше, ночью ноль. Лампы не в счёт: водорослям нужен
+/// солнечный спектр.
+pub fn photo_output(day: bool, sky: u8, rain: f32) -> i32 {
+    if !day {
+        return 0;
+    }
+    let base = PHOTO_DAY * i32::from(sky.min(15)) / 15;
+    if rain > 0.2 { base / 2 } else { base }
+}
+
+/// Сколько тиков горит одна колба глюкозы (35 Вт·с/тик × 2 400 = 84 000).
+pub const GLUCOSE_TICKS: i32 = 2400;
+/// На сколько колб хватает одного фермента.
+pub const ENZYME_USES: i32 = 8;
+
+/// Сколько тиков горит кусок ткани: 30 с за ступень силы гена.
+pub fn electrocyte_burn(strength: i32) -> i32 {
+    600 * strength.clamp(0, 3)
+}
+
+/// Сила гена электрических органов в строке генома ткани; 0 — гена нет.
+pub fn tissue_electrocytes(genome: Option<&str>) -> i32 {
+    genome
+        .map(genome_from_text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(name, _)| *name == ELECTROCYTES)
+        .map(|(_, s)| s)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Ресурс, оставшийся у культуры, водорослей или фермента: из `custom_data`
+/// (строка), без записи — полный.
+pub fn life_left(text: Option<&str>, full: i32) -> i32 {
+    text.and_then(|t| t.trim().parse::<i32>().ok()).map_or(full, |v| v.clamp(0, full))
+}
+
+/// Ресурс в процентах, вверх: пока жив хоть тик — не ноль.
+pub fn life_percent(left: i32, full: i32) -> i32 {
+    if full <= 0 {
+        return 0;
+    }
+    ((left.clamp(0, full) * 100 + full - 1) / full).clamp(0, 100)
+}
+
+/// Как часто изношенное записывается в предмет, тиков работы: запись в
+/// стек уходит клиенту, каждый тик её слать незачем.
+pub const WEAR_STEP: i32 = 20;
+
+/// Что делает генератор и почему стоит.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LivingState {
+    /// Нечего жечь: слот топлива пуст.
+    Idle = 0,
+    Working = 1,
+    /// Буфер полон: стоит, топливо бережёт.
+    Full = 2,
+    /// Фотобиореактор: ночь или нет неба.
+    Dark = 3,
+    /// МТЭ: нет культуры.
+    NoCulture = 4,
+    /// МТЭ: культура есть, органики нет.
+    NoFeed = 5,
+    /// Фотобиореактор: нет колбы с водорослями.
+    NoAlgae = 6,
+    /// Глюкозный: в колбе не глюкоза.
+    NotGlucose = 7,
+    /// Глюкозный: нет фермента.
+    NoEnzyme = 8,
+    /// Батарея: в ткани нет электрических органов.
+    NoGene = 9,
+}
+
+impl LivingState {
+    pub fn code(self) -> i32 {
+        self as i32
+    }
+
+    pub fn of(code: i32) -> LivingState {
+        use LivingState::*;
+        [Idle, Working, Full, Dark, NoCulture, NoFeed, NoAlgae, NotGlucose, NoEnzyme, NoGene]
+            .into_iter()
+            .find(|s| s.code() == code)
+            .unwrap_or(Idle)
+    }
+
+    /// Строка табло (короткая: табло узкое).
+    pub fn text(self, kind: Living) -> &'static str {
+        match self {
+            LivingState::Idle => match kind {
+                Living::Glucose => "Нет глюкозы",
+                Living::Electrocyte => "Нет ткани",
+                _ => "Нет топлива",
+            },
+            LivingState::Working => "Работает",
+            LivingState::Full => "Буфер полон",
+            LivingState::Dark => "Темно",
+            LivingState::NoCulture => "Нет культуры",
+            LivingState::NoFeed => "Нет органики",
+            LivingState::NoAlgae => "Нет водорослей",
+            LivingState::NotGlucose => "Не глюкоза",
+            LivingState::NoEnzyme => "Нет фермента",
+            LivingState::NoGene => "Ткань без гена",
+        }
+    }
+
+    /// Что сделать (подсказка над табло).
+    pub fn help(self, kind: Living) -> &'static str {
+        match self {
+            LivingState::Idle => match kind {
+                Living::Glucose => "Положите колбу глюкозы (синтезатор: C6H12O6)",
+                Living::Electrocyte => "Положите ткань мутанта с электрическими органами",
+                _ => "Положите топливо",
+            },
+            LivingState::Working => "Ток идёт в буфер, машины тянут из него по кабелю",
+            LivingState::Full => "Буфер полон: подключите машины или накопитель",
+            LivingState::Dark => "Нужны открытое небо и день",
+            LivingState::NoCulture => "Положите культуру бактерий (чашку со штаммом)",
+            LivingState::NoFeed => "Подкормите: гниль, кости, мука, семена, ботва",
+            LivingState::NoAlgae => "Положите колбу с водорослями (инкубатор: ламинария)",
+            LivingState::NotGlucose => "В колбе не глюкоза: нужна C6H12O6",
+            LivingState::NoEnzyme => "Положите фермент (ферментер: бурый гриб)",
+            LivingState::NoGene => "У этого мутанта нет электрических органов",
+        }
+    }
+
+    /// Цвет строки состояния (RGB).
+    pub fn ink(self) -> u32 {
+        match self {
+            LivingState::Working => 0x5A_E8B4,
+            LivingState::Full => 0xE0_A040,
+            _ => 0xFF_6A50,
+        }
+    }
+}
+
+/// Слоты данных экрана живого генератора (меню `data_slots`). Числа меню
+/// уходят по сети 16-битными, поэтому запас — двумя половинами по 15 бит.
+pub const LIVING_DATA_SLOTS: usize = 8;
+pub const DATA_LIVING_STORED_HI: usize = 0;
+pub const DATA_LIVING_STORED_LO: usize = 1;
+/// Выработка в этот тик, Вт·с.
+pub const DATA_LIVING_RATE: usize = 2;
+pub const DATA_LIVING_STATE: usize = 3;
+/// Сколько тиков осталось гореть порции и сколько было в ней.
+pub const DATA_LIVING_BURN: usize = 4;
+pub const DATA_LIVING_BURN_TOTAL: usize = 5;
+/// Ресурс культуры, водорослей или фермента, %; −1 — нечего показать.
+pub const DATA_LIVING_LIFE: usize = 6;
+/// Своё число генератора: МТЭ — что даёт штамм, фотобиореактор — свет
+/// неба, глюкозный — колб на ферменте, батарея — сила гена ткани.
+pub const DATA_LIVING_EXTRA: usize = 7;
+
+/// Запас двумя числами по 15 бит.
+pub fn split_energy(v: i32) -> (i32, i32) {
+    let v = v.max(0);
+    (v >> 15, v & 0x7FFF)
+}
+
+pub fn join_energy(hi: i32, lo: i32) -> i32 {
+    (hi.max(0) << 15) | (lo & 0x7FFF)
+}
+
+/// Чтение экрана: всё, что генератор положил в слоты данных.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LivingReading {
+    pub stored: i32,
+    pub rate: i32,
+    pub state: LivingState,
+    pub burn: i32,
+    pub burn_total: i32,
+    pub life: i32,
+    pub extra: i32,
+}
+
+pub fn living_reading(data: &[i32]) -> LivingReading {
+    let at = |i: usize| data.get(i).copied().unwrap_or(0);
+    LivingReading {
+        stored: join_energy(at(DATA_LIVING_STORED_HI), at(DATA_LIVING_STORED_LO)),
+        rate: at(DATA_LIVING_RATE),
+        state: LivingState::of(at(DATA_LIVING_STATE)),
+        burn: at(DATA_LIVING_BURN),
+        burn_total: at(DATA_LIVING_BURN_TOTAL),
+        life: if data.len() > DATA_LIVING_LIFE { at(DATA_LIVING_LIFE) } else { -1 },
+        extra: at(DATA_LIVING_EXTRA),
+    }
+}
+
+/// Записать чтение в слоты данных (их столько, сколько у меню).
+pub fn write_living_reading(data: &mut [i32], r: &LivingReading) {
+    let (hi, lo) = split_energy(r.stored);
+    let values = [hi, lo, r.rate, r.state.code(), r.burn, r.burn_total, r.life, r.extra];
+    for (slot, v) in data.iter_mut().zip(values) {
+        *slot = v;
+    }
+}
+
+/// Число с пробелами по тысячам: «12 400».
+pub fn thousands(v: i32) -> String {
+    let digits = v.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    if v < 0 { format!("−{out}") } else { out }
+}
+
+/// Строки табло под строкой состояния.
+pub fn living_board(block: &str, r: &LivingReading) -> Vec<String> {
+    let Some(kind) = living_kind(block) else {
+        return Vec::new();
+    };
+    let cap = energy_spec(block).map_or(1, |s| s.capacity.max(1));
+    let mut lines = vec![
+        format!("Ток {} Вт·с/тик", r.rate),
+        format!("Заряд {}%", (i64::from(r.stored) * 100 / i64::from(cap)).clamp(0, 100)),
+    ];
+    match kind {
+        Living::Microbial => {
+            if r.life >= 0 {
+                lines.push(format!("Культура {}%", r.life));
+            }
+            if r.extra > 0 {
+                lines.push(format!("Штамм даёт {}", r.extra));
+            }
+        }
+        Living::Photo => {
+            if r.life >= 0 {
+                lines.push(format!("Водоросли {}%", r.life));
+            }
+            lines.push(format!("Небо {} из 15", r.extra));
+        }
+        Living::Glucose => {
+            if r.extra > 0 {
+                lines.push(format!("Фермент: {} колб", r.extra));
+            }
+        }
+        Living::Electrocyte => {
+            if r.extra > 0 {
+                lines.push(format!("Электроциты {}", r.extra));
+            }
+        }
+    }
+    lines
+}
+
+/// Подсказка над шкалой заряда.
+pub fn living_charge_tooltip(block: &str, r: &LivingReading) -> Vec<String> {
+    let Some(spec) = energy_spec(block) else {
+        return Vec::new();
+    };
+    vec![
+        format!("Заряд: {} / {} Вт·с", thousands(r.stored), thousands(spec.capacity)),
+        format!("§7Выработка сейчас: {} Вт·с/тик, по паспорту {}", r.rate, spec.rate),
+    ]
+}
+
+/// Подсказка над табло: что генератору нужно.
+pub fn living_board_tooltip(block: &str, r: &LivingReading) -> Vec<String> {
+    let Some(kind) = living_kind(block) else {
+        return Vec::new();
+    };
+    let what = match kind {
+        Living::Microbial => "§7Культура бактерий + органика; отдача 10–25 по штамму",
+        Living::Photo => "§7Водоросли на свету: 8 Вт·с/тик днём, ночью ноль",
+        Living::Glucose => "§7Колба глюкозы и фермент: 35 Вт·с/тик, без отходов",
+        Living::Electrocyte => "§7Ткань с электрическими органами: 60 Вт·с/тик",
+    };
+    vec![r.state.text(kind).to_string(), format!("§7{}", r.state.help(kind)), what.to_string()]
+}
+
+/// Подсказка над шкалой порции.
+pub fn living_burn_tooltip(r: &LivingReading) -> Vec<String> {
+    if r.burn <= 0 {
+        return vec!["Порция догорела".to_string()];
+    }
+    vec![format!("Порции осталось: {} с", (r.burn + 19) / 20)]
+}
+
+/// Подсказка экрана живого генератора в точке `at` (от угла панели).
+pub fn living_screen_tooltip(block: &str, data: &[i32], at: [f32; 2]) -> Vec<String> {
+    if living_kind(block).is_none() {
+        return Vec::new();
+    }
+    let r = living_reading(data);
+    if inside(LIVING_CHARGE_BAR, at) {
+        living_charge_tooltip(block, &r)
+    } else if inside(LIVING_BOARD, at) {
+        living_board_tooltip(block, &r)
+    } else if inside(LIVING_BURN_BAR, at) {
+        living_burn_tooltip(&r)
+    } else {
+        Vec::new()
+    }
+}
+
+/// Табло, шкала порции (вертикальная) и шкала заряда.
+pub const LIVING_BOARD: [f32; 4] = [45.0, 19.0, 106.0, 52.0];
+pub const LIVING_BURN_BAR: [f32; 4] = [37.0, 19.0, 5.0, 52.0];
+pub const LIVING_CHARGE_BAR: [f32; 4] = [155.0, 19.0, 13.0, 52.0];
+
+/// Экран живого генератора: слоты слева, шкала порции, табло, шкала заряда
+/// справа; инвентарь как у печки.
+pub fn living_screen(block: &str) -> Option<MachineScreen> {
+    let slots = match living_slots(block) {
+        0 => return None,
+        1 => vec![Some([17.0, 37.0])],
+        _ => vec![Some([17.0, 24.0]), Some([17.0, 50.0])],
+    };
+    Some(MachineScreen {
+        width: SCREEN_WIDTH,
+        height: SCREEN_HEIGHT,
+        slots,
+        inventory: [8.0, SCREEN_INVENTORY_Y],
+        gauge: LIVING_BOARD,
+        progress: LIVING_BURN_BAR,
+    })
+}
+
+/// Подпись генератора на экране, если название не пришло с сервера.
+pub fn living_title(block: &str) -> &'static str {
+    match living_kind(block) {
+        Some(Living::Microbial) => "Микробный топливный элемент",
+        Some(Living::Photo) => "Фотобиореактор",
+        Some(Living::Glucose) => "Глюкозный элемент",
+        Some(Living::Electrocyte) => "Электроцитная батарея",
+        None => "",
+    }
+}
+
+/// Что берёт слот живого генератора; None — блок не наш. `data(ключ)` —
+/// строка из `custom_data` стека (колба глюкозы, геном ткани): так правило
+/// одно и для меню, и для воронки.
+pub fn living_slot_accepts(
+    block: &str,
+    slot: usize,
+    item: &str,
+    data: &dyn Fn(&str) -> Option<String>,
+) -> Option<bool> {
+    let kind = living_kind(block)?;
+    if slot >= living_slots(block) {
+        return Some(false);
+    }
+    Some(match (kind, slot) {
+        (Living::Microbial, 0) => item == CULTURE_ID,
+        (Living::Microbial, _) => mfc_feed_ticks(item).is_some(),
+        (Living::Photo, _) => item == ALGAE_FLASK,
+        (Living::Glucose, 0) => item == FLASK_ID && data(CONTENTS_KEY).as_deref() == Some(GLUCOSE),
+        (Living::Glucose, _) => item == ENZYME_ID,
+        // Ткань без гена батарея не берёт: ей нечего отдать.
+        (Living::Electrocyte, _) => item == TISSUE_ID && tissue_electrocytes(data(TISSUE_GENOME_KEY).as_deref()) > 0,
+    })
+}
+
+/// Подсказка культуры: что она даст в МТЭ.
+pub fn culture_mfc_lines(strain: &Strain, life: Option<&str>) -> Vec<String> {
+    let full = mfc_life(strain);
+    let left = life_left(life, full);
+    vec![
+        format!("Отдача в МТЭ: {} Вт·с/тик", mfc_output(strain)),
+        format!("Ресурс в МТЭ: {}% ({} мин работы)", life_percent(left, full), (left + 1199) / 1200),
+    ]
+}
+
+/// Подсказка колбы с водорослями и фермента: сколько им осталось.
+pub fn living_item_lines(item: &str, life: Option<&str>) -> Vec<String> {
+    match item {
+        ALGAE_FLASK => {
+            let left = life_left(life, ALGAE_LIFE);
+            vec![format!("Водоросли живы: {}%", life_percent(left, ALGAE_LIFE))]
+        }
+        ENZYME_ID => vec![format!("Хватит на {} колб глюкозы", life_left(life, ENZYME_USES))],
+        _ => Vec::new(),
+    }
+}
+
+/// Подсказка ткани мутанта: чьи гены в ней (с M10 срез их записывает).
+pub fn tissue_lines(genome: Option<&str>) -> Vec<String> {
+    let genes = genome.map(genome_from_text).unwrap_or_default();
+    if genes.is_empty() {
+        return Vec::new();
+    }
+    let names: Vec<String> = genes
+        .iter()
+        .filter_map(|(name, s)| Some(format!("{} {s}", gene(name)?.title)))
+        .collect();
+    let mut lines = vec![format!("Гены: {}", names.join(", "))];
+    let shock = tissue_electrocytes(genome);
+    if shock > 0 {
+        lines.push(format!("Топливо электроцитной батареи: {} с", electrocyte_burn(shock) / 20));
+    }
+    lines
+}
+
+// == Ген электрических органов (GDD 4.22, 4.27 В) ==
+//
+// У мутанта (`electro_tick.rs`, тик игрока раз в `BEHAVIOUR_EVERY`): охотник
+// вплотную раз в 3 / 2,5 / 2 с разряжается — всех в радиусе 2 / 2,5 / 3 блока
+// (игрока и мобов, кроме таких же электрических) бьёт урон `biolab:electric`
+// и оглушает: замедление и слабость. Редкие искры — ванильные частицы
+// `electric_spark` над телом. У игрока (`electro_hit.rs`): удар по мобу — ещё
+// и разряд по нему и соседям; но если игрок в воде или под дождём, ток идёт
+// по нему самому.
+
+/// Радиус разряда мутанта, блоки.
+pub fn shock_radius(strength: i32) -> f64 {
+    1.5 + 0.5 * f64::from(strength.clamp(1, 3))
+}
+
+/// Урон разряда мутанта.
+pub fn shock_damage(strength: i32) -> f32 {
+    2.0 + strength.clamp(1, 3) as f32
+}
+
+/// Как часто мутант разряжается, тиков (кратно `BEHAVIOUR_EVERY`).
+pub fn shock_period(strength: i32) -> u64 {
+    70 - 10 * strength.clamp(1, 3) as u64
+}
+
+/// Оглушение: (эффект, тики, усиление).
+pub fn shock_stun(strength: i32) -> [(&'static str, i32, i32); 2] {
+    let s = strength.clamp(1, 3);
+    [("slowness", 40 + 20 * s, s - 1), ("weakness", 60, 0)]
+}
+
+/// Искры над мутантом: раз в столько проходов тика мира (сильнее — чаще).
+pub fn spark_one_in(strength: i32) -> u64 {
+    (8 - 2 * strength.clamp(1, 3)) as u64
+}
+
+/// Разряд игрока при ударе: урон цели (соседям — половина).
+pub fn player_shock_damage(strength: i32) -> f32 {
+    1.0 + strength.clamp(1, 3) as f32
+}
+
+pub fn player_shock_radius(strength: i32) -> f64 {
+    1.0 + 0.5 * f64::from(strength.clamp(1, 3))
+}
+
+/// Разряд игрока не чаще раза в секунду (иначе быстрые удары без замаха
+/// били бы током каждый).
+pub const PLAYER_SHOCK_EVERY: u64 = 20;
+
+/// Мокрый ли игрок для тока: стоит в воде (ногами или головой) или под
+/// открытым небом в дождь.
+pub fn shock_backfires(feet_block: &str, head_block: &str, rain: f32, sky_at_head: u8) -> bool {
+    let wet = |b: &str| matches!(b, "minecraft:water" | "minecraft:bubble_column");
+    wet(feet_block) || wet(head_block) || (rain > 0.2 && sky_at_head >= 15)
+}
+
+/// Когда игрок последний раз бил током (по uuid): для перерыва.
+pub fn player_shocks() -> &'static std::sync::Mutex<std::collections::HashMap<u128, u64>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u128, u64>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Можно ли игроку бить током сейчас (`now` — тик игры); да — записывает.
+pub fn player_shock_ready(uuid: u128, now: u64) -> bool {
+    let Ok(mut map) = player_shocks().lock() else {
+        return false;
+    };
+    match map.get(&uuid) {
+        Some(last) if now >= *last && now - *last < PLAYER_SHOCK_EVERY => false,
+        _ => {
+            map.insert(uuid, now);
+            true
+        }
+    }
+}
+
+/// Что сказать игроку, которого ударило своим же током.
+pub const SHOCK_BACKFIRE: &str = "Разряд ушёл в воду — ударило вас самих";
+
+/// Через сколько тиков разряд игрока доходит до цели: удар оружием только
+/// что ранил её, и в кадрах неуязвимости (первые 10 тиков) слабый ток игра
+/// бы съела. Соседей бьёт сразу.
+pub const PLAYER_SHOCK_DELAY: u64 = 11;
+
+/// Отложенные разряды: (моб, урон, тик, когда бить). Только сервер.
+pub fn pending_shocks() -> &'static std::sync::Mutex<Vec<(u32, f32, u64)>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Vec<(u32, f32, u64)>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+pub fn queue_shock(mob: u32, amount: f32, due: u64) {
+    if let Ok(mut q) = pending_shocks().lock()
+        && q.len() < 256
+    {
+        q.push((mob, amount, due));
+    }
+}
+
+/// Забрать разряды, чей срок пришёл к тику `now` (часы назад — тоже).
+pub fn take_due_shocks(now: u64) -> Vec<(u32, f32)> {
+    let Ok(mut q) = pending_shocks().lock() else {
+        return Vec::new();
+    };
+    let mut due = Vec::new();
+    q.retain(|(mob, amount, at)| {
+        let ready = *at <= now || *at > now + PLAYER_SHOCK_DELAY * 4;
+        if ready {
+            due.push((*mob, *amount));
+        }
+        !ready
+    });
+    due
+}
+
+#[cfg(test)]
+mod living_tests {
+    use super::*;
+
+    #[test]
+    fn living_generators_are_in_the_grid_as_generators() {
+        for (id, rate) in [(MICROBIAL_CELL, MFC_MAX), (PHOTOBIOREACTOR, 8), (GLUCOSE_CELL, 35), (ELECTROCYTE_BATTERY, 60)] {
+            let spec = energy_spec(id).expect(id);
+            assert_eq!(spec.role, PowerRole::Generator, "{id}");
+            assert_eq!(spec.rate, rate, "{id}: паспорт GDD 4.22");
+            assert_eq!(spec.max_in, 0, "{id}: сам не берёт");
+            assert!(spec.capacity >= 10_000 && spec.capacity >= rate * 400, "{id}");
+            assert!(has_block_entity(id), "{id}");
+            assert!(!is_machine(id), "{id}: не машина — тикает в power_tick");
+            assert!(living_slots(id) > 0);
+            assert!(living_screen(id).is_some());
+            assert!(!living_title(id).is_empty());
+        }
+        assert_eq!(living_kind("biolab:incubator"), None);
+        assert_eq!(living_slots("biolab:incubator"), 0);
+    }
+
+    #[test]
+    fn the_strain_decides_the_microbial_output() {
+        assert_eq!(mfc_output(&WILD), 15, "дикий штамм — середина");
+        let best = Strain::of([5, 1, 1, 5]);
+        let worst = Strain::of([1, 5, 5, 1]);
+        assert_eq!(mfc_output(&best), MFC_MAX);
+        assert_eq!(mfc_output(&worst), MFC_MIN);
+        // Каждая из трёх характеристик двигает отдачу в свою сторону.
+        let base = Strain::of([3, 3, 3, 3]);
+        assert!(mfc_output(&Strain::of([4, 3, 3, 3])) >= mfc_output(&base));
+        assert!(mfc_output(&Strain::of([3, 3, 3, 4])) >= mfc_output(&base));
+        assert!(mfc_output(&Strain::of([3, 3, 4, 3])) <= mfc_output(&base));
+        // Весь диапазон 1–5 у всех четырёх — в пределах паспорта.
+        for v in 0..625 {
+            let s = Strain::of([1 + v % 5, 1 + v / 5 % 5, 1 + v / 25 % 5, 1 + v / 125 % 5]);
+            assert!((MFC_MIN..=MFC_MAX).contains(&mfc_output(&s)), "{s:?}");
+            assert!((6000..=18000).contains(&mfc_life(&s)));
+        }
+        // Инкубация — ресурс, а не ток.
+        assert_eq!(mfc_output(&Strain::of([3, 1, 3, 3])), mfc_output(&Strain::of([3, 5, 3, 3])));
+        assert!(mfc_life(&Strain::of([3, 5, 3, 3])) > mfc_life(&Strain::of([3, 1, 3, 3])));
+    }
+
+    #[test]
+    fn organic_waste_feeds_the_cell() {
+        for item in ["minecraft:rotten_flesh", "minecraft:bone", "minecraft:bone_meal", "minecraft:wheat_seeds", "minecraft:short_grass"] {
+            assert!(mfc_feed_ticks(item).is_some_and(|t| t > 0), "{item}");
+        }
+        assert_eq!(mfc_feed_ticks("minecraft:cobblestone"), None);
+        assert!(mfc_feed_ticks("minecraft:rotten_flesh") > mfc_feed_ticks("minecraft:bone_meal"));
+    }
+
+    #[test]
+    fn algae_need_daylight_and_open_sky() {
+        assert_eq!(photo_output(true, 15, 0.0), PHOTO_DAY);
+        assert_eq!(photo_output(false, 15, 0.0), 0, "ночью ноль");
+        assert_eq!(photo_output(true, 0, 0.0), 0, "под крышей ноль");
+        assert!(photo_output(true, 10, 0.0) < PHOTO_DAY);
+        assert_eq!(photo_output(true, 15, 1.0), PHOTO_DAY / 2, "дождь — вдвое слабее");
+    }
+
+    #[test]
+    fn slots_take_only_their_fuel() {
+        let none = |_: &str| None;
+        let glucose = |k: &str| (k == CONTENTS_KEY).then(|| GLUCOSE.to_string());
+        let water = |k: &str| (k == CONTENTS_KEY).then(|| "H2O".to_string());
+        let shocker = |k: &str| (k == TISSUE_GENOME_KEY).then(|| "horns:1,electrocytes:2".to_string());
+        let plain = |k: &str| (k == TISSUE_GENOME_KEY).then(|| "horns:1".to_string());
+        assert_eq!(living_slot_accepts(MICROBIAL_CELL, 0, CULTURE_ID, &none), Some(true));
+        assert_eq!(living_slot_accepts(MICROBIAL_CELL, 1, CULTURE_ID, &none), Some(false));
+        assert_eq!(living_slot_accepts(MICROBIAL_CELL, 1, "minecraft:bone", &none), Some(true));
+        assert_eq!(living_slot_accepts(MICROBIAL_CELL, 2, "minecraft:bone", &none), Some(false));
+        assert_eq!(living_slot_accepts(PHOTOBIOREACTOR, 0, ALGAE_FLASK, &none), Some(true));
+        assert_eq!(living_slot_accepts(PHOTOBIOREACTOR, 0, FLASK_ID, &glucose), Some(false));
+        assert_eq!(living_slot_accepts(GLUCOSE_CELL, 0, FLASK_ID, &glucose), Some(true));
+        assert_eq!(living_slot_accepts(GLUCOSE_CELL, 0, FLASK_ID, &water), Some(false));
+        assert_eq!(living_slot_accepts(GLUCOSE_CELL, 1, ENZYME_ID, &none), Some(true));
+        assert_eq!(living_slot_accepts(ELECTROCYTE_BATTERY, 0, TISSUE_ID, &shocker), Some(true));
+        assert_eq!(living_slot_accepts(ELECTROCYTE_BATTERY, 0, TISSUE_ID, &plain), Some(false), "ткань без гена не берёт");
+        assert_eq!(living_slot_accepts(ELECTROCYTE_BATTERY, 0, TISSUE_ID, &none), Some(false));
+        assert_eq!(living_slot_accepts("biolab:incubator", 0, CULTURE_ID, &none), None);
+    }
+
+    #[test]
+    fn tissue_carries_the_gene_and_burns_by_strength() {
+        assert_eq!(tissue_electrocytes(Some("electrocytes:3")), 3);
+        assert_eq!(tissue_electrocytes(Some("aquatic:2")), 0);
+        assert_eq!(tissue_electrocytes(None), 0);
+        assert_eq!(electrocyte_burn(1), 600);
+        assert!(electrocyte_burn(3) > electrocyte_burn(1));
+        let lines = tissue_lines(Some("electrocytes:2,aquatic:1"));
+        assert!(lines[0].contains("Электрические органы 2"), "{lines:?}");
+        assert!(lines[1].contains("60 с"), "{lines:?}");
+        assert!(tissue_lines(None).is_empty());
+    }
+
+    #[test]
+    fn life_runs_down_and_shows_in_percent() {
+        assert_eq!(life_left(None, 100), 100);
+        assert_eq!(life_left(Some("40"), 100), 40);
+        assert_eq!(life_left(Some("мусор"), 100), 100);
+        assert_eq!(life_left(Some("-5"), 100), 0);
+        assert_eq!(life_percent(1, 24_000), 1, "пока жив — не ноль");
+        assert_eq!(life_percent(0, 24_000), 0);
+        assert_eq!(life_percent(24_000, 24_000), 100);
+        let lines = culture_mfc_lines(&WILD, None);
+        assert_eq!(lines[0], "Отдача в МТЭ: 15 Вт·с/тик");
+        assert!(lines[1].starts_with("Ресурс в МТЭ: 100%"), "{lines:?}");
+        assert_eq!(living_item_lines(ENZYME_ID, Some("3")), vec!["Хватит на 3 колб глюкозы"]);
+        assert_eq!(living_item_lines(ALGAE_FLASK, Some("12000")), vec!["Водоросли живы: 50%"]);
+    }
+
+    #[test]
+    fn the_screen_numbers_survive_sixteen_bits() {
+        for v in [0, 1, 32_767, 32_768, 60_000, 1_000_000] {
+            let (hi, lo) = split_energy(v);
+            assert!((0..=32_767).contains(&hi) && (0..=32_767).contains(&lo), "{v}");
+            assert_eq!(join_energy(hi, lo), v);
+        }
+        let r = LivingReading { stored: 45_000, rate: 35, state: LivingState::Working, burn: 1200, burn_total: 2400, life: 50, extra: 7 };
+        let mut data = vec![0; LIVING_DATA_SLOTS];
+        write_living_reading(&mut data, &r);
+        assert!(data.iter().all(|v| (-32_768..=32_767).contains(v)));
+        assert_eq!(living_reading(&data), r);
+        // Пока сервер не прислал числа — пусто, без паники.
+        assert_eq!(living_reading(&[]).state, LivingState::Idle);
+        for code in 0..10 {
+            assert_eq!(LivingState::of(code).code(), code);
+        }
+    }
+
+    #[test]
+    fn the_board_fits_and_names_the_state() {
+        for id in [MICROBIAL_CELL, PHOTOBIOREACTOR, GLUCOSE_CELL, ELECTROCYTE_BATTERY] {
+            let s = living_screen(id).unwrap();
+            let mut rects: Vec<[f32; 4]> = s.slots.iter().flatten().map(|at| slot_frame(*at)).collect();
+            rects.extend([LIVING_BOARD, LIVING_BURN_BAR, LIVING_CHARGE_BAR]);
+            for (i, a) in rects.iter().enumerate() {
+                assert!(a[0] >= 4.0 && a[0] + a[2] <= s.width - 4.0, "{id}: {a:?} за краем");
+                assert!(a[1] >= SCREEN_HEADER && a[1] + a[3] <= s.inventory[1] - 12.0, "{id}: {a:?} налезает на инвентарь");
+                for b in &rects[i + 1..] {
+                    let apart = a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1];
+                    assert!(apart, "{id}: {a:?} и {b:?}");
+                }
+            }
+            let r = LivingReading { stored: 5000, rate: 12, state: LivingState::Working, burn: 0, burn_total: 0, life: 80, extra: 3 };
+            let lines = living_board(id, &r);
+            assert!(lines.len() <= 4, "{id}: табло на четыре строки");
+            assert!(lines.iter().all(|l| l.chars().count() <= 17), "{id}: {lines:?}");
+            assert!(living_charge_tooltip(id, &r)[0].contains("5 000"));
+            let kind = living_kind(id).unwrap();
+            for code in 0..10 {
+                let st = LivingState::of(code);
+                assert!(st.text(kind).chars().count() <= 16, "{st:?}");
+                assert!(!st.help(kind).is_empty());
+            }
+        }
+        assert_eq!(thousands(1_234_567), "1 234 567");
+        assert_eq!(thousands(999), "999");
+    }
+
+    #[test]
+    fn the_electric_gene_is_a_full_gene() {
+        let kind = gene(ELECTROCYTES).expect("ген в таблице");
+        assert!(takes_in_humans(kind), "генотерапия: механика");
+        assert!(player_mechanic(ELECTROCYTES).is_some());
+        assert!(marker_for(ELECTROCYTES, 3).is_some());
+        assert_eq!(behaviour_strength(&[(ELECTROCYTES, 2)], "shock"), 2);
+        assert_eq!(GENES.last().map(|g| g.name), Some(ELECTROCYTES), "дописан в конец");
+        // Природе и ткани достаётся, как остальным; пара — синергия с жабрами.
+        assert!(!LAB_ONLY.contains(&ELECTROCYTES));
+        let pair = pair_index(ELECTROCYTES, "aquatic").expect("пара");
+        assert_eq!(GENE_PAIRS[pair].kind, PairKind::Synergy);
+        assert_eq!(pair, GENE_PAIRS.len() - 1, "пара дописана в конец");
+        // Фрагмент для проверок.
+        assert_eq!(gene_from_text("electrocytes:2"), Some((ELECTROCYTES, 2)));
+        assert_eq!(recipe_gene(ELECTROCYTES, Some(1)), Some((ELECTROCYTES, 1)));
+    }
+
+    #[test]
+    fn a_shock_is_an_area_strike_with_a_stun() {
+        assert_eq!(shock_radius(1), 2.0);
+        assert_eq!(shock_radius(3), 3.0);
+        assert!(shock_damage(3) > shock_damage(1));
+        for s in 1..=3 {
+            assert_eq!(shock_period(s) % BEHAVIOUR_EVERY, 0, "ловится тиком мира");
+            assert!(shock_period(s) >= 40);
+            assert!(shock_radius(s) >= MELEE_REACH - 0.5);
+            assert!(spark_one_in(s) >= 2);
+            let stun = shock_stun(s);
+            assert_eq!(stun[0].0, "slowness");
+            assert_eq!(stun[1].0, "weakness");
+        }
+        assert!(shock_period(3) < shock_period(1));
+        assert!(player_shock_damage(1) < shock_damage(1), "у человека органы слабее");
+    }
+
+    #[test]
+    fn water_and_rain_turn_the_shock_back() {
+        assert!(shock_backfires("minecraft:water", "minecraft:air", 0.0, 0));
+        assert!(shock_backfires("minecraft:air", "minecraft:water", 0.0, 0));
+        assert!(shock_backfires("minecraft:air", "minecraft:air", 1.0, 15), "дождь под небом");
+        assert!(!shock_backfires("minecraft:air", "minecraft:air", 1.0, 10), "дождь, но под крышей");
+        assert!(!shock_backfires("minecraft:grass_block", "minecraft:air", 0.0, 15));
+        queue_shock(77, 3.0, 500 + PLAYER_SHOCK_DELAY);
+        assert!(take_due_shocks(500).iter().all(|(id, _)| *id != 77), "рано");
+        assert!(take_due_shocks(500 + PLAYER_SHOCK_DELAY).contains(&(77, 3.0)));
+        assert!(take_due_shocks(600).iter().all(|(id, _)| *id != 77), "один раз");
+        let uuid = 0xE1E;
+        assert!(player_shock_ready(uuid, 1000));
+        assert!(!player_shock_ready(uuid, 1010));
+        assert!(player_shock_ready(uuid, 1000 + PLAYER_SHOCK_EVERY));
+    }
+}
 
 // ---- M10: порча ландшафта (GDD 4.27 Г) ----
 //
@@ -26530,8 +27423,8 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        // M10: генераторы всех тиров, динамо котла, кабели и накопители роняют себя.
-        assert_eq!(blocks.len(), 36 + EARLY_GENERATORS.len() + 1 + LATE_GENERATORS.len() + 6, "блоков стало больше — решите, выпадают ли новые");
+        // M10: генераторы всех тиров и живые, динамо котла, кабели и накопители роняют себя.
+        assert_eq!(blocks.len(), 36 + EARLY_GENERATORS.len() + 1 + LATE_GENERATORS.len() + 6 + LIVING_GENERATORS.len(), "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,
