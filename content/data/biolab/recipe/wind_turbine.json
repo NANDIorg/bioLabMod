@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "sws",
+  "wcw",
+  "sis"
+ ],
+ "key": {
+  "s": "minecraft:stick",
+  "w": "#minecraft:wool",
+  "c": "minecraft:copper_ingot",
+  "i": "minecraft:iron_ingot"
+ },
+ "result": {
+  "id": "biolab:wind_turbine",
+  "count": 1
+ }
+}

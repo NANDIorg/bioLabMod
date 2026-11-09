@@ -1,0 +1,9 @@
+{ "variants": {
+  "facing=north,lit=false": {"model": "biolab:block/steam_boiler"},
+  "facing=north,lit=true": {"model": "biolab:block/steam_boiler_on"},
+  "facing=east,lit=false": {"model": "biolab:block/steam_boiler", "y": 90},
+  "facing=east,lit=true": {"model": "biolab:block/steam_boiler_on", "y": 90},
+  "facing=south,lit=false": {"model": "biolab:block/steam_boiler", "y": 180},
+  "facing=south,lit=true": {"model": "biolab:block/steam_boiler_on", "y": 180},
+  "facing=west,lit=false": {"model": "biolab:block/steam_boiler", "y": 270},
+  "facing=west,lit=true": {"model": "biolab:block/steam_boiler_on", "y": 270} } }

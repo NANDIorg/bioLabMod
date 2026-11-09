@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "gcg",
+  "isi",
+  "iii"
+ ],
+ "key": {
+  "g": "minecraft:glass",
+  "c": "minecraft:copper_ingot",
+  "i": "minecraft:iron_ingot",
+  "s": "minecraft:stick"
+ },
+ "result": {
+  "id": "biolab:electrophore",
+  "count": 1
+ }
+}

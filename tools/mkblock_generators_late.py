@@ -2,7 +2,7 @@
 """Генераторы тиров 3–5 (M10, GDD 4.27 Б2): текстуры, модели, blockstates.
 
 Запуск из корня репозитория:
-    python3 tools/mkblock_generators.py
+    python3 tools/mkblock_generators_late.py
     python3 tools/check_models.py
 
 Блоки на шаблоне печки, модель — куб `minecraft:block/orientable` (как у

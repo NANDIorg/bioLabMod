@@ -85,6 +85,10 @@ fn group(item: &str) -> usize {
         "cryobank" => 1,
         // Генераторы тиров 3–5 (M10, Б2) — к машинам.
         "solar_panel" | "engine_generator" | "geothermal_tap" | "rtg" => 1,
+        // Генераторы тиров 0–2 (M10, GDD 4.27 Б1) и динамо котла — к машинам;
+        // пластины столба — сырьё.
+        "electrophore" | "piezo_plate" | "voltaic_pile" | "thermocouple" | "steam_boiler" | "dynamo"
+        | "water_wheel" | "wind_turbine" => 1,
         "thermobox" => 2,
         "flask" | "swab" | "agar" | "analyzer" | "microscope" | "syringe" | "scalpel" | "bandage"
         | "blueprint" | "stretcher" => 2,

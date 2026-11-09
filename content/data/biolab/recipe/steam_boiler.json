@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "iii",
+  "ibi",
+  "ifi"
+ ],
+ "key": {
+  "i": "minecraft:iron_ingot",
+  "b": "minecraft:bucket",
+  "f": "minecraft:furnace"
+ },
+ "result": {
+  "id": "biolab:steam_boiler",
+  "count": 1
+ }
+}

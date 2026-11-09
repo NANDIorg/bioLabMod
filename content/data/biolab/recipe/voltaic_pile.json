@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  " c ",
+  "gzg",
+  "gzg"
+ ],
+ "key": {
+  "c": "minecraft:copper_ingot",
+  "g": "minecraft:glass",
+  "z": "biolab:zinc_plate"
+ },
+ "result": {
+  "id": "biolab:voltaic_pile",
+  "count": 1
+ }
+}

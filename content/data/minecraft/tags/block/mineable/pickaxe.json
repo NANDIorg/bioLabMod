@@ -31,6 +31,14 @@
     "biolab:solar_panel",
     "biolab:engine_generator",
     "biolab:geothermal_tap",
-    "biolab:rtg"
+    "biolab:rtg",
+    "biolab:electrophore",
+    "biolab:piezo_plate",
+    "biolab:voltaic_pile",
+    "biolab:thermocouple",
+    "biolab:steam_boiler",
+    "biolab:dynamo",
+    "biolab:water_wheel",
+    "biolab:wind_turbine"
   ]
 }

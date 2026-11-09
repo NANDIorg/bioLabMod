@@ -197,5 +197,15 @@
  "block.biolab.geothermal_tap": "Geothermal Tap",
  "block.biolab.rtg": "Radioisotope Generator",
  "item.biolab.plant_oil": "Plant Oil",
- "item.biolab.isotope": "Isotope"
+ "item.biolab.isotope": "Isotope",
+ "block.biolab.electrophore": "Electrophorus Machine",
+ "block.biolab.piezo_plate": "Piezo Plate",
+ "block.biolab.voltaic_pile": "Voltaic Pile",
+ "block.biolab.thermocouple": "Thermocouple",
+ "block.biolab.steam_boiler": "Steam Boiler",
+ "block.biolab.dynamo": "Dynamo",
+ "block.biolab.water_wheel": "Water Wheel",
+ "block.biolab.wind_turbine": "Wind Turbine",
+ "item.biolab.zinc_plate": "Zinc Plate",
+ "item.biolab.copper_plate": "Copper Plate"
 }

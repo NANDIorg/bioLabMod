@@ -197,5 +197,15 @@
  "block.biolab.geothermal_tap": "Геотермальный съёмник",
  "block.biolab.rtg": "Изотопная батарея",
  "item.biolab.plant_oil": "Растительное масло",
- "item.biolab.isotope": "Изотоп"
+ "item.biolab.isotope": "Изотоп",
+ "block.biolab.electrophore": "Электрофорная машина",
+ "block.biolab.piezo_plate": "Нажимная пластина",
+ "block.biolab.voltaic_pile": "Вольтов столб",
+ "block.biolab.thermocouple": "Термопара",
+ "block.biolab.steam_boiler": "Паровой котёл",
+ "block.biolab.dynamo": "Динамо",
+ "block.biolab.water_wheel": "Водяное колесо",
+ "block.biolab.wind_turbine": "Ветрогенератор",
+ "item.biolab.zinc_plate": "Цинковая пластина",
+ "item.biolab.copper_plate": "Медная пластина"
 }

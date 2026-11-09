@@ -1,0 +1,18 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "sps",
+  "pcp",
+  "sps"
+ ],
+ "key": {
+  "s": "minecraft:stick",
+  "p": "#minecraft:planks",
+  "c": "minecraft:copper_ingot"
+ },
+ "result": {
+  "id": "biolab:water_wheel",
+  "count": 1
+ }
+}
