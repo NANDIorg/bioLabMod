@@ -101,7 +101,7 @@ pub const HINT_INK: u32 = 0xFF96_8F7F;
 
 /// Подсказки предметов. Элементам подсказку собирает `item_hint` из таблицы
 /// `ELEMENTS`, здесь их нет. Тест сверяет таблицу с `content/assets/biolab/items/`.
-pub const ITEM_HINTS: [(&str, &[&str]); 152] = [
+pub const ITEM_HINTS: [(&str, &[&str]); 157] = [
     // Машины и блоки.
     ("biolab:lab_bench", &["Точная сборка: шприцы, приборы, препараты", "Выложите в сетку ровно набор рецепта"]),
     ("biolab:still", &["Неживое сырьё → элементы и агар"]),
@@ -277,6 +277,12 @@ pub const ITEM_HINTS: [(&str, &[&str]); 152] = [
     ("biolab:electrocyte_battery", &["Ткань мутанта с электрическими органами", "60 Вт·с/тик, ткань расходуется"]),
     ("biolab:algae_flask", &["Топливо фотобиореактора: нужен свет", "Хватает на сутки работы"]),
     ("biolab:enzyme", &["Фермент глюкозного элемента", "Одного хватает на 8 колб глюкозы"]),
+    // Порча ландшафта (M10, GDD 4.21).
+    ("biolab:sprayer", &["ПКМ — хлором по чанку под ногами: −0,5", "Пустой — заправка хлором из инвентаря"]),
+    ("biolab:decon_station", &["Раз в 10 с чистит 3×3 чанка вокруг", "ПКМ хлором — заправить"]),
+    ("biolab:infected_grass", &["Порча ландшафта, ступень 3", "Анализатор покажет заражённость чанка"]),
+    ("biolab:necrotic_soil", &["Порча ландшафта, ступень 4: ничто не растёт", "Урожай здесь заражён"]),
+    ("biolab:spore_stalk", &["Порча ландшафта, ступень 5", "Всё живое вокруг заражается"]),
 ];
 
 /// Предметы, которым подсказка осознанно не нужна. Сейчас пусто: каждому
@@ -7560,6 +7566,8 @@ mod tests {
             PROTOCOL_CARD,
             // Батарея (M10): заряд в данных стека.
             BATTERY,
+            // Распылитель (M10): заряды хлора — в его данных.
+            SPRAYER,
         ];
         let mut checked = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
@@ -10460,7 +10468,7 @@ const fn node(
     Research { id, science, at, icon, title, after, unlock, hint }
 }
 
-pub const RESEARCH: [Research; 80] = [
+pub const RESEARCH: [Research; 81] = [
     // Основы
     node("manual", 0, (0, 1), "biolab:lab_manual", "Журнал лаборанта", &[], Unlock::Start, "Есть с самого начала."),
     node("bench", 0, (1, 1), "biolab:lab_bench", "Лабораторный стол", &["manual"], Unlock::Item(&["biolab:lab_bench"]), "Соберите лабораторный стол на верстаке."),
@@ -10579,6 +10587,9 @@ pub const RESEARCH: [Research; 80] = [
     node("photobioreactor", 2, (4, 2), "biolab:algae_flask", "Фотобиореактор", &["microbial_cell"], Unlock::Item(&["biolab:photobioreactor", "biolab:algae_flask"]), "Ламинарию — в инкубатор: колба с водорослями."),
     node("glucose_cell", 1, (3, 0), "biolab:glucose_cell", "Глюкозный элемент", &["synth"], Unlock::Item(&["biolab:glucose_cell", "biolab:enzyme"]), "Бурый гриб — в ферментер: фермент."),
     node("electrocytes", 4, (4, 1), "biolab:electrocyte_battery", "Электрические органы", &["fragment"], Unlock::Item(&["biolab:electrocyte_battery", "minecraft:tropical_fish"]), "Тропическую рыбу — в экстрактор: ген."),
+    // Порча ландшафта (M10, GDD 4.21) — микробиология, после карантина: она
+    // нужна, когда зараза из лаборатории вышла наружу.
+    node("blight", 2, (4, 0), "biolab:sprayer", "Порча ландшафта", &["quarantine"], Unlock::Item(&["biolab:sprayer", "biolab:decon_station", "biolab:infected_grass", "biolab:necrotic_soil", "biolab:spore_stalk"]), "Сделайте распылитель: железо, ведро, палка."),
 ];
 
 /// Номер узла по id.
@@ -26160,12 +26171,1306 @@ mod living_tests {
 // ---- M10: порча ландшафта (GDD 4.27 Г) ----
 //
 // Заражённость чанка 0–5, источники, три блока порчи, перекраска зоны,
-// чистка.
+// чистка. Здесь — числа, правила и память; исполнение на живой игре —
+// модуль `biolab_world_contam` (`world_contam.rs`) и хуки `contam_*.rs`.
+//
+// * Заражённость — дробное число 0–5 на чанк (ступень — целая часть). Живёт
+//   в данных чанка (`biolab:contamination`, носитель `Holder::Chunk`), рядом
+//   журнал «что было до порчи» (`biolab:blight_log`). В памяти — зеркало
+//   загруженных чанков (`ContamWorld`): его наполняет `native_chunk_load`,
+//   снимает `native_chunk_unload`, из него отвечает `chunk_contamination`.
+// * Источники кладут вклад в очередь контракта (`queue_world_contamination`);
+//   тик заражения раз в секунду её разбирает. Источник «живой», пока кладёт
+//   вклад (`CONTAM_SOURCE_ALIVE`): тогда заражённость не спадает, а чистка
+//   снижает её, но блоки не возвращает.
+// * Порча перетекает к соседним загруженным чанкам — не дальше одного чанка
+//   за секунду и только вниз по склону (`CONTAM_SPREAD_DROP`).
+// * Блоки меняются только там, где игра сама зовёт случайный тик (трава и
+//   мицелий), и только в заражённых чанках: обхода мира нет. Своих блоков в
+//   чанке — не больше `BLIGHT_CAP`, ванильных замен — `BLIGHT_VANILLA_CAP`.
+
+/// Свои блоки порчи — ровно три (правило 4.21).
+pub const INFECTED_GRASS: &str = "biolab:infected_grass";
+pub const NECROTIC_SOIL: &str = "biolab:necrotic_soil";
+pub const SPORE_STALK: &str = "biolab:spore_stalk";
+pub const BLIGHT_BLOCKS: [&str; 3] = [INFECTED_GRASS, NECROTIC_SOIL, SPORE_STALK];
+/// Ванильная порча ступени 2: каменистая земля и мёртвый куст.
+pub const BLIGHT_COARSE: &str = "minecraft:coarse_dirt";
+pub const BLIGHT_BUSH: &str = "minecraft:dead_bush";
+/// На чём ползёт порча: блоки, которые игра тикает случайно.
+pub const BLIGHT_GROUND: [&str; 2] = ["minecraft:grass_block", "minecraft:mycelium"];
+/// Что можно заменить сверху (мёртвым кустом или стеблем).
+pub const BLIGHT_TOP_FREE: [&str; 4] = ["minecraft:air", "minecraft:short_grass", "minecraft:fern", "minecraft:tall_grass"];
+
+/// Распылитель (ранний тир) и станция дезактивации (поздний).
+pub const SPRAYER: &str = "biolab:sprayer";
+pub const DECON_STATION: &str = "biolab:decon_station";
+
+/// Потолок заражённости.
+pub const CONTAM_MAX: f32 = 5.0;
+/// Своих блоков порчи на чанк, не больше.
+pub const BLIGHT_CAP: usize = 64;
+/// Ванильных замен (каменистая земля, мёртвый куст) на чанк, не больше.
+pub const BLIGHT_VANILLA_CAP: usize = 32;
+/// Тик заражения — раз в секунду.
+pub const CONTAM_EVERY: u64 = 20;
+/// Данные чанка пишутся не чаще раза в 5 с (журнал — сразу).
+pub const CONTAM_WRITE_EVERY: u64 = 100;
+/// Источник «живой» 2 минуты после последнего вклада: лужа тикает случайно
+/// (в среднем раз в ~68 с), утечка — раз в 10 с.
+pub const CONTAM_SOURCE_ALIVE: u64 = 2400;
+/// Спад без источника, за секунду: ступень за ~3,3 мин, с 5 до 0 — ~17 мин.
+pub const CONTAM_DECAY: f32 = 0.005;
+/// Перетекание к соседу, доля разницы за секунду.
+pub const CONTAM_SPREAD: f32 = 0.01;
+/// Сосед поднимается не выше уровня чанка минус это (кольца 5 → 3 → 1).
+pub const CONTAM_SPREAD_DROP: f32 = 1.5;
+
+/// Вклады источников (в уровнях; 1.0 — ступень).
+/// Колба с культурой на земле — за секунду на штуку (до `CONTAM_FLASK_MAX`).
+pub const CONTAM_FLASK: f32 = 0.01;
+pub const CONTAM_FLASK_MAX: u32 = 4;
+/// Утечка тяжёлого штамма — за каждую отметку утечки (раз в 10 с).
+pub const CONTAM_LEAK: f32 = 0.15;
+/// Труп заражённого (`biolab:infected`) и больного скота — разом.
+pub const CONTAM_INFECTED_CORPSE: f32 = 0.4;
+pub const CONTAM_SICK_CORPSE: f32 = 0.25;
+/// Разлитый мутаген — разом при разливе и на каждом случайном тике лужи.
+pub const CONTAM_MUTAGEN_SPILL: f32 = 0.5;
+pub const CONTAM_MUTAGEN_TICK: f32 = 0.3;
+/// Заразная слизь — на каждом случайном тике лужи.
+pub const CONTAM_SLIME_TICK: f32 = 0.2;
+
+/// Распылитель: заряды на одну заправку хлором, ключ зарядов в `custom_data`,
+/// сколько снимает пшик и сколько блоков возвращает.
+pub const SPRAYER_CHARGES: u32 = 8;
+pub const SPRAYER_KEY: &str = "biolab_spray";
+pub const SPRAYER_LOWER: f32 = 0.5;
+pub const SPRAYER_RESTORE: usize = 8;
+/// Станция: импульс раз в 10 с по чанкам в радиусе, один хлор — один импульс.
+pub const STATION_EVERY: u64 = 200;
+pub const STATION_LOWER: f32 = 0.6;
+pub const STATION_RESTORE: usize = 6;
+pub const STATION_RADIUS: i32 = 1;
+pub const STATION_MAX_CHARGE: u32 = 64;
+/// Чистый чанк (ступень 0) сам возвращает блоки журнала — по два за секунду.
+pub const BLIGHT_HEAL: usize = 2;
+
+/// Данные чанка: состояние и журнал (носитель `Holder::Chunk`).
+pub const BLIGHT_DATA: &str = "contamination";
+pub const BLIGHT_FIELD: &str = "state";
+pub const BLIGHT_LOG_DATA: &str = "blight_log";
+pub const BLIGHT_LOG_FIELD: &str = "log";
+/// Сервер → клиент: заражённость своего чанка и зоны 3×3 (десятые доли).
+pub const NET_BLIGHT: &str = "biolab_core:blight";
+/// Перекраска не чаще раза в 30 с.
+pub const TINT_REFRESH_SECS: f64 = 30.0;
+/// Пакета зоны нет дольше — мир сменился, перекраска сброшена.
+pub const TINT_STALE_SECS: f64 = 5.0;
+
+/// Ступень заражённости: целая часть, 0–5.
+pub fn contam_stage(level: f32) -> u8 {
+    if level >= 1.0 { level.min(CONTAM_MAX).floor() as u8 } else { 0 }
+}
+
+/// Одна запись журнала «что было до порчи».
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BlightEntry {
+    pub pos: [i32; 3],
+    /// Что стояло до порчи (`minecraft:grass_block`, `minecraft:air`).
+    pub was: String,
+    /// Что поставила порча.
+    pub now: String,
+}
+
+/// Заражённость одного чанка.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChunkContam {
+    /// 0–5, дробная.
+    pub level: f32,
+    /// Самый тяжёлый штамм источников; `None` — дикий.
+    pub strain: Option<Strain>,
+    /// Станция дезактивации в этом чанке: место и запас хлора.
+    pub station: Option<([i32; 3], u32)>,
+    /// Журнал «что было до порчи».
+    pub log: Vec<BlightEntry>,
+    /// Когда источник клал вклад в последний раз (`game.ticks`); не пишется.
+    pub source_at: Option<u64>,
+}
+
+impl ChunkContam {
+    pub fn stage(&self) -> u8 {
+        contam_stage(self.level)
+    }
+    /// Своих блоков порчи в журнале.
+    pub fn own_blocks(&self) -> usize {
+        self.log.iter().filter(|e| BLIGHT_BLOCKS.contains(&e.now.as_str())).count()
+    }
+    /// Ванильных замен в журнале.
+    pub fn vanilla_blocks(&self) -> usize {
+        self.log.len() - self.own_blocks()
+    }
+    /// Источник ещё живой.
+    pub fn source_alive(&self, now: u64) -> bool {
+        self.source_at.is_some_and(|at| now >= at && now - at < CONTAM_SOURCE_ALIVE)
+    }
+    /// Нечего хранить: чисто, журнал пуст, станции нет.
+    pub fn is_empty(&self) -> bool {
+        self.level <= 0.0 && self.log.is_empty() && self.station.is_none()
+    }
+    /// Вклад источника.
+    pub fn add(&mut self, amount: f32, strain: Option<Strain>, now: u64) {
+        if !amount.is_finite() || amount <= 0.0 {
+            return;
+        }
+        self.level = (self.level + amount).clamp(0.0, CONTAM_MAX);
+        self.strain = heavier_strain(self.strain, strain);
+        self.source_at = Some(now);
+    }
+    /// Снизить заражённость (чистка, спад).
+    pub fn lower(&mut self, by: f32) {
+        self.level = (self.level - by.max(0.0)).max(0.0);
+        if self.level <= 0.0 {
+            self.level = 0.0;
+            self.strain = None;
+        }
+    }
+    /// Забрать из журнала до `count` записей, свежие первыми: их блоки
+    /// возвращают на место.
+    pub fn take_restore(&mut self, count: usize) -> Vec<BlightEntry> {
+        let keep = self.log.len().saturating_sub(count);
+        let mut out = self.log.split_off(keep);
+        out.reverse();
+        out
+    }
+}
+
+/// Состояние чанка строкой данных: `level=2.35;strain=3,2,4,1;station=10,64,-3,12`.
+pub fn blight_state_text(c: &ChunkContam) -> String {
+    let mut out = format!("level={:.2}", c.level.clamp(0.0, CONTAM_MAX));
+    if let Some(strain) = &c.strain {
+        out.push_str(&format!(";strain={}", strain_to_text(strain)));
+    }
+    if let Some((at, charge)) = c.station {
+        out.push_str(&format!(";station={},{},{},{}", at[0], at[1], at[2], charge));
+    }
+    out
+}
+
+/// Состояние из строки данных; незнакомое и битое пропускаем.
+pub fn blight_state_from_text(text: &str) -> ChunkContam {
+    let mut c = ChunkContam::default();
+    for part in text.split(';') {
+        match part.trim().split_once('=') {
+            Some(("level", v)) => {
+                let level: f32 = v.trim().parse().unwrap_or(0.0);
+                c.level = if level.is_finite() { level.clamp(0.0, CONTAM_MAX) } else { 0.0 };
+            }
+            Some(("strain", v)) => c.strain = strain_from_text(v.trim()),
+            Some(("station", v)) => {
+                let n: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if n.len() == 4 {
+                    c.station = Some(([n[0] as i32, n[1] as i32, n[2] as i32], n[3].clamp(0, STATION_MAX_CHARGE as i64) as u32));
+                }
+            }
+            _ => {}
+        }
+    }
+    c
+}
+
+/// Журнал строкой данных: записи через `;`, поля через пробел —
+/// `x y z было стало`.
+pub fn blight_log_text(log: &[BlightEntry]) -> String {
+    log.iter()
+        .map(|e| format!("{} {} {} {} {}", e.pos[0], e.pos[1], e.pos[2], e.was, e.now))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// Журнал из строки данных; битые записи пропускаем.
+pub fn blight_log_from_text(text: &str) -> Vec<BlightEntry> {
+    text.split(';')
+        .filter_map(|entry| {
+            let mut f = entry.split_whitespace();
+            let x = f.next()?.parse().ok()?;
+            let y = f.next()?.parse().ok()?;
+            let z = f.next()?.parse().ok()?;
+            let was = f.next()?.to_string();
+            let now = f.next()?.to_string();
+            f.next().is_none().then_some(BlightEntry { pos: [x, y, z], was, now })
+        })
+        .collect()
+}
+
+/// Номер измерения для ключа зеркала.
+pub fn dimension_index(dimension: &str) -> u8 {
+    match dimension {
+        "minecraft:the_nether" => 1,
+        "minecraft:the_end" => 2,
+        _ => 0,
+    }
+}
+
+/// Ключ чанка в зеркале: измерение, x, z чанка.
+pub type ChunkKey = (u8, i32, i32);
+
+/// Ключ чанка с точкой `pos`.
+pub fn chunk_key(dimension: &str, pos: [i32; 3]) -> ChunkKey {
+    (dimension_index(dimension), pos[0] >> 4, pos[2] >> 4)
+}
+
+/// Зеркало заражённости загруженных чанков (только сервер).
+#[derive(Default)]
+pub struct ContamWorld {
+    /// Мир, которому принадлежит зеркало: другой мир — зеркало заново.
+    pub world: std::path::PathBuf,
+    pub chunks: std::collections::HashMap<ChunkKey, ChunkContam>,
+    pub loaded: std::collections::HashSet<ChunkKey>,
+    /// Изменилось с прошлой записи: состояние / журнал.
+    pub dirty: std::collections::HashSet<ChunkKey>,
+    pub dirty_log: std::collections::HashSet<ChunkKey>,
+    /// Что лежит в данных чанка сейчас (состояние, журнал): пишем только
+    /// изменившееся — каждая запись помечает чанк к сохранению.
+    pub written: std::collections::HashMap<ChunkKey, (String, String)>,
+    /// Последний тик шага по измерению: шаг один на тик, сколько бы игроков
+    /// ни было.
+    pub stepped: std::collections::HashMap<u8, u64>,
+}
+
+impl ContamWorld {
+    /// Сменился мир (одиночная игра: тот же процесс) — начать с чистого.
+    /// Пустой путь (мир ещё не назван) ничего не сбрасывает, а первый
+    /// названный просто запоминается: чанки у точки появления грузятся рано.
+    pub fn bind(&mut self, world: &std::path::Path) {
+        if world.as_os_str().is_empty() || self.world == world {
+            return;
+        }
+        if self.world.as_os_str().is_empty() {
+            self.world = world.to_path_buf();
+            return;
+        }
+        *self = ContamWorld { world: world.to_path_buf(), ..Default::default() };
+    }
+    /// Чанк загружен; `saved` — его данные, если были.
+    pub fn load(&mut self, key: ChunkKey, saved: Option<ChunkContam>) {
+        self.loaded.insert(key);
+        self.dirty.remove(&key);
+        self.dirty_log.remove(&key);
+        match saved {
+            Some(c) => {
+                self.written.insert(key, blight_texts(&c));
+                if c.is_empty() {
+                    // Пустое в данных — снять при следующей записи.
+                    self.chunks.insert(key, c);
+                    self.dirty.insert(key);
+                    self.dirty_log.insert(key);
+                } else {
+                    self.chunks.insert(key, c);
+                }
+            }
+            None => {
+                self.written.remove(&key);
+                self.chunks.remove(&key);
+            }
+        }
+    }
+    /// Чанк выгружен: в памяти его больше нет.
+    pub fn unload(&mut self, key: ChunkKey) {
+        self.loaded.remove(&key);
+        self.written.remove(&key);
+        self.chunks.remove(&key);
+        self.dirty.remove(&key);
+        self.dirty_log.remove(&key);
+    }
+    pub fn level(&self, key: ChunkKey) -> f32 {
+        self.chunks.get(&key).map_or(0.0, |c| c.level)
+    }
+    pub fn stage(&self, key: ChunkKey) -> u8 {
+        contam_stage(self.level(key))
+    }
+    /// Запись чанка (создаётся, если он загружен).
+    pub fn entry(&mut self, key: ChunkKey) -> Option<&mut ChunkContam> {
+        if !self.loaded.contains(&key) {
+            return None;
+        }
+        Some(self.chunks.entry(key).or_default())
+    }
+    /// Вклад источника в чанк с точкой `pos`; незагруженный чанк вклад не берёт.
+    pub fn add(&mut self, dimension: &str, pos: [i32; 3], amount: f32, strain: Option<Strain>, now: u64) -> bool {
+        let key = chunk_key(dimension, pos);
+        let Some(c) = self.entry(key) else {
+            return false;
+        };
+        c.add(amount, strain, now);
+        self.dirty.insert(key);
+        true
+    }
+    /// Что записать в данные чанков измерения `dim`: (ключ, состояние,
+    /// журнал); `None` — оставить как есть, пустая строка — снять. Состояние
+    /// пишется, только когда `state_due` (раз в 5 с), журнал — сразу.
+    /// Пустые чанки уходят из памяти.
+    pub fn take_writes(&mut self, dim: u8, state_due: bool) -> Vec<(ChunkKey, Option<String>, Option<String>)> {
+        let keys: Vec<ChunkKey> = self
+            .dirty
+            .iter()
+            .chain(self.dirty_log.iter())
+            .filter(|k| k.0 == dim)
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        let mut out = Vec::new();
+        for key in keys {
+            let log_due = self.dirty_log.contains(&key);
+            if !log_due && !state_due {
+                continue;
+            }
+            let (state, log) = self.chunks.get(&key).map(blight_texts).unwrap_or_default();
+            let (old_state, old_log) = self.written.get(&key).cloned().unwrap_or_default();
+            let state = (state != old_state).then_some(state);
+            let log = (log_due && log != old_log).then_some(log);
+            self.dirty.remove(&key);
+            self.dirty_log.remove(&key);
+            if state.is_some() || log.is_some() {
+                let entry = self.written.entry(key).or_default();
+                if let Some(s) = &state {
+                    entry.0 = s.clone();
+                }
+                if let Some(l) = &log {
+                    entry.1 = l.clone();
+                }
+                out.push((key, state, log));
+            }
+            if self.chunks.get(&key).is_some_and(ChunkContam::is_empty) {
+                self.chunks.remove(&key);
+            }
+        }
+        out
+    }
+    /// Наибольшая заражённость в 3×3 чанках вокруг.
+    pub fn zone(&self, key: ChunkKey) -> f32 {
+        let mut most: f32 = 0.0;
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                most = most.max(self.level((key.0, key.1 + dx, key.2 + dz)));
+            }
+        }
+        most
+    }
+    /// Секунда жизни измерения `dim`: спад без источника и перетекание к
+    /// соседям. Сосед берёт вклад, только если загружен.
+    pub fn step(&mut self, dim: u8, now: u64, secs: f32) {
+        let snapshot: Vec<(ChunkKey, f32, bool)> = self
+            .chunks
+            .iter()
+            .filter(|(key, _)| key.0 == dim)
+            .map(|(key, c)| (*key, c.level, c.source_alive(now)))
+            .collect();
+        let mut flows: Vec<(ChunkKey, f32)> = Vec::new();
+        for (key, level, _) in &snapshot {
+            let target = level - CONTAM_SPREAD_DROP;
+            if target <= 0.0 {
+                continue;
+            }
+            for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let near = (key.0, key.1 + dx, key.2 + dz);
+                if !self.loaded.contains(&near) {
+                    continue;
+                }
+                let have = self.level(near);
+                if target > have {
+                    flows.push((near, CONTAM_SPREAD * (target - have) * secs));
+                }
+            }
+        }
+        for (key, level, alive) in snapshot {
+            if !alive && level > 0.0
+                && let Some(c) = self.chunks.get_mut(&key)
+            {
+                c.lower(CONTAM_DECAY * secs);
+                self.dirty.insert(key);
+            }
+        }
+        for (key, amount) in flows {
+            if let Some(c) = self.entry(key) {
+                c.level = (c.level + amount).min(CONTAM_MAX);
+                self.dirty.insert(key);
+            }
+        }
+    }
+}
+
+/// Что лежит в данных чанка: состояние (пусто — чисто и станции нет) и
+/// журнал (пусто — пуст).
+pub fn blight_texts(c: &ChunkContam) -> (String, String) {
+    let state = if c.level > 0.0 || c.station.is_some() { blight_state_text(c) } else { String::new() };
+    (state, blight_log_text(&c.log))
+}
+
+/// Зеркало мира (одно на процесс).
+pub fn contam_world() -> &'static std::sync::Mutex<ContamWorld> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<ContamWorld>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Есть ли где-нибудь ступень 2+: случайный тик травы без этого сразу уходит.
+static BLIGHT_ANY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Пересчитать флаг «порча где-то есть» (зовёт тик заражения).
+pub fn blight_mark_any(world: &ContamWorld) {
+    let any = world.chunks.values().any(|c| c.level >= 2.0);
+    BLIGHT_ANY.store(any, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Порча где-то есть.
+pub fn blight_active() -> bool {
+    BLIGHT_ANY.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Заражённость загруженного чанка `chunk` уровня `dimension`, 0–5.
 pub fn chunk_contamination(dimension: &str, chunk: [i32; 2]) -> u8 {
-    let _ = (dimension, chunk);
-    0
+    contam_world()
+        .lock()
+        .map_or(0, |w| w.stage((dimension_index(dimension), chunk[0], chunk[1])))
+}
+
+/// Заражённость чанка дробью (для анализатора и команды).
+pub fn chunk_contamination_value(dimension: &str, chunk: [i32; 2]) -> f32 {
+    contam_world()
+        .lock()
+        .map_or(0.0, |w| w.level((dimension_index(dimension), chunk[0], chunk[1])))
+}
+
+// Порча блоков.
+
+/// Блок, тикнутый случайно в заражённом чанке, — кандидат на порчу. Тик
+/// уровня блоки целиком не меняет (только свойства), поэтому кандидат ждёт
+/// тика заражения в очереди.
+pub fn blight_candidates() -> &'static std::sync::Mutex<Vec<(u8, [i32; 3])>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Vec<(u8, [i32; 3])>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Не больше кандидатов за секунду.
+pub const BLIGHT_CANDIDATES_MAX: usize = 256;
+
+/// Случайный тик блока `block` в точке `pos` (сервер, `native_random_tick`).
+/// Лужи мутагена и слизи — живые источники; трава в заражённом чанке —
+/// кандидат на порчу. Ответ — отменить ли ванильный тик: со ступени 4 трава
+/// не растёт и не расползается.
+pub fn blight_random_tick(dimension: &str, pos: [i32; 3], block: &str) -> bool {
+    if let Some(amount) = blight_puddle_source(block) {
+        queue_world_contamination(dimension, pos, amount, None);
+        return false;
+    }
+    if !blight_active() || !BLIGHT_GROUND.contains(&block) {
+        return false;
+    }
+    let stage = chunk_contamination(dimension, [pos[0] >> 4, pos[2] >> 4]);
+    if stage >= 2
+        && let Ok(mut queue) = blight_candidates().lock()
+        && queue.len() < BLIGHT_CANDIDATES_MAX
+    {
+        queue.push((dimension_index(dimension), pos));
+    }
+    stage >= 4
+}
+
+/// Лужа — живой источник: вклад на её случайном тике (мутаген, заразная
+/// слизь); остальное — не источник.
+pub fn blight_puddle_source(block: &str) -> Option<f32> {
+    if block == MUTAGEN_PUDDLE {
+        Some(CONTAM_MUTAGEN_TICK)
+    } else if fluid_of_block(block).is_some_and(|f| f.infects > 0) {
+        Some(CONTAM_SLIME_TICK)
+    } else {
+        None
+    }
+}
+
+/// Забрать кандидатов измерения `dim` (остальные отбрасываются: у шага
+/// заражения в руках только своё измерение).
+pub fn take_blight_candidates(dim: u8) -> Vec<[i32; 3]> {
+    blight_candidates()
+        .lock()
+        .map(|mut q| q.drain(..).filter(|(d, _)| *d == dim).map(|(_, p)| p).collect())
+        .unwrap_or_default()
+}
+
+/// Что порча делает с блоком.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlightChange {
+    /// Заменить сам блок (землю).
+    Ground(&'static str),
+    /// Поставить сверху (на место воздуха или травы).
+    Top(&'static str),
+}
+
+/// Бросок 0–999 от места и времени (без своего генератора).
+pub fn blight_roll(pos: [i32; 3], now: u64, salt: u64) -> u32 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for v in [pos[0] as i64 as u64, pos[1] as i64 as u64, pos[2] as i64 as u64, now, salt] {
+        h ^= v;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+        h ^= h >> 29;
+    }
+    (h % 1000) as u32
+}
+
+/// Порча травы на ступени `stage`. `top` — что сверху; `own_near` — сколько
+/// соседей по сторонам уже свои блоки порчи (пятна растут от краёв);
+/// `own` и `vanilla` — сколько уже в журнале чанка.
+pub fn blight_change(stage: u8, top: &str, own_near: u8, roll: u32, own: usize, vanilla: usize) -> Vec<BlightChange> {
+    let top_free = BLIGHT_TOP_FREE.contains(&top);
+    let vanilla_change = |roll: u32| {
+        if vanilla >= BLIGHT_VANILLA_CAP {
+            None
+        } else if top_free && roll % 2 == 0 {
+            Some(BlightChange::Top(BLIGHT_BUSH))
+        } else {
+            Some(BlightChange::Ground(BLIGHT_COARSE))
+        }
+    };
+    match stage {
+        0 | 1 => Vec::new(),
+        2 => (roll < 30).then(|| vanilla_change(roll)).flatten().into_iter().collect(),
+        _ => {
+            let chance = (40 + 150 * u32::from(own_near)).min(700);
+            if roll < chance && own < BLIGHT_CAP {
+                let ground = if stage >= 4 { NECROTIC_SOIL } else { INFECTED_GRASS };
+                let mut out = vec![BlightChange::Ground(ground)];
+                if stage >= 5 && top == "minecraft:air" && own + 2 <= BLIGHT_CAP && (roll / 7) % 4 == 0 {
+                    out.push(BlightChange::Top(SPORE_STALK));
+                }
+                out
+            } else if roll >= chance && roll < chance + 20 {
+                vanilla_change(roll).into_iter().collect()
+            } else {
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// Рост пятна без случайного тика: на ступени 4+ заражённая трава в журнале
+/// темнеет в мёртвую землю, на 5 — на мёртвой земле прорастает стебель.
+/// Ответ — номер записи журнала и что сделать (стебель — на клетку выше).
+pub fn blight_upgrade(c: &ChunkContam, roll: u32) -> Option<(usize, BlightChange)> {
+    let stage = c.stage();
+    if stage < 4 || roll >= 300 {
+        return None;
+    }
+    let pick = |name: &str| {
+        let found: Vec<usize> = c.log.iter().enumerate().filter(|(_, e)| e.now == name).map(|(i, _)| i).collect();
+        (!found.is_empty()).then(|| found[roll as usize % found.len()])
+    };
+    if stage >= 5 && roll % 3 == 0 && c.own_blocks() < BLIGHT_CAP {
+        let stalks: std::collections::HashSet<[i32; 3]> =
+            c.log.iter().filter(|e| e.now == SPORE_STALK).map(|e| e.pos).collect();
+        let soils: Vec<usize> = c
+            .log
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.now == NECROTIC_SOIL && !stalks.contains(&[e.pos[0], e.pos[1] + 1, e.pos[2]]))
+            .map(|(i, _)| i)
+            .collect();
+        if !soils.is_empty() {
+            return Some((soils[roll as usize % soils.len()], BlightChange::Top(SPORE_STALK)));
+        }
+    }
+    pick(INFECTED_GRASS).map(|i| (i, BlightChange::Ground(NECROTIC_SOIL)))
+}
+
+// Ступени: что они делают с живым.
+
+/// Доза воздухом игроку на ступени, за секунду (до спецодежды): ступень 2 —
+/// равновесие ~33 (не заражает), 3 — ~66, 4 — ~116 (заражает за пару
+/// минут), 5 — ~200 (за ~25 с).
+pub fn contam_dose(stage: u8) -> f32 {
+    [0.0, 0.0, 1.0, 2.0, 3.5, 6.0][usize::from(stage.min(5))]
+}
+
+/// Вклад заражённости чанка в опасность дозиметра (`danger_level`, как
+/// сумма источников рядом: 2 — максимум).
+pub fn contamination_danger(stage: u8) -> f32 {
+    [0.0, 0.1, 0.3, 0.8, 1.3, 2.0][usize::from(stage.min(5))]
+}
+
+/// Шанс скоту заболеть за секунду, ‰: «чаще» на 3–4, «получают штамм» на 5.
+pub fn blight_sick_chance(stage: u8) -> u32 {
+    [0, 0, 0, 3, 6, 20][usize::from(stage.min(5))]
+}
+
+/// Плодятся ли животные на ступени.
+pub fn blight_breeds(stage: u8) -> bool {
+    stage < 4
+}
+
+/// Урожай с грядки на ступени 4+ заражён: уровень загрязнения (M9).
+pub fn blight_harvest_dirt(stage: u8, strain: Option<Strain>) -> Option<Contamination> {
+    (stage >= 4).then(|| Contamination { level: if stage >= 5 { 60 } else { 40 }, strain })
+}
+
+// Чистка.
+
+/// Итог чистки одного чанка.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CleanOutcome {
+    pub before: f32,
+    pub after: f32,
+    /// Блоки, которые вернуть на место.
+    pub restore: Vec<BlightEntry>,
+    /// Живой источник рядом: заражённость снижена, но блоки не вернулись —
+    /// источник всё равно поднимет её снова.
+    pub held: bool,
+}
+
+/// Почистить чанк на `by`, вернуть до `count` блоков журнала.
+pub fn clean_chunk(c: &mut ChunkContam, by: f32, count: usize, now: u64) -> CleanOutcome {
+    let before = c.level;
+    c.lower(by);
+    let held = c.source_alive(now);
+    let restore = if held { Vec::new() } else { c.take_restore(count) };
+    CleanOutcome { before, after: c.level, restore, held }
+}
+
+/// Заряды распылителя из `custom_data` (пусто — 0).
+pub fn sprayer_charges(text: Option<&str>) -> u32 {
+    text.and_then(|t| t.trim().parse().ok()).unwrap_or(0).min(SPRAYER_CHARGES)
+}
+
+/// Сообщение распылителя.
+pub fn spray_message(o: &CleanOutcome, charges: u32) -> String {
+    let fmt = |v: f32| format!("{v:.1}").replace('.', ",");
+    if o.before <= 0.0 && o.restore.is_empty() {
+        return format!("Распылитель: здесь чисто · заряд {charges}/{SPRAYER_CHARGES}");
+    }
+    let mut line = format!("Распылитель: заражённость {} → {}", fmt(o.before), fmt(o.after));
+    if o.held {
+        line.push_str(" · очаг рядом жив, чистка не держится");
+    } else if !o.restore.is_empty() {
+        line.push_str(&format!(" · вернул блоков: {}", o.restore.len()));
+    }
+    line.push_str(&format!(" · заряд {charges}/{SPRAYER_CHARGES}"));
+    line
+}
+
+/// Сообщение станции по ПКМ.
+pub fn station_message(charge: u32, loaded: u32) -> String {
+    if loaded > 0 {
+        format!("Станция дезактивации: заправлено хлором +{loaded}, запас {charge}/{STATION_MAX_CHARGE}")
+    } else if charge == 0 {
+        "Станция дезактивации: хлора нет. ПКМ хлором — заправить".to_string()
+    } else {
+        format!(
+            "Станция дезактивации: запас {charge}/{STATION_MAX_CHARGE} · импульс раз в {} с по {}×{} чанков",
+            STATION_EVERY / 20,
+            STATION_RADIUS * 2 + 1,
+            STATION_RADIUS * 2 + 1
+        )
+    }
+}
+
+// Сервер → клиент: уровень чанка и зоны, перекраска.
+
+/// Пакет: десятые доли заражённости своего чанка и зоны 3×3.
+pub fn blight_packet(chunk: f32, zone: f32) -> [u8; 2] {
+    let tenths = |v: f32| (v.clamp(0.0, CONTAM_MAX) * 10.0).round() as u8;
+    [tenths(chunk), tenths(zone)]
+}
+
+/// Разбор пакета.
+pub fn blight_from_packet(data: &[u8]) -> Option<(f32, f32)> {
+    match data {
+        [chunk, zone] if *chunk <= 50 && *zone <= 50 => Some((f32::from(*chunk) / 10.0, f32::from(*zone) / 10.0)),
+        _ => None,
+    }
+}
+
+/// Что показывает клиент: последний пакет и когда пришёл; применённый
+/// оттенок и когда перекрашивали.
+#[derive(Default)]
+pub struct BlightView {
+    pub shown: Option<(f32, f32, std::time::Instant)>,
+    pub applied: u8,
+    pub refreshed: Option<std::time::Instant>,
+}
+
+pub fn blight_view() -> &'static std::sync::Mutex<BlightView> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<BlightView>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+/// Клиент: запомнить пакет.
+pub fn remember_blight(chunk: f32, zone: f32) {
+    if let Ok(mut view) = blight_view().lock() {
+        view.shown = Some((chunk, zone, std::time::Instant::now()));
+    }
+}
+
+/// Клиент: свежий пакет (не старше `TINT_STALE_SECS`).
+pub fn shown_blight() -> Option<(f32, f32)> {
+    let view = blight_view().lock().ok()?;
+    let (chunk, zone, at) = view.shown?;
+    (at.elapsed().as_secs_f64() < TINT_STALE_SECS).then_some((chunk, zone))
+}
+
+/// Оттенок, который сейчас в цветах биомов.
+pub fn applied_tint() -> u8 {
+    blight_view().lock().map_or(0, |v| v.applied)
+}
+
+/// Ступень оттенка с запасом у границы: вверх — как только зона дошла до
+/// ступени, вниз — только когда опустилась на 0,3 ниже текущей.
+pub fn tint_target(applied: u8, zone: f32) -> u8 {
+    let stage = contam_stage(zone);
+    if stage >= applied {
+        stage
+    } else if zone <= f32::from(applied) - 0.3 {
+        contam_stage(zone + 0.3)
+    } else {
+        applied
+    }
+}
+
+/// Что сделать с перекраской.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TintStep {
+    Keep,
+    /// Перекрасить в эту ступень.
+    Refresh(u8),
+    /// Пакетов нет — мир сменился: новый мир начинается без оттенка, а
+    /// перекрашивать нечего.
+    Reset,
+}
+
+/// Решение перекраски: `zone` — свежий уровень зоны (None — пакетов нет),
+/// `since_refresh` — секунд с прошлой перекраски.
+pub fn tint_step(applied: u8, zone: Option<f32>, since_refresh: Option<f64>) -> TintStep {
+    let Some(zone) = zone else {
+        return if applied != 0 { TintStep::Reset } else { TintStep::Keep };
+    };
+    let target = tint_target(applied, zone);
+    if target != applied && since_refresh.is_none_or(|s| s >= TINT_REFRESH_SECS) {
+        TintStep::Refresh(target)
+    } else {
+        TintStep::Keep
+    }
+}
+
+/// Клиент, раз в тик окна: пора ли перекрасить. `Some(ступень)` — новая
+/// ступень уже записана, осталось позвать `native_refresh_biome_colors`.
+pub fn blight_view_tick() -> Option<u8> {
+    let zone = shown_blight().map(|(_, zone)| zone);
+    let mut view = blight_view().lock().ok()?;
+    let since = view.refreshed.map(|at| at.elapsed().as_secs_f64());
+    match tint_step(view.applied, zone, since) {
+        TintStep::Keep => None,
+        TintStep::Reset => {
+            view.applied = 0;
+            view.refreshed = None;
+            None
+        }
+        TintStep::Refresh(level) => {
+            view.applied = level;
+            view.refreshed = Some(std::time::Instant::now());
+            Some(level)
+        }
+    }
+}
+
+/// Оттенки ступеней: (цвет, доля) для травы, листвы, воды. Ступень 1 —
+/// трава бледнее; 2 — землистая, листва жухлая; 3 — вода мутнеет; 4 —
+/// бурое; 5 — лиловое споровое.
+const TINTS: [((u32, f32), (u32, f32), (u32, f32)); 5] = [
+    ((0xB5B88A, 0.25), (0xA8A870, 0.15), (0x000000, 0.0)),
+    ((0x9C8F5A, 0.45), (0x8F7F40, 0.40), (0x6B7A5A, 0.15)),
+    ((0x8A8048, 0.55), (0x7A6A38, 0.50), (0x5B6B3A, 0.45)),
+    ((0x6E5E48, 0.65), (0x5E4E38, 0.60), (0x4B5030, 0.60)),
+    ((0x6A5470, 0.70), (0x5A4460, 0.65), (0x4A3A50, 0.70)),
+];
+
+/// Смешать цвет 0xRRGGBB с `to` в доле `t`.
+pub fn mix_rgb(from: u32, to: u32, t: f32) -> u32 {
+    let t = t.clamp(0.0, 1.0);
+    let ch = |c: u32, s: u32| ((c >> s) & 0xFF) as f32;
+    let one = |s: u32| ((ch(from, s) * (1.0 - t) + ch(to, s) * t).round() as u32).min(255) << s;
+    one(16) | one(8) | one(0)
+}
+
+/// Цвета биома (трава, листва, сухая листва, вода) с оттенком ступени.
+pub fn tint_colors(stage: u8, colors: [u32; 4]) -> [u32; 4] {
+    if stage == 0 {
+        return colors;
+    }
+    let ((grass, g), (leaf, l), (water, w)) = TINTS[usize::from(stage.min(5)) - 1];
+    [
+        mix_rgb(colors[0], grass, g),
+        mix_rgb(colors[1], leaf, l),
+        mix_rgb(colors[2], leaf, l),
+        mix_rgb(colors[3], water, w),
+    ]
+}
+
+/// Что ступень делает, коротко (анализатор, команда).
+pub fn contam_stage_text(stage: u8) -> &'static str {
+    match stage {
+        0 => "чисто",
+        1 => "трава бледнеет",
+        2 => "земля сохнет, доза в воздухе",
+        3 => "пятна заражённой травы, скот болеет",
+        4 => "мёртвая земля, урожай заражён, скот не плодится",
+        _ => "споровые стебли, всё живое заражается",
+    }
+}
+
+/// Строки анализатора: заражённость своего чанка (и ноль — так видно, что
+/// прибор её меряет).
+pub fn blight_lines(chunk: f32, zone: f32) -> Vec<String> {
+    let fmt = |v: f32| format!("{v:.1}").replace('.', ",");
+    let stage = contam_stage(chunk);
+    let mut lines = vec![format!("Заражённость чанка: {} · {}", fmt(chunk), contam_stage_text(stage))];
+    if contam_stage(zone) > stage {
+        lines.push(format!("Рядом очаг: {}", fmt(zone)));
+    }
+    lines
+}
+
+/// Клиент: строки анализатора по последнему пакету.
+pub fn blight_lines_shown() -> Vec<String> {
+    shown_blight().map_or_else(Vec::new, |(chunk, zone)| blight_lines(chunk, zone))
+}
+
+// Команды проверки. `/biolab` — команда окна: в одиночной игре сервер её
+// не видит, а запрос клиент → сервер не доходит. Окно и сервер одиночной
+// игры — один процесс, поэтому просьба кладётся в общую память, а тик
+// игрока на сервере её забирает (на выделенном сервере не работает).
+
+/// `/biolab contam [N]`: None — показать, Some — выставить.
+pub fn contam_requests() -> &'static std::sync::Mutex<Vec<Option<f32>>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Vec<Option<f32>>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+pub fn request_contam(level: Option<f32>) {
+    if let Ok(mut q) = contam_requests().lock()
+        && q.len() < 8
+    {
+        q.push(level.map(|v| if v.is_finite() { v.clamp(0.0, CONTAM_MAX) } else { 0.0 }));
+    }
+}
+
+pub fn take_contam_requests() -> Vec<Option<f32>> {
+    contam_requests().lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
+}
+
+/// `/biolab age N` тем же путём: часы гена живут на сервере, а команда
+/// окна видела только копию данных у окна — поэтому «мутантов 0».
+pub fn clock_age_requests() -> &'static std::sync::Mutex<Vec<i64>> {
+    static AT: std::sync::OnceLock<std::sync::Mutex<Vec<i64>>> = std::sync::OnceLock::new();
+    AT.get_or_init(Default::default)
+}
+
+pub fn request_clock_age(days: i64) {
+    if let Ok(mut q) = clock_age_requests().lock()
+        && q.len() < 8
+    {
+        q.push(days);
+    }
+}
+
+pub fn take_clock_age() -> Option<i64> {
+    let mut q = clock_age_requests().lock().ok()?;
+    let days: i64 = q.drain(..).sum();
+    (days != 0).then_some(days)
+}
+
+/// Ответ `/biolab contam` с сервера.
+pub fn contam_report(chunk: [i32; 2], c: Option<&ChunkContam>, zone: f32, now: u64) -> String {
+    let fmt = |v: f32| format!("{v:.2}").replace('.', ",");
+    let Some(c) = c else {
+        return format!("Чанк [{}, {}]: чисто · зона {}", chunk[0], chunk[1], fmt(zone));
+    };
+    let mut line = format!(
+        "Чанк [{}, {}]: заражённость {} (ступень {}: {}) · зона {} · источник {} · блоков порчи {} своих, {} ванильных",
+        chunk[0],
+        chunk[1],
+        fmt(c.level),
+        c.stage(),
+        contam_stage_text(c.stage()),
+        fmt(zone),
+        if c.source_alive(now) { "жив" } else { "нет" },
+        c.own_blocks(),
+        c.vanilla_blocks()
+    );
+    if let Some((_, charge)) = c.station {
+        line.push_str(&format!(" · станция: хлора {charge}"));
+    }
+    line
+}
+
+#[cfg(test)]
+mod blight_tests {
+    use super::*;
+
+    const OW: &str = "minecraft:overworld";
+
+    fn loaded(keys: &[(i32, i32)]) -> ContamWorld {
+        let mut w = ContamWorld::default();
+        for (x, z) in keys {
+            w.load((0, *x, *z), None);
+        }
+        w
+    }
+
+    #[test]
+    fn the_stage_is_the_whole_part_and_caps_at_five() {
+        assert_eq!(contam_stage(0.0), 0);
+        assert_eq!(contam_stage(0.99), 0);
+        assert_eq!(contam_stage(1.0), 1);
+        assert_eq!(contam_stage(2.7), 2);
+        assert_eq!(contam_stage(9.0), 5);
+        assert_eq!(contam_stage(f32::NAN), 0);
+    }
+
+    #[test]
+    fn chunk_state_and_log_read_back_what_was_written() {
+        let c = ChunkContam {
+            level: 2.345,
+            strain: Some(Strain::of([3, 2, 4, 1])),
+            station: Some(([10, 64, -3], 12)),
+            log: Vec::new(),
+            source_at: Some(5),
+        };
+        let back = blight_state_from_text(&blight_state_text(&c));
+        assert!((back.level - 2.35).abs() < 0.001, "{}", back.level);
+        assert_eq!(back.strain, c.strain);
+        assert_eq!(back.station, c.station);
+        // Время источника не пишется: после загрузки источник не живой.
+        assert_eq!(back.source_at, None);
+        assert_eq!(blight_state_from_text("level=abc;junk;strain=9,9,9,9").level, 0.0);
+        assert_eq!(blight_state_from_text("level=99").level, CONTAM_MAX);
+
+        let log = vec![
+            BlightEntry { pos: [1, 64, -2], was: "minecraft:grass_block".into(), now: INFECTED_GRASS.into() },
+            BlightEntry { pos: [1, 65, -2], was: "minecraft:air".into(), now: SPORE_STALK.into() },
+        ];
+        assert_eq!(blight_log_from_text(&blight_log_text(&log)), log);
+        assert_eq!(blight_log_from_text("1 2 3 a b;bad;4 5"), vec![BlightEntry { pos: [1, 2, 3], was: "a".into(), now: "b".into() }]);
+        assert!(blight_log_from_text("").is_empty());
+    }
+
+    #[test]
+    fn only_a_loaded_chunk_takes_a_contribution() {
+        let mut w = loaded(&[(0, 0)]);
+        assert!(w.add(OW, [5, 64, 5], 1.5, None, 100));
+        assert!(!w.add(OW, [40, 64, 5], 1.5, None, 100));
+        assert_eq!(w.stage((0, 0, 0)), 1);
+        assert_eq!(w.stage((0, 2, 0)), 0);
+        // Отрицательные координаты — свой чанк, а не нулевой.
+        assert_eq!(chunk_key(OW, [-1, 0, -17]), (0, -1, -2));
+        w.unload((0, 0, 0));
+        assert_eq!(w.level((0, 0, 0)), 0.0);
+        assert!(!w.add(OW, [5, 64, 5], 1.0, None, 100));
+    }
+
+    #[test]
+    fn a_living_source_holds_the_level_and_without_it_the_level_fades() {
+        let mut w = loaded(&[(0, 0)]);
+        w.add(OW, [0, 0, 0], 3.0, None, 0);
+        for s in 1..=60 {
+            w.step(0, s * 20, 1.0);
+        }
+        assert!((w.level((0, 0, 0)) - 3.0).abs() < 0.001, "живой источник держит");
+        // Источник замолчал: через 2 минуты начинается спад.
+        for s in 61..=600 {
+            w.step(0, s * 20, 1.0);
+        }
+        let left = w.level((0, 0, 0));
+        assert!(left < 3.0 && left > 0.0, "{left}");
+        for s in 601..=3600 {
+            w.step(0, s * 20, 1.0);
+        }
+        assert_eq!(w.level((0, 0, 0)), 0.0);
+        assert!(w.chunks.get(&(0, 0, 0)).unwrap().strain.is_none());
+    }
+
+    #[test]
+    fn contamination_creeps_one_chunk_at_a_time_and_tapers() {
+        let row: Vec<(i32, i32)> = (0..6).map(|x| (x, 0)).collect();
+        let mut w = loaded(&row);
+        // Живой источник 5 в нулевом чанке, час игры.
+        for s in 0..3600u64 {
+            w.add(OW, [0, 0, 0], 0.05, None, s * 20);
+            w.step(0, s * 20, 1.0);
+        }
+        let l: Vec<f32> = (0..6).map(|x| w.level((0, x, 0))).collect();
+        assert!((l[0] - 5.0).abs() < 0.01, "{l:?}");
+        assert!(l[1] > 2.5 && l[1] < 3.5, "{l:?}");
+        assert!(l[2] > 0.5 && l[2] < 1.5, "{l:?}");
+        assert_eq!(l[3], 0.0, "{l:?}");
+        // За одну секунду порча не перепрыгивает через чанк.
+        let mut fresh = loaded(&row);
+        fresh.add(OW, [0, 0, 0], 5.0, None, 0);
+        fresh.step(0, 20, 1.0);
+        assert!(fresh.level((0, 1, 0)) > 0.0);
+        assert_eq!(fresh.level((0, 2, 0)), 0.0);
+        // В незагруженный сосед не течёт.
+        assert!(!fresh.chunks.contains_key(&(0, 0, 1)));
+    }
+
+    #[test]
+    fn only_changes_are_written_and_empty_chunks_leave_memory() {
+        let mut w = loaded(&[(0, 0)]);
+        w.add(OW, [0, 0, 0], 2.0, None, 0);
+        // Состояние ждёт своей очереди, журнал — нет.
+        assert!(w.take_writes(0, false).is_empty());
+        let first = w.take_writes(0, true);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].1.as_deref(), Some("level=2.00"));
+        assert_eq!(first[0].2, None);
+        // Ничего не изменилось — ничего не пишем.
+        w.dirty.insert((0, 0, 0));
+        assert!(w.take_writes(0, true).is_empty());
+        // Журнал пишется сразу.
+        w.chunks.get_mut(&(0, 0, 0)).unwrap().log.push(BlightEntry { pos: [1, 2, 3], was: "a".into(), now: "b".into() });
+        w.dirty_log.insert((0, 0, 0));
+        let log = w.take_writes(0, false);
+        assert_eq!(log[0].2.as_deref(), Some("1 2 3 a b"));
+        // Чисто и журнал пуст — данные снимаются, чанк уходит из памяти.
+        let c = w.chunks.get_mut(&(0, 0, 0)).unwrap();
+        c.lower(9.0);
+        c.log.clear();
+        w.dirty.insert((0, 0, 0));
+        w.dirty_log.insert((0, 0, 0));
+        let gone = w.take_writes(0, true);
+        assert_eq!(gone[0].1.as_deref(), Some(""));
+        assert_eq!(gone[0].2.as_deref(), Some(""));
+        assert!(!w.chunks.contains_key(&(0, 0, 0)));
+        assert!(w.loaded.contains(&(0, 0, 0)));
+        // Пустое из сейва — снимается при первой записи.
+        let mut w = ContamWorld::default();
+        w.load((0, 5, 5), Some(ChunkContam::default()));
+        assert!(w.chunks.contains_key(&(0, 5, 5)));
+        w.written.insert((0, 5, 5), ("level=0.00".into(), String::new()));
+        let fix = w.take_writes(0, true);
+        assert_eq!(fix[0].1.as_deref(), Some(""));
+        assert!(!w.chunks.contains_key(&(0, 5, 5)));
+    }
+
+    #[test]
+    fn the_zone_is_the_worst_of_nine_chunks() {
+        let mut w = loaded(&[(0, 0), (1, 1), (3, 0)]);
+        w.add(OW, [20, 0, 20], 3.2, None, 0);
+        w.add(OW, [50, 0, 0], 5.0, None, 0);
+        assert!((w.zone((0, 0, 0)) - 3.2).abs() < 0.001);
+        assert!((w.zone((0, 2, 0)) - 5.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_new_world_starts_a_clean_mirror() {
+        let mut w = ContamWorld::default();
+        // Загруженное до того, как мир назван, не теряется.
+        w.load((0, 0, 0), Some(ChunkContam { level: 2.0, ..Default::default() }));
+        w.bind(std::path::Path::new(""));
+        w.bind(std::path::Path::new("/a"));
+        w.bind(std::path::Path::new("/a"));
+        assert_eq!(w.stage((0, 0, 0)), 2);
+        w.bind(std::path::Path::new("/b"));
+        assert_eq!(w.stage((0, 0, 0)), 0);
+        assert!(w.loaded.is_empty());
+        // Чанк без данных не держим в памяти.
+        w.load((0, 1, 1), None);
+        assert!(w.chunks.is_empty());
+    }
+
+    #[test]
+    fn grass_turns_bad_by_stage_and_stops_at_the_caps() {
+        // Ступени 0–1 блоки не трогают.
+        for roll in 0..1000 {
+            assert!(blight_change(1, "minecraft:air", 4, roll, 0, 0).is_empty());
+        }
+        // Ступень 2 — только ванильное: каменистая земля и мёртвый куст.
+        let two: Vec<BlightChange> = (0..1000).flat_map(|r| blight_change(2, "minecraft:air", 0, r, 0, 0)).collect();
+        assert!(two.contains(&BlightChange::Ground(BLIGHT_COARSE)));
+        assert!(two.contains(&BlightChange::Top(BLIGHT_BUSH)));
+        assert!(two.iter().all(|c| !matches!(c, BlightChange::Ground(b) | BlightChange::Top(b) if BLIGHT_BLOCKS.contains(b))));
+        // Куст — только на свободное место.
+        assert!((0..1000).flat_map(|r| blight_change(2, "minecraft:stone", 0, r, 0, 0)).all(|c| c != BlightChange::Top(BLIGHT_BUSH)));
+        // Ступень 3 — заражённая трава, 4 — мёртвая земля, 5 — ещё и стебли.
+        assert_eq!(blight_change(3, "minecraft:air", 0, 0, 0, 0), vec![BlightChange::Ground(INFECTED_GRASS)]);
+        assert_eq!(blight_change(4, "minecraft:air", 0, 1, 0, 0), vec![BlightChange::Ground(NECROTIC_SOIL)]);
+        let five: Vec<BlightChange> = (0..40).flat_map(|r| blight_change(5, "minecraft:air", 0, r, 0, 0)).collect();
+        assert!(five.contains(&BlightChange::Top(SPORE_STALK)));
+        // Пятна растут от краёв: рядом со своим блоком шанс выше.
+        let alone = (0..1000).filter(|r| !blight_change(3, "minecraft:air", 0, *r, 0, 99).is_empty()).count();
+        let edge = (0..1000).filter(|r| !blight_change(3, "minecraft:air", 2, *r, 0, 99).is_empty()).count();
+        assert!(edge > alone * 5, "{alone} {edge}");
+        // Потолки: 64 своих, 32 ванильных.
+        assert!((0..1000).flat_map(|r| blight_change(4, "minecraft:air", 4, r, BLIGHT_CAP, BLIGHT_VANILLA_CAP)).next().is_none());
+        assert!((0..1000).flat_map(|r| blight_change(5, "minecraft:air", 4, r, BLIGHT_CAP - 1, 0)).all(|c| c != BlightChange::Top(SPORE_STALK)));
+    }
+
+    #[test]
+    fn patches_darken_and_sprout_stalks_from_the_log() {
+        let entry = |x: i32, now: &str| BlightEntry { pos: [x, 64, 0], was: "minecraft:grass_block".into(), now: now.into() };
+        let mut c = ChunkContam { level: 3.5, log: vec![entry(0, INFECTED_GRASS)], ..Default::default() };
+        assert!((0..1000).all(|r| blight_upgrade(&c, r).is_none()), "ступень 3 не темнеет");
+        c.level = 4.2;
+        assert_eq!(blight_upgrade(&c, 3), Some((0, BlightChange::Ground(NECROTIC_SOIL))));
+        assert!((0..1000).filter(|r| blight_upgrade(&c, *r).is_some()).count() < 400, "редко");
+        c.level = 5.0;
+        c.log = vec![entry(0, NECROTIC_SOIL)];
+        assert_eq!(blight_upgrade(&c, 3), Some((0, BlightChange::Top(SPORE_STALK))));
+        // На земле со стеблем второй не растёт.
+        c.log.push(BlightEntry { pos: [0, 65, 0], was: "minecraft:air".into(), now: SPORE_STALK.into() });
+        assert!((0..1000).all(|r| blight_upgrade(&c, r).is_none()));
+    }
+
+    #[test]
+    fn cleaning_does_not_hold_while_the_source_lives() {
+        let entry = |x: i32| BlightEntry { pos: [x, 64, 0], was: "minecraft:grass_block".into(), now: INFECTED_GRASS.into() };
+        let mut c = ChunkContam { level: 3.0, log: (0..10).map(entry).collect(), ..Default::default() };
+        c.add(0.1, None, 1000);
+        let o = clean_chunk(&mut c, SPRAYER_LOWER, SPRAYER_RESTORE, 1200);
+        assert!(o.held && o.restore.is_empty());
+        assert!((o.after - 2.6).abs() < 0.001);
+        assert_eq!(c.log.len(), 10);
+        // Источник умолк — чистка возвращает блоки, свежие первыми.
+        let o = clean_chunk(&mut c, SPRAYER_LOWER, SPRAYER_RESTORE, 1000 + CONTAM_SOURCE_ALIVE);
+        assert!(!o.held);
+        assert_eq!(o.restore.len(), SPRAYER_RESTORE);
+        assert_eq!(o.restore[0].pos[0], 9);
+        assert_eq!(c.log.len(), 2);
+        // Ниже нуля не уходит, штамм уходит вместе с заражённостью.
+        c.strain = Some(WILD);
+        let o = clean_chunk(&mut c, 99.0, 99, 1_000_000);
+        assert_eq!(o.after, 0.0);
+        assert!(c.strain.is_none() && c.log.is_empty());
+        assert!(spray_message(&o, 3).contains("3/8"));
+        assert_eq!(sprayer_charges(Some("5")), 5);
+        assert_eq!(sprayer_charges(Some("999")), SPRAYER_CHARGES);
+        assert_eq!(sprayer_charges(None), 0);
+    }
+
+    #[test]
+    fn stages_raise_the_dose_the_danger_and_the_sickness() {
+        assert_eq!(contam_dose(1), 0.0);
+        for s in 2..5u8 {
+            assert!(contam_dose(s + 1) > contam_dose(s));
+            assert!(contamination_danger(s + 1) > contamination_danger(s));
+            assert!(blight_sick_chance(s + 1) >= blight_sick_chance(s));
+        }
+        // Ступень 2: равновесие дозы (спад ×0,97) ниже порога заражения,
+        // ступень 4 — выше.
+        assert!(contam_dose(2) / 0.03 < DOSE_THRESHOLD);
+        assert!(contam_dose(4) / 0.03 > DOSE_THRESHOLD);
+        assert_eq!(blight_sick_chance(2), 0);
+        assert!(blight_breeds(3) && !blight_breeds(4));
+        assert!(blight_harvest_dirt(3, None).is_none());
+        assert_eq!(blight_harvest_dirt(4, Some(WILD)).map(|c| c.level), Some(40));
+    }
+
+    #[test]
+    fn the_client_gets_tenths_and_tints_with_a_margin() {
+        assert_eq!(blight_packet(2.34, 3.96), [23, 40]);
+        assert_eq!(blight_from_packet(&[23, 40]), Some((2.3, 4.0)));
+        assert_eq!(blight_from_packet(&[60, 0]), None);
+        assert_eq!(blight_from_packet(&[1]), None);
+        // Вверх — сразу на границе ступени, вниз — с запасом 0,3.
+        assert_eq!(tint_target(0, 0.95), 0);
+        assert_eq!(tint_target(0, 1.0), 1);
+        assert_eq!(tint_target(2, 1.9), 2);
+        assert_eq!(tint_target(2, 1.6), 1);
+        assert_eq!(tint_target(3, 0.2), 0);
+        // Не чаще раза в 30 с.
+        assert_eq!(tint_step(0, Some(2.0), Some(10.0)), TintStep::Keep);
+        assert_eq!(tint_step(0, Some(2.0), Some(31.0)), TintStep::Refresh(2));
+        assert_eq!(tint_step(0, Some(2.0), None), TintStep::Refresh(2));
+        assert_eq!(tint_step(2, Some(2.5), None), TintStep::Keep);
+        assert_eq!(tint_step(2, None, None), TintStep::Reset);
+        assert_eq!(tint_step(0, None, None), TintStep::Keep);
+    }
+
+    #[test]
+    fn tints_fade_the_colours_and_keep_them_when_clean() {
+        let base = [0x79C05A, 0x59AE30, 0xA0A060, 0x3F76E4];
+        assert_eq!(tint_colors(0, base), base);
+        assert_eq!(mix_rgb(0x000000, 0xFFFFFF, 0.5), 0x808080);
+        assert_eq!(mix_rgb(0x123456, 0xABCDEF, 0.0), 0x123456);
+        // Ступень 1 воду не трогает, 3 — уже мутит.
+        assert_eq!(tint_colors(1, base)[3], base[3]);
+        assert_ne!(tint_colors(3, base)[3], base[3]);
+        // Чем выше ступень, тем дальше трава от исходной.
+        let dist = |a: u32, b: u32| {
+            [16, 8, 0].iter().map(|s| (((a >> s) & 0xFF) as i32 - ((b >> s) & 0xFF) as i32).abs()).sum::<i32>()
+        };
+        for s in 1..5 {
+            assert!(dist(tint_colors(s + 1, base)[0], base[0]) > dist(tint_colors(s, base)[0], base[0]));
+        }
+        for c in tint_colors(5, base) {
+            assert!(c <= 0xFFFFFF);
+        }
+    }
+
+    #[test]
+    fn requests_from_the_window_reach_the_server_once() {
+        take_contam_requests();
+        request_contam(Some(3.0));
+        request_contam(None);
+        request_contam(Some(99.0));
+        assert_eq!(take_contam_requests(), vec![Some(3.0), None, Some(CONTAM_MAX)]);
+        assert!(take_contam_requests().is_empty());
+        take_clock_age();
+        request_clock_age(2);
+        request_clock_age(1);
+        assert_eq!(take_clock_age(), Some(3));
+        assert_eq!(take_clock_age(), None);
+    }
+
+    #[test]
+    fn the_analyzer_and_the_command_read_well() {
+        assert_eq!(blight_lines(0.0, 0.0), vec!["Заражённость чанка: 0,0 · чисто".to_string()]);
+        let lines = blight_lines(2.34, 4.0);
+        assert!(lines[0].starts_with("Заражённость чанка: 2,3"), "{lines:?}");
+        assert!(lines[1].contains("4,0"));
+        assert_eq!(blight_lines(3.0, 3.0).len(), 1);
+        let c = ChunkContam { level: 4.5, station: Some(([0, 0, 0], 7)), ..Default::default() };
+        let line = contam_report([1, -2], Some(&c), 5.0, 0);
+        assert!(line.contains("[1, -2]") && line.contains("ступень 4") && line.contains("хлора 7"), "{line}");
+        assert!(contam_report([0, 0], None, 0.0, 0).contains("чисто"));
+        assert!(station_message(0, 0).contains("хлора нет"));
+        assert!(station_message(10, 4).contains("+4"));
+    }
+
+    #[test]
+    fn mutagen_and_slime_puddles_are_living_sources() {
+        assert_eq!(blight_puddle_source(MUTAGEN_PUDDLE), Some(CONTAM_MUTAGEN_TICK));
+        assert_eq!(blight_puddle_source("biolab:slime"), Some(CONTAM_SLIME_TICK));
+        assert_eq!(blight_puddle_source("biolab:acid_puddle"), None);
+        assert_eq!(blight_puddle_source("minecraft:grass_block"), None);
+    }
+
+    #[test]
+    fn the_three_blight_blocks_and_tools_have_content() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content");
+        for id in BLIGHT_BLOCKS.iter().chain([DECON_STATION].iter()) {
+            let name = id.trim_start_matches("biolab:");
+            for path in [
+                format!("data/biolab/horizon/block/{name}.json"),
+                format!("assets/biolab/blockstates/{name}.json"),
+                format!("data/biolab/loot_table/blocks/{name}.json"),
+            ] {
+                assert!(root.join(&path).exists(), "{path}");
+            }
+        }
+        assert!(root.join("data/biolab/horizon/item/sprayer.json").exists());
+        let ru = std::fs::read_to_string(root.join("assets/biolab/lang/ru_ru.json")).unwrap();
+        for key in ["block.biolab.infected_grass", "block.biolab.necrotic_soil", "block.biolab.spore_stalk", "block.biolab.decon_station", "item.biolab.sprayer"] {
+            assert!(ru.contains(key), "{key}");
+        }
+    }
 }
 
 // ---- Экраны машин ----
@@ -27423,8 +28728,9 @@ mod drop_tests {
     #[test]
     fn every_block_with_an_item_drops_itself() {
         let blocks = blocks();
-        // M10: генераторы всех тиров и живые, динамо котла, кабели и накопители роняют себя.
-        assert_eq!(blocks.len(), 36 + EARLY_GENERATORS.len() + 1 + LATE_GENERATORS.len() + 6 + LIVING_GENERATORS.len(), "блоков стало больше — решите, выпадают ли новые");
+        // M10: генераторы всех тиров и живые, динамо котла, кабели, накопители и блоки порчи с
+        // станцией дезактивации роняют себя.
+        assert_eq!(blocks.len(), 36 + EARLY_GENERATORS.len() + 1 + LATE_GENERATORS.len() + 6 + LIVING_GENERATORS.len() + 4, "блоков стало больше — решите, выпадают ли новые");
         for (name, item, template) in &blocks {
             let table = content(&format!("data/biolab/loot_table/blocks/{name}.json"));
             // Культуры (GDD 4.20) предмета не имеют — семена отдельный предмет,

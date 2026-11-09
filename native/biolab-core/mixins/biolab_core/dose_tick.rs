@@ -113,6 +113,7 @@ fn biolab_core_dose_tick(game: &mut crate::game::Game<'_>) {
         if m::leak_near(player.dimension, [player.x, player.y, player.z]).is_some() {
             near += 1.0;
         }
+        near += m::contamination_danger(m::contamination_level_at(player.dimension, [player.x.floor() as i32, player.y.floor() as i32, player.z.floor() as i32])); // M10-Г
         m::set_danger(uuid, m::danger_level(&exposure, near));
     }
 

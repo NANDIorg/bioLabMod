@@ -221,5 +221,10 @@
  "block.biolab.electrocyte_battery": "Электроцитная батарея",
  "item.biolab.algae_flask": "Колба с водорослями",
  "item.biolab.enzyme": "Фермент глюкозооксидаза",
- "gene.biolab.electrocytes": "Электрические органы"
+ "gene.biolab.electrocytes": "Электрические органы",
+ "block.biolab.infected_grass": "Заражённая трава",
+ "block.biolab.necrotic_soil": "Мёртвая земля",
+ "block.biolab.spore_stalk": "Споровый стебель",
+ "block.biolab.decon_station": "Станция дезактивации",
+ "item.biolab.sprayer": "Распылитель"
 }

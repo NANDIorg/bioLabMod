@@ -436,6 +436,31 @@ fn biolab_core_level_tick(game: &mut crate::game::Game<'_>) {
     let now = game.world.game_time;
     let dim = game.dim.id().to_string();
     let world = game.world_root.clone();
+    // `/biolab age N` из окна (`command.rs`, M10-Г): часы гена у мутантов в
+    // 8 блоках — на N дней назад, здесь, на сервере, где они и живут.
+    if let Some(days) = m::take_clock_age()
+        && let Some(spot) = player
+    {
+        let shift = days * m::GAME_DAY;
+        let mut aged = 0;
+        for (id, at, _, _, genes) in &mobs {
+            if genes.is_empty() || !m::within(*at, spot, 8.0) {
+                continue;
+            }
+            let mut clock = data::clock(game, *id);
+            if clock.set == 0 {
+                continue;
+            }
+            clock.set -= shift;
+            if clock.dose > 0 {
+                clock.dose -= shift;
+            }
+            if data::set_clock(game, *id, &clock) {
+                aged += 1;
+            }
+        }
+        crate::game::biolab_say::say(game, &format!("Часы гена сдвинуты на {days} дн.: мутантов {aged}"));
+    }
     for (id, at, _, _, genes) in &mobs {
         if genes.is_empty() {
             continue;

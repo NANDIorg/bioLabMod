@@ -1,0 +1,9 @@
+{
+ "template": "minecraft:coarse_dirt",
+ "properties": {
+  "hardness": 0.6,
+  "explosion_resistance": 0.6,
+  "sounds": "minecraft:grass_block"
+ },
+ "item": true
+}

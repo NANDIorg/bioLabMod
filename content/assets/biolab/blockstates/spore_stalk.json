@@ -1,0 +1,9 @@
+{
+ "multipart": [
+  {
+   "apply": {
+    "model": "biolab:block/spore_stalk"
+   }
+  }
+ ]
+}

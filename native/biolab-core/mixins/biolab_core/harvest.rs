@@ -93,6 +93,7 @@ fn biolab_core_right_click_block(
         )]),
     ));
     data.custom_name = Some(Tag::String(m::crop_label(&genes).as_str().into()));
+    crate::game::biolab_world_contam::taint_harvest(game, pos, &mut crop); // M10-Г: мёртвая земля — урожай заражён
 
     // Мест меньше, чем плодов, — не собираем вовсе: иначе часть урожая пропала бы.
     let free = (0..36)

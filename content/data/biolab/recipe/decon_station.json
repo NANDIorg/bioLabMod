@@ -1,0 +1,19 @@
+{
+ "type": "minecraft:crafting_shaped",
+ "category": "misc",
+ "pattern": [
+  "ISI",
+  "CFC",
+  "III"
+ ],
+ "key": {
+  "I": "minecraft:iron_ingot",
+  "S": "biolab:sprayer",
+  "C": "biolab:casing",
+  "F": "biolab:filter_cartridge"
+ },
+ "result": {
+  "id": "biolab:decon_station",
+  "count": 1
+ }
+}

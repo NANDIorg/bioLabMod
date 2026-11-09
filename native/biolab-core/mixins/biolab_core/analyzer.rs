@@ -34,6 +34,7 @@ fn biolab_core_hud(
     // Сколько пропускает надетая спецодежда (M9, GDD 4.25): броня у клиента
     // та же, что прислал сервер.
     lines.extend(m::suit_lines(&crate::game::biolab_suit::worn(game)));
+    lines.extend(m::blight_lines_shown()); // M10-Г: заражённость чанка
     let w = lines
         .iter()
         .map(|l| game.native_text_width(l))

@@ -221,5 +221,10 @@
  "block.biolab.electrocyte_battery": "Electrocyte Battery",
  "item.biolab.algae_flask": "Flask of Algae",
  "item.biolab.enzyme": "Glucose Oxidase Enzyme",
- "gene.biolab.electrocytes": "Electric Organs"
+ "gene.biolab.electrocytes": "Electric Organs",
+ "block.biolab.infected_grass": "Infected Grass",
+ "block.biolab.necrotic_soil": "Necrotic Soil",
+ "block.biolab.spore_stalk": "Spore Stalk",
+ "block.biolab.decon_station": "Decontamination Station",
+ "item.biolab.sprayer": "Sprayer"
 }

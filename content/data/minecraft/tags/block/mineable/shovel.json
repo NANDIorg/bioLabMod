@@ -1,5 +1,7 @@
 {
   "values": [
-    "biolab:gm_plot"
+    "biolab:gm_plot",
+    "biolab:infected_grass",
+    "biolab:necrotic_soil"
   ]
 }

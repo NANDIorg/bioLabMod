@@ -49,6 +49,7 @@
     "biolab:microbial_cell",
     "biolab:photobioreactor",
     "biolab:glucose_cell",
-    "biolab:electrocyte_battery"
+    "biolab:electrocyte_battery",
+    "biolab:decon_station"
   ]
 }

@@ -151,6 +151,7 @@ pub fn leak(game: &mut crate::game::Game<'_>, pos: [i32; 3], entity: &ModBlockEn
     };
     let at = [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5];
     m::note_leak(&dimension, at, strain);
+    m::queue_world_contamination(&dimension, pos, m::CONTAM_LEAK, Some(strain)); // M10-Г: утечка — источник порчи
     // Тревога (M9, GDD 4.23 п. 12): утечку слышно у машины, а не только
     // видно по дозе.
     if let Some(sound) = m::sound(m::Cue::LeakAlarm) {
